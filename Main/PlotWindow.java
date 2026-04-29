@@ -20,6 +20,7 @@ import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.DefaultCellEditor;
 import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -48,8 +49,9 @@ import plotPane.PlotPane;
 import simpleGeom.Point;
 
 public class PlotWindow {
-	private final static double		HIT_PIXELS		= 10;
-	private final static int		SIDE_WIDTH		= 290;
+	private final static double		DPI_SCALE		= Math.max(1.0, Toolkit.getDefaultToolkit().getScreenResolution() / 96.0);
+	private final static double		HIT_PIXELS		= 10 * DPI_SCALE;
+	private final static int		SIDE_WIDTH		= (int) (290 * DPI_SCALE);
 	private final static int		SLIDER_TICKS	= 1000;
 	private final static double		ZOOM_STEP		= 0.85;
 	private final static double		NUDGE_STEP		= 0.1;
@@ -93,6 +95,9 @@ public class PlotWindow {
 		fociTable = new JTable(fociTableModel);
 		fociTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		fociTable.setRowHeight(22);
+		final DefaultCellEditor cellEditor = new DefaultCellEditor(new JTextField());
+		cellEditor.setClickCountToStart(2);
+		fociTable.setDefaultEditor(Object.class, cellEditor);
 
 		cmbType = new JComboBox<>(new String[]{"n-Ellipse (sum)", "Cassini oval (product)", "n-Hyperbola (avg diff)" });
 		cmbType.setSelectedIndex(config.curveType.ordinal());
@@ -143,9 +148,10 @@ public class PlotWindow {
 		typePanel.add(cmbType);
 		cmbType.addActionListener(e -> {
 			config.curveType = CurveType.values()[cmbType.getSelectedIndex()];
-			if (config.curveType == CurveType.CASSIN && !config.logSpacing) {
-				config.logSpacing = true;
-				chkLog.setSelected(true);
+			final boolean shouldLog = config.curveType == CurveType.CASSIN;
+			if (config.logSpacing != shouldLog) {
+				config.logSpacing = shouldLog;
+				chkLog.setSelected(shouldLog);
 			}
 			computeFullRange();
 			autoFitDistRange();
@@ -223,14 +229,8 @@ public class PlotWindow {
 		});
 		btnRemove.addActionListener(e -> {
 			final int row = fociTable.getSelectedRow();
-			if (row >= 0 && config.foci.size() > 1) {
-				config.foci.remove(row);
-				if (selectedFocusIndex == row)
-					selectedFocusIndex = -1;
-				else if (selectedFocusIndex > row)
-					selectedFocusIndex--;
-				rebuildAndSyncTable();
-			}
+			if (row >= 0)
+				removeFocusAt(row);
 		});
 		fociBtns.add(btnAdd);
 		fociBtns.add(btnRemove);
@@ -396,14 +396,8 @@ public class PlotWindow {
 				}
 				final int idx = hitTest(e.getX(), e.getY());
 				if (SwingUtilities.isRightMouseButton(e)) {
-					if (idx >= 0 && config.foci.size() > 1) {
-						config.foci.remove(idx);
-						if (selectedFocusIndex == idx)
-							selectedFocusIndex = -1;
-						else if (selectedFocusIndex > idx)
-							selectedFocusIndex--;
-						rebuildAndSyncTable();
-					}
+					if (idx >= 0)
+						removeFocusAt(idx);
 				} else if (SwingUtilities.isLeftMouseButton(e)) {
 					if (idx >= 0) {
 						draggingIndex = idx;
@@ -416,6 +410,9 @@ public class PlotWindow {
 						final double wx = pl.unfitx(e.getX());
 						final double wy = pl.unfity(e.getY());
 						config.foci.add(new FocusSpec(wx, wy, 1));
+						final int newIdx = config.foci.size() - 1;
+						selectedFocusIndex = newIdx;
+						draggingIndex = newIdx;
 						rebuildAndSyncTable();
 					}
 				}
@@ -503,12 +500,19 @@ public class PlotWindow {
 	}
 
 	private void deleteSelectedFocus() {
-		if (selectedFocusIndex < 0 || selectedFocusIndex >= config.foci.size())
+		removeFocusAt(selectedFocusIndex);
+	}
+
+	private void removeFocusAt(final int idx) {
+		if (idx < 0 || idx >= config.foci.size() || config.foci.size() <= 1)
 			return;
-		if (config.foci.size() <= 1)
-			return;
-		config.foci.remove(selectedFocusIndex);
-		selectedFocusIndex = -1;
+		config.foci.remove(idx);
+		if (selectedFocusIndex >= idx)
+			selectedFocusIndex--;
+		if (selectedFocusIndex < 0)
+			selectedFocusIndex = 0;
+		if (selectedFocusIndex >= config.foci.size())
+			selectedFocusIndex = config.foci.size() - 1;
 		rebuildAndSyncTable();
 	}
 
