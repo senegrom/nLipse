@@ -114,7 +114,7 @@ public class PlotWindow {
 		frame.setLayout(new BorderLayout());
 
 		final Dimension screenRes = Toolkit.getDefaultToolkit().getScreenSize();
-		frame.setMinimumSize(screenRes);
+		frame.setMinimumSize(new Dimension(600, 400));
 		final int plotSize = Math.max(300, Math.min(screenRes.width, screenRes.height) - 100);
 
 		pl = new PlotPane(config.xmin, config.xmax, config.ymin, config.ymax, plotSize, plotSize);
@@ -225,6 +225,7 @@ public class PlotWindow {
 		final JButton btnRemove = new JButton("Remove");
 		btnAdd.addActionListener(e -> {
 			config.foci.add(new FocusSpec(0, 0, 1));
+			selectedFocusIndex = config.foci.size() - 1;
 			rebuildAndSyncTable();
 		});
 		btnRemove.addActionListener(e -> {

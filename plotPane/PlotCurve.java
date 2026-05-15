@@ -123,9 +123,7 @@ public abstract class PlotCurve {
 
 		if (Math.signum(f(xs[0], ys[0])) != Math.signum(f(xs[1], ys[1])))
 			return true;
-		if (Math.signum(f(xs[0], ys[1])) != Math.signum(f(xs[1], ys[0])))
-			return true;
-		return f(x, y) == 0;
+		return Math.signum(f(xs[0], ys[1])) != Math.signum(f(xs[1], ys[0]));
 	}
 
 	public final void setBkgrdOn(final boolean bkgrdOn) {

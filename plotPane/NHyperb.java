@@ -57,7 +57,7 @@ public class NHyperb extends PlotDistanceCurve {
 		for (int i = 0; i < n; i++) {
 			final double dx = x - fxCache[i];
 			final double dy = y - fyCache[i];
-			dists[i] = Math.sqrt(dx * dx + dy * dy);
+			dists[i] = Math.sqrt(dx * dx + dy * dy) * weights[i];
 		}
 		double d = 0;
 		for (int i = 0; i < n; i++)

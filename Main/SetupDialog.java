@@ -62,7 +62,9 @@ public class SetupDialog extends JFrame {
 		for (final FocusSpec f : initial.foci)
 			fociModel.addRow(new Object[]{str(f.x), str(f.y), str(f.weight) });
 		fociTable = new JTable(fociModel);
-		fociTable.setDefaultEditor(Object.class, new DefaultCellEditor(new JTextField()));
+		final DefaultCellEditor setupCellEditor = new DefaultCellEditor(new JTextField());
+		setupCellEditor.setClickCountToStart(2);
+		fociTable.setDefaultEditor(Object.class, setupCellEditor);
 		fociTable.setRowHeight(22);
 		fociTable.setPreferredScrollableViewportSize(new Dimension(260, 160));
 
