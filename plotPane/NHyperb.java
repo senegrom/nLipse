@@ -8,45 +8,8 @@ import simpleGeom.Point;
 
 public class NHyperb extends PlotDistanceCurve {
 
-	public NHyperb() {
-		super(nDef, distDef);
-	}
-
-	public NHyperb(final double[] xcoords, final double[] ycoords) {
-		super(xcoords, ycoords, distDef, defWeights(Math.min(xcoords.length, ycoords.length)));
-	}
-
-	public NHyperb(final double[] xcoords, final double[] ycoords, final double dist) {
-		super(xcoords, ycoords, dist, defWeights(Math.min(xcoords.length, ycoords.length)));
-	}
-
-	public NHyperb(final double[] xcoords, final double[] ycoords, final double dist, final double[] ws) {
-		super(xcoords, ycoords, dist, ws);
-	}
-
-	public NHyperb(final int n) {
-		super(n, distDef);
-	}
-
-	public NHyperb(final int n, final double dist) {
-		super(n, dist);
-	}
-
-	public NHyperb(final Point[] points) {
-		super(points, distDef, defWeights(points.length));
-	}
-
-	public NHyperb(final Point[] points, final double dist) {
-		super(points, dist, defWeights(points.length));
-	}
-
 	public NHyperb(final Point[] points, final double dist, final double[] ws) {
 		super(points, dist, ws);
-	}
-
-	@Override
-	public final double getCumultDistance(final Point p) {
-		return getCumultDistance(p.getX(), p.getY());
 	}
 
 	@Override
