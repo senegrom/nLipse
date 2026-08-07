@@ -4,14 +4,17 @@
 
 package simpleGeom;
 
-public class Line {
-	private final Point	p1, p2;
+public final class Line {
+	private final Point p1;
+	private final Point p2;
 
 	public Line(final double x1, final double y1, final double x2, final double y2) {
 		this(new Point(x1, y1), new Point(x2, y2));
 	}
 
 	public Line(final Point p1, final Point p2) {
+		if (p1 == null || p2 == null)
+			throw new IllegalArgumentException("Line points must not be null");
 		this.p1 = p1;
 		this.p2 = p2;
 	}

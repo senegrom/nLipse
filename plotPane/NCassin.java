@@ -6,20 +6,16 @@ package plotPane;
 
 import simpleGeom.Point;
 
-public class NCassin extends PlotDistanceCurve {
-
-	public NCassin(final Point[] points, final double dist, final double[] ws) {
-		super(points, dist, ws);
+public final class NCassin extends PlotDistanceCurve {
+	public NCassin(final Point[] points, final double dist, final double[] weights) {
+		super(points, dist, weights);
 	}
 
 	@Override
-	public final double getCumultDistance(final double x, final double y) {
-		double d = 1;
-		for (int i = 0; i < n; i++) {
-			final double dx = x - fxCache[i];
-			final double dy = y - fyCache[i];
-			d *= Math.pow(Math.sqrt(dx * dx + dy * dy), weights[i]);
-		}
-		return d;
+	public double getCumultDistance(final double x, final double y) {
+		double distance = 1;
+		for (int i = 0; i < n; i++)
+			distance *= Math.pow(distanceToFocus(i, x, y), weights[i]);
+		return distance;
 	}
 }

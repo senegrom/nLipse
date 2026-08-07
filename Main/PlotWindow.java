@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Frame;
+import java.awt.GraphicsEnvironment;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
@@ -15,6 +16,7 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.MouseWheelListener;
+import java.util.Locale;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
@@ -45,46 +47,58 @@ import plotPane.NCassin;
 import plotPane.NHyperb;
 import plotPane.NLipse;
 import plotPane.PlotDistanceCurve;
+import plotPane.PlotDistanceCurve.Extrema;
 import plotPane.PlotPane;
 import simpleGeom.Point;
 
-public class PlotWindow {
-	private final static double		DPI_SCALE		= Math.max(1.0, Toolkit.getDefaultToolkit().getScreenResolution() / 96.0);
-	private final static double		HIT_PIXELS		= 10 * DPI_SCALE;
-	private final static int		SIDE_WIDTH		= (int) (290 * DPI_SCALE);
-	private final static int		SLIDER_TICKS	= 1000;
-	private final static double		ZOOM_STEP		= 0.85;
-	private final static double		NUDGE_STEP		= 0.1;
-	private final static double		NUDGE_FINE		= 0.01;
+public final class PlotWindow {
+	private static final double DPI_SCALE = getDpiScale();
+	private static final double HIT_PIXELS = 10 * DPI_SCALE;
+	private static final int SIDE_WIDTH = (int) (290 * DPI_SCALE);
+	private static final int SLIDER_TICKS = 1000;
+	private static final double ZOOM_STEP = 0.85;
+	private static final double NUDGE_STEP = 0.1;
+	private static final double NUDGE_FINE = 0.01;
 
-	private final PlotConfig		config;
-	private final JFrame			frame;
-	private final PlotPane			pl;
-	private final DefaultTableModel	fociTableModel;
-	private final JTable			fociTable;
-	private final JComboBox<String>	cmbType;
-	private final JSlider			sliderDmin, sliderDmax;
-	private final JLabel			lblDmin, lblDmax;
-	private final JLabel			lblCursor;
-	private final JTextField		txtNCurves;
-	private final JCheckBox			chkLog;
-	private int						draggingIndex;
-	private int						selectedFocusIndex;
-	private double					fullMin, fullMax;
-	private boolean					suppressSliderEvents;
-	private boolean					suppressTableEvents;
-	private PlotDistanceCurve		probeCurve;
+	private final PlotConfig config;
+	private final JFrame frame;
+	private final PlotPane plotPane;
+	private final DefaultTableModel fociTableModel;
+	private final JTable fociTable;
+	private final JComboBox<CurveType> cmbType;
+	private final JSlider sliderDmin;
+	private final JSlider sliderDmax;
+	private final JLabel lblDmin;
+	private final JLabel lblDmax;
+	private final JLabel lblCursor;
+	private final JTextField txtNCurves;
+	private final JCheckBox chkLog;
+	private int draggingIndex;
+	private int selectedFocusIndex;
+	private double fullMin;
+	private double fullMax;
+	private boolean suppressSliderEvents;
+	private boolean suppressTableEvents;
+	private PlotDistanceCurve probeCurve;
 
-	private boolean					panning;
-	private int						panStartPixelX, panStartPixelY;
-	private double					panStartXmin, panStartXmax, panStartYmin, panStartYmax;
+	private boolean panning;
+	private int panStartPixelX;
+	private int panStartPixelY;
+	private double panStartXmin;
+	private double panStartXmax;
+	private double panStartYmin;
+	private double panStartYmax;
 
 	public PlotWindow(final PlotConfig config) {
+		if (config == null)
+			throw new IllegalArgumentException("Plot configuration must not be null");
+		if (config.foci == null || config.foci.isEmpty())
+			throw new IllegalArgumentException("At least one focus point is required");
 		this.config = config;
 		draggingIndex = -1;
 		selectedFocusIndex = -1;
 
-		fociTableModel = new DefaultTableModel(new String[]{"X", "Y", "Weight" }, 0) {
+		fociTableModel = new DefaultTableModel(new String[]{"X", "Y", "Weight"}, 0) {
 			private static final long serialVersionUID = 1L;
 
 			@Override
@@ -99,8 +113,8 @@ public class PlotWindow {
 		cellEditor.setClickCountToStart(2);
 		fociTable.setDefaultEditor(Object.class, cellEditor);
 
-		cmbType = new JComboBox<>(new String[]{"n-Ellipse (sum)", "Cassini oval (product)", "n-Hyperbola (avg diff)" });
-		cmbType.setSelectedIndex(config.curveType.ordinal());
+		cmbType = new JComboBox<>(CurveType.values());
+		cmbType.setSelectedItem(config.curveType);
 		sliderDmin = new JSlider(0, SLIDER_TICKS, 50);
 		sliderDmax = new JSlider(0, SLIDER_TICKS, 950);
 		lblDmin = new JLabel();
@@ -109,18 +123,18 @@ public class PlotWindow {
 		txtNCurves = new JTextField(String.valueOf(config.nCurves), 4);
 		chkLog = new JCheckBox("Log spacing", config.logSpacing);
 
-		frame = new JFrame("nLipse " + Main.version);
+		frame = new JFrame(Main.PROGRAM_NAME + " " + Main.VERSION);
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		frame.setLayout(new BorderLayout());
 
-		final Dimension screenRes = Toolkit.getDefaultToolkit().getScreenSize();
+		final Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
 		frame.setMinimumSize(new Dimension(600, 400));
-		final int plotSize = Math.max(300, Math.min(screenRes.width, screenRes.height) - 100);
+		final int plotSize = Math.max(300, Math.min(screenSize.width, screenSize.height) - 100);
 
-		pl = new PlotPane(config.xmin, config.xmax, config.ymin, config.ymax, plotSize, plotSize);
-		pl.setAntiAlias(config.antiAlias);
+		plotPane = new PlotPane(config.xmin, config.xmax, config.ymin, config.ymax, plotSize, plotSize);
+		plotPane.setAntiAlias(config.antiAlias);
 
-		frame.add(pl, BorderLayout.CENTER);
+		frame.add(plotPane, BorderLayout.CENTER);
 		frame.add(buildSidePanel(), BorderLayout.EAST);
 		frame.setExtendedState(Frame.MAXIMIZED_BOTH);
 		frame.setVisible(true);
@@ -131,10 +145,16 @@ public class PlotWindow {
 		installTableListeners();
 
 		computeFullRange();
-		if (config.dmin < fullMin || config.dmax > fullMax || config.dmin >= config.dmax)
+		if (config.dmin < fullMin || config.dmax > fullMax || config.dmin > config.dmax)
 			autoFitDistRange();
 		syncSliders();
 		rebuildAndSyncTable();
+	}
+
+	private static double getDpiScale() {
+		if (GraphicsEnvironment.isHeadless())
+			return 1;
+		return Math.max(1.0, Toolkit.getDefaultToolkit().getScreenResolution() / 96.0);
 	}
 
 	private JPanel buildSidePanel() {
@@ -146,8 +166,11 @@ public class PlotWindow {
 		final JPanel typePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
 		typePanel.setBorder(BorderFactory.createTitledBorder("Curve type"));
 		typePanel.add(cmbType);
-		cmbType.addActionListener(e -> {
-			config.curveType = CurveType.values()[cmbType.getSelectedIndex()];
+		cmbType.addActionListener(event -> {
+			final CurveType selectedType = (CurveType) cmbType.getSelectedItem();
+			if (selectedType == null)
+				return;
+			config.curveType = selectedType;
 			final boolean shouldLog = config.curveType == CurveType.CASSIN;
 			if (config.logSpacing != shouldLog) {
 				config.logSpacing = shouldLog;
@@ -161,54 +184,55 @@ public class PlotWindow {
 		side.add(typePanel);
 		side.add(Box.createVerticalStrut(6));
 
-		final JPanel distPanel = new JPanel();
-		distPanel.setLayout(new BoxLayout(distPanel, BoxLayout.Y_AXIS));
-		distPanel.setBorder(BorderFactory.createTitledBorder("Distance range"));
-		distPanel.add(lblDmin);
-		distPanel.add(sliderDmin);
-		distPanel.add(lblDmax);
-		distPanel.add(sliderDmax);
+		final JPanel distancePanel = new JPanel();
+		distancePanel.setLayout(new BoxLayout(distancePanel, BoxLayout.Y_AXIS));
+		distancePanel.setBorder(BorderFactory.createTitledBorder("Distance range"));
+		distancePanel.add(lblDmin);
+		distancePanel.add(sliderDmin);
+		distancePanel.add(lblDmax);
+		distancePanel.add(sliderDmax);
 
 		final JPanel countRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
 		countRow.add(new JLabel("Count:"));
 		countRow.add(txtNCurves);
 		countRow.add(chkLog);
-		distPanel.add(countRow);
+		distancePanel.add(countRow);
 
-		final JPanel viewBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-		final JButton btnFit = new JButton("Fit dist");
-		final JButton btnReset = new JButton("Reset view");
-		btnFit.addActionListener(e -> {
+		final JPanel viewButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+		final JButton fitButton = new JButton("Fit dist");
+		final JButton resetButton = new JButton("Reset view");
+		fitButton.addActionListener(event -> {
 			computeFullRange();
 			autoFitDistRange();
 			syncSliders();
 			rebuild();
 		});
-		btnReset.addActionListener(e -> {
-			pl.setDim(config.xmin, config.xmax, config.ymin, config.ymax);
+		resetButton.addActionListener(event -> {
+			plotPane.setDim(config.xmin, config.xmax, config.ymin, config.ymax);
 			computeFullRange();
+			clampDistToFullRange();
 			syncSliders();
 			rebuild();
 		});
-		viewBtns.add(btnFit);
-		viewBtns.add(btnReset);
-		distPanel.add(viewBtns);
+		viewButtons.add(fitButton);
+		viewButtons.add(resetButton);
+		distancePanel.add(viewButtons);
 
-		sliderDmin.addChangeListener(e -> onSliderChange(true));
-		sliderDmax.addChangeListener(e -> onSliderChange(false));
-		txtNCurves.addActionListener(e -> applyNCurves());
+		sliderDmin.addChangeListener(event -> onSliderChange(true));
+		sliderDmax.addChangeListener(event -> onSliderChange(false));
+		txtNCurves.addActionListener(event -> applyNCurves());
 		txtNCurves.addFocusListener(new FocusAdapter() {
 			@Override
-			public void focusLost(final FocusEvent e) {
+			public void focusLost(final FocusEvent event) {
 				applyNCurves();
 			}
 		});
-		chkLog.addActionListener(e -> {
+		chkLog.addActionListener(event -> {
 			config.logSpacing = chkLog.isSelected();
 			rebuild();
 		});
 
-		side.add(distPanel);
+		side.add(distancePanel);
 		side.add(Box.createVerticalStrut(10));
 
 		final JPanel cursorPanel = new JPanel(new BorderLayout());
@@ -220,22 +244,22 @@ public class PlotWindow {
 		final JPanel fociPanel = new JPanel(new BorderLayout());
 		fociPanel.setBorder(BorderFactory.createTitledBorder("Focus points (click to select; edit cells)"));
 		fociPanel.add(new JScrollPane(fociTable), BorderLayout.CENTER);
-		final JPanel fociBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-		final JButton btnAdd = new JButton("Add");
-		final JButton btnRemove = new JButton("Remove");
-		btnAdd.addActionListener(e -> {
+		final JPanel fociButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+		final JButton addButton = new JButton("Add");
+		final JButton removeButton = new JButton("Remove");
+		addButton.addActionListener(event -> {
 			config.foci.add(new FocusSpec(0, 0, 1));
 			selectedFocusIndex = config.foci.size() - 1;
-			rebuildAndSyncTable();
+			refreshAfterGeometryChange(true);
 		});
-		btnRemove.addActionListener(e -> {
+		removeButton.addActionListener(event -> {
 			final int row = fociTable.getSelectedRow();
 			if (row >= 0)
 				removeFocusAt(row);
 		});
-		fociBtns.add(btnAdd);
-		fociBtns.add(btnRemove);
-		fociPanel.add(fociBtns, BorderLayout.SOUTH);
+		fociButtons.add(addButton);
+		fociButtons.add(removeButton);
+		fociPanel.add(fociButtons, BorderLayout.SOUTH);
 		side.add(fociPanel);
 		side.add(Box.createVerticalStrut(10));
 
@@ -257,41 +281,45 @@ public class PlotWindow {
 	}
 
 	private void installTableListeners() {
-		fociTableModel.addTableModelListener(e -> {
-			if (suppressTableEvents)
+		fociTableModel.addTableModelListener(event -> {
+			if (suppressTableEvents || event.getType() != TableModelEvent.UPDATE)
 				return;
-			if (e.getType() != TableModelEvent.UPDATE)
-				return;
-			final int row = e.getFirstRow();
-			final int col = e.getColumn();
-			if (row < 0 || row >= config.foci.size() || col < 0)
+			final int row = event.getFirstRow();
+			final int column = event.getColumn();
+			if (row < 0 || row >= config.foci.size() || column < 0 || column > 2)
 				return;
 			try {
-				final double v = Double.parseDouble(String.valueOf(fociTableModel.getValueAt(row, col)).trim());
-				final FocusSpec f = config.foci.get(row);
-				if (col == 0)
-					f.x = v;
-				else if (col == 1)
-					f.y = v;
-				else if (col == 2)
-					f.weight = v;
-				rebuild();
-			} catch (final NumberFormatException ex) {
+				final double value = parseFiniteTableValue(fociTableModel.getValueAt(row, column));
+				final FocusSpec focus = config.foci.get(row);
+				if (column == 0)
+					focus.x = value;
+				else if (column == 1)
+					focus.y = value;
+				else
+					focus.weight = value;
+				refreshAfterGeometryChange(false);
+			} catch (final NumberFormatException exception) {
 				syncTableFromConfig();
 			}
 		});
-		fociTable.getSelectionModel().addListSelectionListener(e -> {
-			if (suppressTableEvents || e.getValueIsAdjusting())
+		fociTable.getSelectionModel().addListSelectionListener(event -> {
+			if (suppressTableEvents || event.getValueIsAdjusting())
 				return;
 			selectedFocusIndex = fociTable.getSelectedRow();
 			rebuild();
 		});
 	}
 
+	private static double parseFiniteTableValue(final Object value) {
+		final double parsed = Double.parseDouble(String.valueOf(value).trim());
+		if (!Double.isFinite(parsed))
+			throw new NumberFormatException("Value must be finite");
+		return parsed;
+	}
+
 	private void onSliderChange(final boolean isDmin) {
 		if (suppressSliderEvents)
 			return;
-		// Push the OTHER slider along instead of pinning the active one (smoother drag).
 		if (isDmin && sliderDmin.getValue() > sliderDmax.getValue()) {
 			suppressSliderEvents = true;
 			sliderDmax.setValue(sliderDmin.getValue());
@@ -304,16 +332,16 @@ public class PlotWindow {
 		config.dmin = sliderToDist(sliderDmin.getValue());
 		config.dmax = sliderToDist(sliderDmax.getValue());
 		updateDistLabels();
-		final JSlider src = isDmin ? sliderDmin : sliderDmax;
-		if (!src.getValueIsAdjusting())
+		final JSlider source = isDmin ? sliderDmin : sliderDmax;
+		if (!source.getValueIsAdjusting())
 			rebuild();
 	}
 
 	private void applyNCurves() {
 		try {
-			final int v = Integer.parseInt(txtNCurves.getText().trim());
-			if (v >= 1 && v <= 200 && v != config.nCurves) {
-				config.nCurves = v;
+			final int value = Integer.parseInt(txtNCurves.getText().trim());
+			if (value >= 1 && value <= 200 && value != config.nCurves) {
+				config.nCurves = value;
 				rebuild();
 				return;
 			}
@@ -328,13 +356,13 @@ public class PlotWindow {
 			fullMax = 1;
 			return;
 		}
-		final PlotDistanceCurve probe = makeProbeCurve();
-		final Point pMin = probe.getMinPoint(pl);
-		final Point pMax = probe.getMaxPoint(pl);
-		fullMin = probe.getCumultDistance(pMin);
-		fullMax = probe.getCumultDistance(pMax);
-		if (fullMax <= fullMin)
+		final Extrema extrema = makeProbeCurve().getExtrema(plotPane);
+		fullMin = extrema.getMinValue();
+		fullMax = extrema.getMaxValue();
+		if (!Double.isFinite(fullMin) || !Double.isFinite(fullMax) || fullMax <= fullMin) {
+			fullMin = Double.isFinite(fullMin) ? fullMin : 0;
 			fullMax = fullMin + 1;
+		}
 	}
 
 	private void autoFitDistRange() {
@@ -350,7 +378,7 @@ public class PlotWindow {
 		}
 		config.dmin = Math.max(fullMin, config.dmin);
 		config.dmax = Math.min(fullMax, config.dmax);
-		if (config.dmin >= config.dmax)
+		if (config.dmin > config.dmax)
 			autoFitDistRange();
 	}
 
@@ -363,138 +391,135 @@ public class PlotWindow {
 	}
 
 	private void updateDistLabels() {
-		lblDmin.setText(String.format("Dmin: %.3f  (full min: %.3f)", config.dmin, fullMin));
-		lblDmax.setText(String.format("Dmax: %.3f  (full max: %.3f)", config.dmax, fullMax));
+		lblDmin.setText(String.format(Locale.ROOT, "Dmin: %.3f  (full min: %.3f)", config.dmin, fullMin));
+		lblDmax.setText(String.format(Locale.ROOT, "Dmax: %.3f  (full max: %.3f)", config.dmax, fullMax));
 	}
 
-	private double sliderToDist(final int v) {
-		return fullMin + (fullMax - fullMin) * v / (double) SLIDER_TICKS;
+	private double sliderToDist(final int value) {
+		return fullMin + (fullMax - fullMin) * value / (double) SLIDER_TICKS;
 	}
 
-	private int distToSlider(final double d) {
+	private int distToSlider(final double distance) {
 		if (fullMax == fullMin)
 			return SLIDER_TICKS / 2;
-		final int v = (int) Math.round(SLIDER_TICKS * (d - fullMin) / (fullMax - fullMin));
-		return Math.max(0, Math.min(SLIDER_TICKS, v));
+		final int value = (int) Math.round(SLIDER_TICKS * (distance - fullMin) / (fullMax - fullMin));
+		return Math.max(0, Math.min(SLIDER_TICKS, value));
 	}
 
 	private void installMouseHandler() {
-		final JPanel draw = pl.getDrawPanel();
-		draw.setFocusable(true);
-		final MouseAdapter press = new MouseAdapter() {
+		final JPanel drawPanel = plotPane.getDrawPanel();
+		drawPanel.setFocusable(true);
+		final MouseAdapter mouseAdapter = new MouseAdapter() {
 			@Override
-			public void mousePressed(final MouseEvent e) {
-				draw.requestFocusInWindow();
-				if (SwingUtilities.isMiddleMouseButton(e)) {
-					panStartPixelX = e.getX();
-					panStartPixelY = e.getY();
-					panStartXmin = pl.getXmin();
-					panStartXmax = pl.getXmax();
-					panStartYmin = pl.getYmin();
-					panStartYmax = pl.getYmax();
+			public void mousePressed(final MouseEvent event) {
+				drawPanel.requestFocusInWindow();
+				if (SwingUtilities.isMiddleMouseButton(event)) {
+					panStartPixelX = event.getX();
+					panStartPixelY = event.getY();
+					panStartXmin = plotPane.getXmin();
+					panStartXmax = plotPane.getXmax();
+					panStartYmin = plotPane.getYmin();
+					panStartYmax = plotPane.getYmax();
 					panning = true;
 					return;
 				}
-				final int idx = hitTest(e.getX(), e.getY());
-				if (SwingUtilities.isRightMouseButton(e)) {
-					if (idx >= 0)
-						removeFocusAt(idx);
-				} else if (SwingUtilities.isLeftMouseButton(e)) {
-					if (idx >= 0) {
-						draggingIndex = idx;
-						selectedFocusIndex = idx;
+
+				final int index = hitTest(event.getX(), event.getY());
+				if (SwingUtilities.isRightMouseButton(event)) {
+					if (index >= 0)
+						removeFocusAt(index);
+				} else if (SwingUtilities.isLeftMouseButton(event)) {
+					if (index >= 0) {
+						draggingIndex = index;
+						selectedFocusIndex = index;
 						suppressTableEvents = true;
-						fociTable.setRowSelectionInterval(idx, idx);
+						fociTable.setRowSelectionInterval(index, index);
 						suppressTableEvents = false;
 						rebuild();
 					} else {
-						final double wx = pl.unfitx(e.getX());
-						final double wy = pl.unfity(e.getY());
-						config.foci.add(new FocusSpec(wx, wy, 1));
-						final int newIdx = config.foci.size() - 1;
-						selectedFocusIndex = newIdx;
-						draggingIndex = newIdx;
-						rebuildAndSyncTable();
+						final double worldX = plotPane.unfitx(event.getX());
+						final double worldY = plotPane.unfity(event.getY());
+						config.foci.add(new FocusSpec(worldX, worldY, 1));
+						selectedFocusIndex = config.foci.size() - 1;
+						draggingIndex = selectedFocusIndex;
+						refreshAfterGeometryChange(true);
 					}
 				}
 			}
 
 			@Override
-			public void mouseReleased(final MouseEvent e) {
+			public void mouseReleased(final MouseEvent event) {
 				if (panning) {
 					panning = false;
-					computeFullRange();
-					clampDistToFullRange();
-					syncSliders();
-					rebuild();
+					refreshAfterGeometryChange(false);
 					return;
 				}
 				if (draggingIndex >= 0) {
 					draggingIndex = -1;
-					rebuildAndSyncTable();
+					refreshAfterGeometryChange(true);
 				}
 			}
 		};
-		draw.addMouseListener(press);
-		draw.addMouseMotionListener(new MouseMotionAdapter() {
+		drawPanel.addMouseListener(mouseAdapter);
+		drawPanel.addMouseMotionListener(new MouseMotionAdapter() {
 			@Override
-			public void mouseDragged(final MouseEvent e) {
-				updateCursorInfo(e.getX(), e.getY());
+			public void mouseDragged(final MouseEvent event) {
+				updateCursorInfo(event.getX(), event.getY());
 				if (panning) {
-					applyPan(e);
+					applyPan(event);
 					return;
 				}
 				if (draggingIndex < 0 || draggingIndex >= config.foci.size())
 					return;
-				final FocusSpec f = config.foci.get(draggingIndex);
-				f.x = pl.unfitx(e.getX());
-				f.y = pl.unfity(e.getY());
+				final FocusSpec focus = config.foci.get(draggingIndex);
+				focus.x = plotPane.unfitx(event.getX());
+				focus.y = plotPane.unfity(event.getY());
 				rebuild();
 			}
 
 			@Override
-			public void mouseMoved(final MouseEvent e) {
-				updateCursorInfo(e.getX(), e.getY());
+			public void mouseMoved(final MouseEvent event) {
+				updateCursorInfo(event.getX(), event.getY());
 			}
 		});
-		final MouseWheelListener wheel = (final MouseWheelEvent e) -> applyZoom(e);
-		draw.addMouseWheelListener(wheel);
+		final MouseWheelListener wheelListener = this::applyZoom;
+		drawPanel.addMouseWheelListener(wheelListener);
 	}
 
 	private void installKeyboardShortcuts() {
-		final JRootPane root = frame.getRootPane();
-		final InputMap im = root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-		final ActionMap am = root.getActionMap();
+		final JRootPane rootPane = frame.getRootPane();
+		final InputMap inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+		final ActionMap actionMap = rootPane.getActionMap();
 
-		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteFocus");
-		am.put("deleteFocus", new AbstractAction() {
+		inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteFocus");
+		actionMap.put("deleteFocus", new AbstractAction() {
 			private static final long serialVersionUID = 1L;
 
 			@Override
-			public void actionPerformed(final ActionEvent e) {
+			public void actionPerformed(final ActionEvent event) {
 				deleteSelectedFocus();
 			}
 		});
 
-		bindNudge(im, am, KeyEvent.VK_LEFT, 0, -NUDGE_STEP, 0);
-		bindNudge(im, am, KeyEvent.VK_RIGHT, 0, NUDGE_STEP, 0);
-		bindNudge(im, am, KeyEvent.VK_UP, 0, 0, NUDGE_STEP);
-		bindNudge(im, am, KeyEvent.VK_DOWN, 0, 0, -NUDGE_STEP);
-		bindNudge(im, am, KeyEvent.VK_LEFT, KeyEvent.SHIFT_DOWN_MASK, -NUDGE_FINE, 0);
-		bindNudge(im, am, KeyEvent.VK_RIGHT, KeyEvent.SHIFT_DOWN_MASK, NUDGE_FINE, 0);
-		bindNudge(im, am, KeyEvent.VK_UP, KeyEvent.SHIFT_DOWN_MASK, 0, NUDGE_FINE);
-		bindNudge(im, am, KeyEvent.VK_DOWN, KeyEvent.SHIFT_DOWN_MASK, 0, -NUDGE_FINE);
+		bindNudge(inputMap, actionMap, KeyEvent.VK_LEFT, 0, -NUDGE_STEP, 0);
+		bindNudge(inputMap, actionMap, KeyEvent.VK_RIGHT, 0, NUDGE_STEP, 0);
+		bindNudge(inputMap, actionMap, KeyEvent.VK_UP, 0, 0, NUDGE_STEP);
+		bindNudge(inputMap, actionMap, KeyEvent.VK_DOWN, 0, 0, -NUDGE_STEP);
+		bindNudge(inputMap, actionMap, KeyEvent.VK_LEFT, KeyEvent.SHIFT_DOWN_MASK, -NUDGE_FINE, 0);
+		bindNudge(inputMap, actionMap, KeyEvent.VK_RIGHT, KeyEvent.SHIFT_DOWN_MASK, NUDGE_FINE, 0);
+		bindNudge(inputMap, actionMap, KeyEvent.VK_UP, KeyEvent.SHIFT_DOWN_MASK, 0, NUDGE_FINE);
+		bindNudge(inputMap, actionMap, KeyEvent.VK_DOWN, KeyEvent.SHIFT_DOWN_MASK, 0, -NUDGE_FINE);
 	}
 
-	private void bindNudge(final InputMap im, final ActionMap am, final int keyCode, final int modifiers, final double dx,
-			final double dy) {
-		final String name = "nudge_" + keyCode + "_" + modifiers;
-		im.put(KeyStroke.getKeyStroke(keyCode, modifiers), name);
-		am.put(name, new AbstractAction() {
+	private void bindNudge(final InputMap inputMap, final ActionMap actionMap, final int keyCode, final int modifiers,
+			final double dx, final double dy) {
+		final String actionName = "nudge_" + keyCode + "_" + modifiers;
+		inputMap.put(KeyStroke.getKeyStroke(keyCode, modifiers), actionName);
+		actionMap.put(actionName, new AbstractAction() {
 			private static final long serialVersionUID = 1L;
 
 			@Override
-			public void actionPerformed(final ActionEvent e) {
+			public void actionPerformed(final ActionEvent event) {
 				nudge(dx, dy);
 			}
 		});
@@ -504,85 +529,102 @@ public class PlotWindow {
 		removeFocusAt(selectedFocusIndex);
 	}
 
-	private void removeFocusAt(final int idx) {
-		if (idx < 0 || idx >= config.foci.size() || config.foci.size() <= 1)
+	private void removeFocusAt(final int index) {
+		if (index < 0 || index >= config.foci.size() || config.foci.size() <= 1)
 			return;
-		config.foci.remove(idx);
-		if (selectedFocusIndex >= idx)
-			selectedFocusIndex--;
-		if (selectedFocusIndex < 0)
-			selectedFocusIndex = 0;
-		if (selectedFocusIndex >= config.foci.size())
-			selectedFocusIndex = config.foci.size() - 1;
-		rebuildAndSyncTable();
+
+		final int previousSelectedIndex = selectedFocusIndex;
+		config.foci.remove(index);
+		if (previousSelectedIndex > index)
+			selectedFocusIndex = previousSelectedIndex - 1;
+		else if (previousSelectedIndex == index)
+			selectedFocusIndex = Math.min(index, config.foci.size() - 1);
+
+		if (draggingIndex > index)
+			draggingIndex--;
+		else if (draggingIndex == index)
+			draggingIndex = -1;
+
+		refreshAfterGeometryChange(true);
 	}
 
 	private void nudge(final double dx, final double dy) {
 		if (selectedFocusIndex < 0 || selectedFocusIndex >= config.foci.size())
 			return;
-		final FocusSpec f = config.foci.get(selectedFocusIndex);
-		f.x += dx;
-		f.y += dy;
-		rebuildAndSyncTable();
+		final FocusSpec focus = config.foci.get(selectedFocusIndex);
+		focus.x += dx;
+		focus.y += dy;
+		refreshAfterGeometryChange(true);
 	}
 
-	private void updateCursorInfo(final int px, final int py) {
-		final double wx = pl.unfitx(px);
-		final double wy = pl.unfity(py);
+	private void updateCursorInfo(final int pixelX, final int pixelY) {
+		final double worldX = plotPane.unfitx(pixelX);
+		final double worldY = plotPane.unfity(pixelY);
 		if (probeCurve == null) {
-			lblCursor.setText(String.format("(%.3f, %.3f)", wx, wy));
+			lblCursor.setText(String.format(Locale.ROOT, "(%.3f, %.3f)", worldX, worldY));
 		} else {
-			final double f = probeCurve.getCumultDistance(wx, wy);
-			lblCursor.setText(String.format("(%.3f, %.3f)  f=%.4g", wx, wy, f));
+			final double value = probeCurve.getCumultDistance(worldX, worldY);
+			lblCursor.setText(String.format(Locale.ROOT, "(%.3f, %.3f)  f=%.4g", worldX, worldY, value));
 		}
 	}
 
-	private void applyPan(final MouseEvent e) {
-		final int dxPx = e.getX() - panStartPixelX;
-		final int dyPx = e.getY() - panStartPixelY;
-		final double rx = panStartXmax - panStartXmin;
-		final double ry = panStartYmax - panStartYmin;
-		final double dxWorld = dxPx * rx / pl.getXres();
-		final double dyWorld = dyPx * ry / pl.getYres();
-		pl.setDim(panStartXmin - dxWorld, panStartXmax - dxWorld, panStartYmin + dyWorld, panStartYmax + dyWorld);
+	private void applyPan(final MouseEvent event) {
+		final int dxPixels = event.getX() - panStartPixelX;
+		final int dyPixels = event.getY() - panStartPixelY;
+		final double xRange = panStartXmax - panStartXmin;
+		final double yRange = panStartYmax - panStartYmin;
+		final double dxWorld = dxPixels * xRange / (plotPane.getXres() - 1.0);
+		final double dyWorld = dyPixels * yRange / (plotPane.getYres() - 1.0);
+		plotPane.setDim(panStartXmin - dxWorld, panStartXmax - dxWorld,
+				panStartYmin + dyWorld, panStartYmax + dyWorld);
 	}
 
-	private void applyZoom(final MouseWheelEvent e) {
-		final double cx = pl.unfitx(e.getX());
-		final double cy = pl.unfity(e.getY());
-		final double scale = e.getWheelRotation() < 0 ? ZOOM_STEP : 1.0 / ZOOM_STEP;
-		pl.setDim(cx + (pl.getXmin() - cx) * scale, cx + (pl.getXmax() - cx) * scale, cy + (pl.getYmin() - cy) * scale,
-				cy + (pl.getYmax() - cy) * scale);
-		computeFullRange();
-		clampDistToFullRange();
-		syncSliders();
-		rebuild();
+	private void applyZoom(final MouseWheelEvent event) {
+		final double centerX = plotPane.unfitx(event.getX());
+		final double centerY = plotPane.unfity(event.getY());
+		final double scale = Math.pow(ZOOM_STEP, -event.getPreciseWheelRotation());
+		plotPane.setDim(centerX + (plotPane.getXmin() - centerX) * scale,
+				centerX + (plotPane.getXmax() - centerX) * scale,
+				centerY + (plotPane.getYmin() - centerY) * scale,
+				centerY + (plotPane.getYmax() - centerY) * scale);
+		refreshAfterGeometryChange(false);
 	}
 
-	private int hitTest(final int px, final int py) {
-		int best = -1;
-		double bestDistSq = HIT_PIXELS * HIT_PIXELS;
+	private int hitTest(final int pixelX, final int pixelY) {
+		int bestIndex = -1;
+		double bestDistanceSquared = HIT_PIXELS * HIT_PIXELS;
 		for (int i = 0; i < config.foci.size(); i++) {
-			final FocusSpec f = config.foci.get(i);
-			final double dx = pl.fitx(f.x) - px;
-			final double dy = pl.fity(f.y) - py;
-			final double d2 = dx * dx + dy * dy;
-			if (d2 < bestDistSq) {
-				bestDistSq = d2;
-				best = i;
+			final FocusSpec focus = config.foci.get(i);
+			final double dx = plotPane.fitx(focus.x) - pixelX;
+			final double dy = plotPane.fity(focus.y) - pixelY;
+			final double distanceSquared = dx * dx + dy * dy;
+			if (distanceSquared < bestDistanceSquared) {
+				bestDistanceSquared = distanceSquared;
+				bestIndex = i;
 			}
 		}
-		return best;
+		return bestIndex;
 	}
 
 	private PlotDistanceCurve makeProbeCurve() {
-		final Point[] ps = new Point[config.foci.size()];
-		final double[] ws = new double[config.foci.size()];
-		for (int i = 0; i < ps.length; i++) {
-			ps[i] = new Point(config.foci.get(i).x, config.foci.get(i).y);
-			ws[i] = config.foci.get(i).weight;
+		final Point[] points = new Point[config.foci.size()];
+		final double[] weights = new double[config.foci.size()];
+		for (int i = 0; i < points.length; i++) {
+			final FocusSpec focus = config.foci.get(i);
+			points[i] = new Point(focus.x, focus.y);
+			weights[i] = focus.weight;
 		}
-		return makeCurve(ps, ws, 0);
+		return makeCurve(points, weights, 0);
+	}
+
+	private void refreshAfterGeometryChange(final boolean syncTable) {
+		computeFullRange();
+		clampDistToFullRange();
+		syncSliders();
+		if (syncTable)
+			rebuildAndSyncTable();
+		else
+			rebuild();
 	}
 
 	private void rebuildAndSyncTable() {
@@ -591,59 +633,58 @@ public class PlotWindow {
 	}
 
 	private void rebuild() {
-		pl.clearPlots();
-		pl.clearPoints();
+		plotPane.clearPlots();
+		plotPane.clearPoints();
 
-		final Point[] ps = new Point[config.foci.size()];
-		final double[] ws = new double[config.foci.size()];
-		for (int i = 0; i < ps.length; i++) {
-			final FocusSpec f = config.foci.get(i);
-			ps[i] = new Point(f.x, f.y);
-			ws[i] = f.weight;
-			final Color c = (i == selectedFocusIndex) ? Color.ORANGE : Color.BLUE;
-			pl.addPoint(ps[i], c);
+		final Point[] points = new Point[config.foci.size()];
+		final double[] weights = new double[config.foci.size()];
+		for (int i = 0; i < points.length; i++) {
+			final FocusSpec focus = config.foci.get(i);
+			points[i] = new Point(focus.x, focus.y);
+			weights[i] = focus.weight;
+			final Color color = i == selectedFocusIndex ? Color.ORANGE : Color.BLUE;
+			plotPane.addPoint(points[i], color);
 		}
 
-		probeCurve = config.foci.isEmpty() ? null : makeCurve(ps, ws, 0);
+		probeCurve = config.foci.isEmpty() ? null : makeCurve(points, weights, 0);
 
-		final int n = Math.max(1, config.nCurves);
+		final int curveCount = Math.max(1, config.nCurves);
 		final boolean useLog = config.logSpacing && config.dmin > 0 && config.dmax > 0;
 		final double logMin = useLog ? Math.log(config.dmin) : 0;
 		final double logMax = useLog ? Math.log(config.dmax) : 0;
-		final PlotDistanceCurve[] curves = new PlotDistanceCurve[n];
-		for (int i = 0; i < n; i++) {
-			final double d;
-			if (n == 1)
-				d = config.dmin;
+		final PlotDistanceCurve[] curves = new PlotDistanceCurve[curveCount];
+		for (int i = 0; i < curveCount; i++) {
+			final double distance;
+			if (curveCount == 1)
+				distance = config.dmin;
 			else if (useLog)
-				d = Math.exp(logMin + (logMax - logMin) * i / (n - 1));
+				distance = Math.exp(logMin + (logMax - logMin) * i / (curveCount - 1));
 			else
-				d = config.dmin + (config.dmax - config.dmin) * i / (n - 1);
-			curves[i] = makeCurve(ps, ws, d);
+				distance = config.dmin + (config.dmax - config.dmin) * i / (curveCount - 1);
+			curves[i] = makeCurve(points, weights, distance);
 		}
 
 		if (config.showBackground && curves.length > 0)
 			curves[0].setBkgrdOn(true);
 
-		if (config.showMinMax && curves.length > 0) {
-			if (config.curveType != CurveType.CASSIN) {
-				final Point pMin = curves[0].getMinPoint(pl);
-				pl.addPoint(pMin, Color.RED);
-			}
-			final Point pMax = curves[0].getMaxPoint(pl);
-			pl.addPoint(pMax, Color.CYAN);
+		if (config.showMinMax && curves.length > 0 && draggingIndex < 0 && !panning) {
+			final Extrema extrema = curves[0].getExtrema(plotPane);
+			if (config.curveType != CurveType.CASSIN)
+				plotPane.addPoint(extrema.getMinPoint(), Color.RED);
+			plotPane.addPoint(extrema.getMaxPoint(), Color.CYAN);
 		}
 
 		for (int i = 0; i < curves.length; i++)
-			pl.addPlot(curves[i], curveColor(i, curves.length));
-		pl.refresh();
+			plotPane.addPlot(curves[i], curveColor(i, curves.length));
+		plotPane.refresh();
 	}
 
 	private void syncTableFromConfig() {
 		suppressTableEvents = true;
 		fociTableModel.setRowCount(0);
-		for (final FocusSpec f : config.foci)
-			fociTableModel.addRow(new Object[]{fmt(f.x), fmt(f.y), fmt(f.weight) });
+		for (final FocusSpec focus : config.foci)
+			fociTableModel.addRow(new Object[]{formatTableNumber(focus.x), formatTableNumber(focus.y),
+					formatTableNumber(focus.weight)});
 		if (selectedFocusIndex >= 0 && selectedFocusIndex < fociTableModel.getRowCount())
 			fociTable.setRowSelectionInterval(selectedFocusIndex, selectedFocusIndex);
 		else
@@ -651,28 +692,28 @@ public class PlotWindow {
 		suppressTableEvents = false;
 	}
 
-	private static String fmt(final double d) {
-		if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e15)
-			return String.valueOf((long) d);
-		return String.format("%.4f", d);
+	private static String formatTableNumber(final double value) {
+		if (value == Math.floor(value) && !Double.isInfinite(value) && Math.abs(value) < 1e15)
+			return String.valueOf((long) value);
+		return String.format(Locale.ROOT, "%.4f", value);
 	}
 
-	private Color curveColor(final int i, final int n) {
-		if (n <= 1)
+	private static Color curveColor(final int index, final int count) {
+		if (count <= 1)
 			return Color.BLACK;
-		final float hue = (float) (0.66 * (1.0 - (double) i / (n - 1)));
+		final float hue = (float) (0.66 * (1.0 - (double) index / (count - 1)));
 		return Color.getHSBColor(hue, 0.85f, 0.7f);
 	}
 
-	private PlotDistanceCurve makeCurve(final Point[] ps, final double[] ws, final double dist) {
+	private PlotDistanceCurve makeCurve(final Point[] points, final double[] weights, final double distance) {
 		switch (config.curveType) {
 			case CASSIN:
-				return new NCassin(ps, dist, ws);
+				return new NCassin(points, distance, weights);
 			case HYPERB:
-				return new NHyperb(ps, dist, ws);
+				return new NHyperb(points, distance, weights);
 			case LIPSE:
 			default:
-				return new NLipse(ps, dist, ws);
+				return new NLipse(points, distance, weights);
 		}
 	}
 }

@@ -6,26 +6,31 @@ package plotPane;
 
 import simpleGeom.Point;
 
-public class NHyperb extends PlotDistanceCurve {
+public final class NHyperb extends PlotDistanceCurve {
+	private static final ThreadLocal<double[]> DISTANCE_BUFFER = ThreadLocal.withInitial(() -> new double[0]);
 
-	public NHyperb(final Point[] points, final double dist, final double[] ws) {
-		super(points, dist, ws);
+	public NHyperb(final Point[] points, final double dist, final double[] weights) {
+		super(points, dist, weights);
 	}
 
 	@Override
-	public final double getCumultDistance(final double x, final double y) {
+	public double getCumultDistance(final double x, final double y) {
 		if (n < 2)
 			return 0;
-		final double[] dists = new double[n];
-		for (int i = 0; i < n; i++) {
-			final double dx = x - fxCache[i];
-			final double dy = y - fyCache[i];
-			dists[i] = Math.sqrt(dx * dx + dy * dy) * weights[i];
+
+		double[] distances = DISTANCE_BUFFER.get();
+		if (distances.length < n) {
+			distances = new double[n];
+			DISTANCE_BUFFER.set(distances);
 		}
-		double d = 0;
 		for (int i = 0; i < n; i++)
+			distances[i] = weightedDistanceToFocus(i, x, y);
+
+		double differenceSum = 0;
+		for (int i = 0; i < n; i++) {
 			for (int j = 0; j < i; j++)
-				d += Math.abs(dists[i] - dists[j]);
-		return 2 * d / (n * (n - 1));
+				differenceSum += Math.abs(distances[i] - distances[j]);
+		}
+		return 2 * differenceSum / ((double) n * (n - 1));
 	}
 }
