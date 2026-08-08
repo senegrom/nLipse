@@ -10,17 +10,26 @@ It supports:
 
 ## Requirements
 
-- Java 21
+- JDK 25 or newer
 - Maven 3.9 or newer
 
-Older Java releases are deliberately unsupported. The build enforces Java 21+, compiles with `--release 21`, enables all compiler warnings and treats warnings as errors.
+The build intentionally emits Java 25 bytecode and does not support older Java releases.
 
 ## Build and run
 
 ```bash
 mvn clean verify
-java -jar target/nlipse-0.4.0-SNAPSHOT.jar
+java -jar target/nlipse-0.5.0-SNAPSHOT.jar
 ```
+
+For the optimized JDK 25 launch path, first create a platform- and JDK-specific AOT cache and then run with compact object headers enabled:
+
+```bash
+./scripts/create-aot-cache.sh
+./scripts/run-optimized.sh
+```
+
+PowerShell equivalents are available as `scripts/create-aot-cache.ps1` and `scripts/run-optimized.ps1`. The AOT cache is generated under `target/` and must be recreated after changing the application, JDK build, operating system, or CPU architecture.
 
 ## Controls
 
@@ -34,10 +43,12 @@ java -jar target/nlipse-0.4.0-SNAPSHOT.jar
 
 ## Rendering architecture
 
-Rendering runs on a cancellable background worker, never on Swing's event-dispatch thread. Interactive changes use a coalesced preview render and are followed by a full-quality render. The scalar field is sampled once and cached so the background, extrema and all contour levels share the same data. Contours are generated with marching squares, including centre sampling for ambiguous cells and one-level adaptive subdivision in coarse previews.
+Rendering runs on a cancellable background worker, never on Swing's event-dispatch thread. Interactive changes use a coalesced preview render and are followed by a full-quality render.
 
-The plot canvas follows the window size; no fixed-resolution or null-layout drawing panel remains. Immutable values and render messages use Java records, while the CPU-bound renderer deliberately stays on a single platform thread rather than a virtual thread.
+The scalar field is sampled once and cached so the background, extrema and all contour levels share the same data. Large grids are sampled across the common work-stealing pool. Contours are generated in one allocation-free, multi-level marching-squares pass, including centre sampling for ambiguous cells and adaptive subdivision in coarse previews. Background pixels are written directly into the raster through a precomputed palette.
+
+The field-grid cache is limited by memory rather than an arbitrary entry count. The n-hyperbola evaluator switches from quadratic pairwise comparison to a sorted O(n log n) formulation for larger focus sets.
 
 ## Continuous integration
 
-GitHub Actions runs the complete Maven test suite on Java 21 for pushes to `main` and for manual workflow runs.
+GitHub Actions runs the complete Maven test suite and the JDK 25 AOT-training path on Java 25 for every push to `main`.

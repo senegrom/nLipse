@@ -6,6 +6,8 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -18,25 +20,20 @@ import nlipse.model.PlotSnapshot;
 
 /** CPU renderer that shares and caches one scalar-field grid per geometry/view. */
 public final class PlotRenderer implements RenderEngine {
-    private static final int CACHE_SIZE = 4;
+    private static final long CACHE_BUDGET_BYTES = 128L * 1024 * 1024;
+    private static final int PALETTE_SIZE = 256;
     private static final Color BACKGROUND_TARGET = new Color(0, 100, 0);
     private static final Color AXIS_COLOR = new Color(125, 125, 125);
     private static final Color FOCUS_COLOR = new Color(35, 90, 210);
     private static final Color SELECTED_FOCUS_COLOR = new Color(245, 145, 20);
     private static final Color MIN_COLOR = new Color(210, 45, 45);
     private static final Color MAX_COLOR = new Color(15, 175, 190);
+    private static final int[] BACKGROUND_PALETTE = createBackgroundPalette();
 
-    private final Map<FieldKey, FieldGrid> gridCache = new LinkedHashMap<FieldKey, FieldGrid>(
-            CACHE_SIZE, 0.75f, true) {
-        private static final long serialVersionUID = 1L;
-
-        @Override
-        protected boolean removeEldestEntry(final Map.Entry<FieldKey, FieldGrid> eldest) {
-            return size() > CACHE_SIZE;
-        }
-    };
+    private final Map<FieldKey, FieldGrid> gridCache = new LinkedHashMap<>(8, 0.75f, true);
     private final AtomicLong cacheHits = new AtomicLong();
     private final AtomicLong cacheMisses = new AtomicLong();
+    private long cachedGridBytes;
 
     @Override
     public RenderResult render(final RenderRequest request, final CancellationToken token) {
@@ -96,31 +93,56 @@ public final class PlotRenderer implements RenderEngine {
                 return cached;
             }
         }
+
         cacheMisses.incrementAndGet();
         final FieldGrid sampled = FieldGrid.sample(field, request.snapshot().viewport(),
                 request.width(), request.height(), request.quality().sampleStep(), token);
         token.throwIfCancelled();
         synchronized (gridCache) {
+            final FieldGrid raced = gridCache.get(key);
+            if (raced != null) {
+                cacheHits.incrementAndGet();
+                return raced;
+            }
             gridCache.put(key, sampled);
+            cachedGridBytes += sampled.estimatedBytes();
+            evictOversizedCache();
         }
         return sampled;
+    }
+
+    private void evictOversizedCache() {
+        final Iterator<Map.Entry<FieldKey, FieldGrid>> entries = gridCache.entrySet().iterator();
+        while (cachedGridBytes > CACHE_BUDGET_BYTES && gridCache.size() > 1 && entries.hasNext()) {
+            final Map.Entry<FieldKey, FieldGrid> entry = entries.next();
+            cachedGridBytes -= entry.getValue().estimatedBytes();
+            entries.remove();
+        }
     }
 
     private static void drawBackground(final Graphics2D graphics, final FieldGrid grid,
             final CancellationToken token) {
         final BufferedImage sampled = new BufferedImage(grid.getColumns(), grid.getRows(),
                 BufferedImage.TYPE_INT_RGB);
+        final int[] pixels = ((DataBufferInt) sampled.getRaster().getDataBuffer()).getData();
         final double min = grid.getMinValue();
         final double range = grid.getMaxValue() - min;
         for (int row = 0; row < grid.getRows(); row++) {
             if ((row & 15) == 0) {
                 token.throwIfCancelled();
             }
+            final int offset = row * grid.getColumns();
             for (int column = 0; column < grid.getColumns(); column++) {
                 final double value = grid.getValue(column, row);
-                final double normalized = range > 0 && Double.isFinite(value)
-                        ? Math.clamp((value - min) / range, 0, 1) : 0;
-                sampled.setRGB(column, row, blend(Color.WHITE, BACKGROUND_TARGET, normalized).getRGB());
+                final int paletteIndex;
+                if (range > 0 && Double.isFinite(value)) {
+                    paletteIndex = Math.clamp(
+                            (int) Math.round((value - min) / range * (PALETTE_SIZE - 1)),
+                            0, PALETTE_SIZE - 1);
+                } else {
+                    paletteIndex = 0;
+                }
+                pixels[offset + column] = BACKGROUND_PALETTE[paletteIndex];
             }
         }
         final Object oldInterpolation = graphics.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
@@ -130,6 +152,21 @@ public final class PlotRenderer implements RenderEngine {
         if (oldInterpolation != null) {
             graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
         }
+    }
+
+    private static int[] createBackgroundPalette() {
+        final int[] palette = new int[PALETTE_SIZE];
+        for (int index = 0; index < palette.length; index++) {
+            final double fraction = index / (double) (palette.length - 1);
+            final int red = (int) Math.round(255 * (1 - fraction)
+                    + BACKGROUND_TARGET.getRed() * fraction);
+            final int green = (int) Math.round(255 * (1 - fraction)
+                    + BACKGROUND_TARGET.getGreen() * fraction);
+            final int blue = (int) Math.round(255 * (1 - fraction)
+                    + BACKGROUND_TARGET.getBlue() * fraction);
+            palette[index] = 0xFF000000 | red << 16 | green << 8 | blue;
+        }
+        return palette;
     }
 
     private static void drawAxes(final Graphics2D graphics, final Viewport viewport,
@@ -151,18 +188,24 @@ public final class PlotRenderer implements RenderEngine {
         final PlotSnapshot snapshot = request.snapshot();
         final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
                 snapshot.curveCount(), snapshot.logSpacing());
+        final Path2D.Float[] paths = new Path2D.Float[levels.length];
+        for (int index = 0; index < paths.length; index++) {
+            paths[index] = new Path2D.Float();
+        }
+
+        MarchingSquares.traceLevels(grid, field, snapshot.viewport(), levels, token,
+                (levelIndex, x1, y1, x2, y2) -> {
+                    final Path2D.Float path = paths[levelIndex];
+                    path.moveTo(x1, y1);
+                    path.lineTo(x2, y2);
+                });
+
         graphics.setStroke(new BasicStroke(request.quality() == RenderQuality.FULL ? 1.25f : 1f,
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        for (int index = 0; index < levels.length; index++) {
+        for (int index = 0; index < paths.length; index++) {
             token.throwIfCancelled();
-            graphics.setColor(curveColor(index, levels.length));
-            final Path2D.Double path = new Path2D.Double();
-            MarchingSquares.trace(grid, field, snapshot.viewport(), levels[index], token,
-                    (x1, y1, x2, y2) -> {
-                        path.moveTo(x1, y1);
-                        path.lineTo(x2, y2);
-                    });
-            graphics.draw(path);
+            graphics.setColor(curveColor(index, paths.length));
+            graphics.draw(paths[index]);
         }
     }
 
@@ -217,15 +260,6 @@ public final class PlotRenderer implements RenderEngine {
         return Color.getHSBColor(hue, 0.85f, 0.72f);
     }
 
-    private static Color blend(final Color from, final Color to, final double fraction) {
-        final double t = Math.clamp(fraction, 0, 1);
-        final int red = (int) Math.round(from.getRed() + (to.getRed() - from.getRed()) * t);
-        final int green = (int) Math.round(from.getGreen() + (to.getGreen() - from.getGreen()) * t);
-        final int blue = (int) Math.round(from.getBlue() + (to.getBlue() - from.getBlue()) * t);
-        return new Color(red, green, blue);
-    }
-
-
     public long getCacheHits() {
         return cacheHits.get();
     }
@@ -234,7 +268,14 @@ public final class PlotRenderer implements RenderEngine {
         return cacheMisses.get();
     }
 
+    public long getCachedGridBytes() {
+        synchronized (gridCache) {
+            return cachedGridBytes;
+        }
+    }
+
     public String cacheSummary() {
-        return String.format(Locale.ROOT, "%d hits / %d misses", getCacheHits(), getCacheMisses());
+        return String.format(Locale.ROOT, "%d hits / %d misses / %.1f MiB",
+                getCacheHits(), getCacheMisses(), getCachedGridBytes() / 1_048_576.0);
     }
 }

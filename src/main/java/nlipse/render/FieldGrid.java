@@ -1,10 +1,13 @@
 package nlipse.render;
 
+import java.util.stream.IntStream;
 import nlipse.geometry.Point2;
 import nlipse.math.DistanceField;
 
 /** Reusable sample grid shared by shading, extrema and contour extraction. */
 public final class FieldGrid {
+    private static final long PARALLEL_SAMPLE_THRESHOLD = 128L * 1024;
+
     private final int pixelWidth;
     private final int pixelHeight;
     private final int step;
@@ -52,48 +55,59 @@ public final class FieldGrid {
         if (pixelWidth < 2 || pixelHeight < 2) {
             throw new IllegalArgumentException("Grid size must be at least 2 by 2");
         }
+        token.throwIfCancelled();
+
         final int step = Math.max(1, requestedStep);
         final int columns = Math.ceilDiv(pixelWidth - 1, step) + 1;
         final int rows = Math.ceilDiv(pixelHeight - 1, step) + 1;
         final int[] pixelXs = new int[columns];
         final int[] pixelYs = new int[rows];
+        final double[] worldXs = new double[columns];
+        final double[] worldYs = new double[rows];
         for (int column = 0; column < columns; column++) {
-            pixelXs[column] = Math.min(column * step, pixelWidth - 1);
+            final int pixelX = Math.min(column * step, pixelWidth - 1);
+            pixelXs[column] = pixelX;
+            worldXs[column] = viewport.worldX(pixelX, pixelWidth);
         }
         for (int row = 0; row < rows; row++) {
-            pixelYs[row] = Math.min(row * step, pixelHeight - 1);
+            final int pixelY = Math.min(row * step, pixelHeight - 1);
+            pixelYs[row] = pixelY;
+            worldYs[row] = viewport.worldY(pixelY, pixelHeight);
         }
 
         final double[] values = new double[columns * rows];
+        final RowExtrema[] rowExtrema = new RowExtrema[rows];
+        final IntStream rowIndexes = IntStream.range(0, rows);
+        if ((long) columns * rows >= PARALLEL_SAMPLE_THRESHOLD
+                && Runtime.getRuntime().availableProcessors() > 1) {
+            rowIndexes.parallel().forEach(row -> sampleRow(field, worldXs, worldYs[row],
+                    columns, row, values, rowExtrema, token));
+        } else {
+            rowIndexes.forEach(row -> sampleRow(field, worldXs, worldYs[row],
+                    columns, row, values, rowExtrema, token));
+        }
+        token.throwIfCancelled();
+
         double minValue = Double.POSITIVE_INFINITY;
         double maxValue = Double.NEGATIVE_INFINITY;
         int minColumn = 0;
         int minRow = 0;
         int maxColumn = 0;
         int maxRow = 0;
-
         for (int row = 0; row < rows; row++) {
-            if ((row & 7) == 0) {
-                token.throwIfCancelled();
+            final RowExtrema extrema = rowExtrema[row];
+            if (extrema == null || !extrema.valid()) {
+                continue;
             }
-            final double worldY = viewport.worldY(pixelYs[row], pixelHeight);
-            for (int column = 0; column < columns; column++) {
-                final double worldX = viewport.worldX(pixelXs[column], pixelWidth);
-                final double value = field.value(worldX, worldY);
-                values[row * columns + column] = value;
-                if (!Double.isFinite(value)) {
-                    continue;
-                }
-                if (value < minValue) {
-                    minValue = value;
-                    minColumn = column;
-                    minRow = row;
-                }
-                if (value > maxValue) {
-                    maxValue = value;
-                    maxColumn = column;
-                    maxRow = row;
-                }
+            if (extrema.minValue() < minValue) {
+                minValue = extrema.minValue();
+                minColumn = extrema.minColumn();
+                minRow = row;
+            }
+            if (extrema.maxValue() > maxValue) {
+                maxValue = extrema.maxValue();
+                maxColumn = extrema.maxColumn();
+                maxRow = row;
             }
         }
 
@@ -111,6 +125,40 @@ public final class FieldGrid {
         return new FieldGrid(pixelWidth, pixelHeight, step, columns, rows,
                 pixelXs, pixelYs, values, minValue, maxValue,
                 minColumn, minRow, maxColumn, maxRow, viewport);
+    }
+
+    private static void sampleRow(final DistanceField field, final double[] worldXs,
+            final double worldY, final int columns, final int row, final double[] values,
+            final RowExtrema[] rowExtrema, final CancellationToken token) {
+        if (token.isCancelled()) {
+            return;
+        }
+        final int offset = row * columns;
+        double minValue = Double.POSITIVE_INFINITY;
+        double maxValue = Double.NEGATIVE_INFINITY;
+        int minColumn = 0;
+        int maxColumn = 0;
+        boolean valid = false;
+        for (int column = 0; column < columns; column++) {
+            if ((column & 255) == 0 && token.isCancelled()) {
+                return;
+            }
+            final double value = field.value(worldXs[column], worldY);
+            values[offset + column] = value;
+            if (!Double.isFinite(value)) {
+                continue;
+            }
+            if (!valid || value < minValue) {
+                minValue = value;
+                minColumn = column;
+            }
+            if (!valid || value > maxValue) {
+                maxValue = value;
+                maxColumn = column;
+            }
+            valid = true;
+        }
+        rowExtrema[row] = new RowExtrema(minValue, minColumn, maxValue, maxColumn, valid);
     }
 
     public int getPixelWidth() {
@@ -151,6 +199,11 @@ public final class FieldGrid {
 
     public double getMaxValue() {
         return maxValue;
+    }
+
+    public long estimatedBytes() {
+        return 128L + (long) values.length * Double.BYTES
+                + (long) (pixelXs.length + pixelYs.length) * Integer.BYTES;
     }
 
     public Point2 getMinPoint() {
@@ -201,5 +254,13 @@ public final class FieldGrid {
             }
         }
         return low;
+    }
+
+    private record RowExtrema(
+            double minValue,
+            int minColumn,
+            double maxValue,
+            int maxColumn,
+            boolean valid) {
     }
 }
