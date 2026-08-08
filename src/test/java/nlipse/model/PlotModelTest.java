@@ -28,7 +28,7 @@ class PlotModelTest {
     }
 
     @Test
-    void removingEarlierFocusShiftsSelectionIndex() {
+    void removingBelowSelectionShiftsSelectionDown() {
         final PlotModel model = new PlotModel(PlotConfig.defaults());
         model.setSelectedFocusIndex(2);
         assertTrue(model.removeFocus(0));

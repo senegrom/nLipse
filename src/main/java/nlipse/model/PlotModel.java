@@ -82,6 +82,8 @@ public final class PlotModel {
         if (selectedFocusIndex > index) {
             selectedFocusIndex--;
         } else if (selectedFocusIndex == index) {
+            // Deleting the selection leaves nothing selected; auto-selecting a
+            // neighbour would let a repeated Delete remove foci the user never chose.
             selectedFocusIndex = -1;
         }
         return true;
