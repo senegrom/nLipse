@@ -1,6 +1,7 @@
 package nlipse.render;
 
 import nlipse.math.DistanceField;
+import nlipse.math.ScalarRanges;
 
 /** Allocation-free, multi-level marching-squares extraction in pixel coordinates. */
 public final class MarchingSquares {
@@ -212,9 +213,14 @@ public final class MarchingSquares {
 
     private static double interpolate(final double coordinate0, final double value0,
             final double coordinate1, final double value1, final double level) {
-        final double difference = value1 - value0;
-        final double fraction = difference == 0 || !Double.isFinite(difference)
-                ? 0.5 : Math.clamp((level - value0) / difference, 0, 1);
+        final double fraction;
+        if (value0 < value1) {
+            fraction = ScalarRanges.fraction(level, value0, value1);
+        } else if (value0 > value1) {
+            fraction = 1 - ScalarRanges.fraction(level, value1, value0);
+        } else {
+            fraction = 0.5;
+        }
         return coordinate0 + (coordinate1 - coordinate0) * fraction;
     }
 

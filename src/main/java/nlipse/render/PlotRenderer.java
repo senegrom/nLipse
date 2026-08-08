@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import nlipse.geometry.Point2;
 import nlipse.math.DistanceField;
 import nlipse.math.DistanceFields;
+import nlipse.math.ScalarRanges;
 import nlipse.model.Focus;
 import nlipse.model.PlotSnapshot;
 
@@ -67,10 +68,12 @@ public final class PlotRenderer implements RenderEngine {
             drawContours(graphics, request, grid, field, token);
             drawFoci(graphics, request);
             if (snapshot.showExtrema()) {
-                drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
-                        grid.getMinPoint(), MIN_COLOR, 7);
-                drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
-                        grid.getMaxPoint(), MAX_COLOR, 7);
+                grid.getExtrema().ifPresent(extrema -> {
+                    drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
+                            extrema.minimumPoint(), MIN_COLOR, 7);
+                    drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
+                            extrema.maximumPoint(), MAX_COLOR, 7);
+                });
             }
             graphics.setColor(Color.BLACK);
             graphics.setStroke(new BasicStroke(1f));
@@ -80,8 +83,7 @@ public final class PlotRenderer implements RenderEngine {
         }
 
         token.throwIfCancelled();
-        return new RenderResult(image, request.sequence(), request.quality(),
-                grid.getMinValue(), grid.getMaxValue(), grid.getMinPoint(), grid.getMaxPoint(),
+        return new RenderResult(image, request.sequence(), request.quality(), grid.getExtrema(),
                 System.nanoTime() - started);
     }
 
@@ -124,6 +126,11 @@ public final class PlotRenderer implements RenderEngine {
 
     private static void drawBackground(final BufferedImage image, final Graphics2D graphics,
             final FieldGrid grid, final CancellationToken token) {
+        if (grid.getExtrema().isEmpty()) {
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+            return;
+        }
         if (grid.getColumns() == image.getWidth() && grid.getRows() == image.getHeight()) {
             final int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
             fillBackgroundPixels(pixels, grid, token);
@@ -144,8 +151,7 @@ public final class PlotRenderer implements RenderEngine {
 
     private static void fillBackgroundPixels(final int[] pixels, final FieldGrid grid,
             final CancellationToken token) {
-        final double min = grid.getMinValue();
-        final double range = grid.getMaxValue() - min;
+        final FieldExtrema extrema = grid.getExtrema().orElse(null);
         for (int row = 0; row < grid.getRows(); row++) {
             if ((row & 15) == 0) {
                 token.throwIfCancelled();
@@ -154,9 +160,11 @@ public final class PlotRenderer implements RenderEngine {
             for (int column = 0; column < grid.getColumns(); column++) {
                 final double value = grid.getValue(column, row);
                 final int paletteIndex;
-                if (range > 0 && Double.isFinite(value)) {
+                if (extrema != null && extrema.maximum() > extrema.minimum()
+                        && Double.isFinite(value)) {
                     paletteIndex = Math.clamp(
-                            (int) Math.round((value - min) / range * (PALETTE_SIZE - 1)),
+                            (int) Math.round(ScalarRanges.fraction(value,
+                                    extrema.minimum(), extrema.maximum()) * (PALETTE_SIZE - 1)),
                             0, PALETTE_SIZE - 1);
                 } else {
                     paletteIndex = 0;
@@ -197,6 +205,9 @@ public final class PlotRenderer implements RenderEngine {
 
     private static void drawContours(final Graphics2D graphics, final RenderRequest request,
             final FieldGrid grid, final DistanceField field, final CancellationToken token) {
+        if (grid.getExtrema().isEmpty()) {
+            return;
+        }
         final PlotSnapshot snapshot = request.snapshot();
         final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
                 snapshot.curveCount(), snapshot.logSpacing());
@@ -258,7 +269,7 @@ public final class PlotRenderer implements RenderEngine {
         for (int index = 0; index < safeCount; index++) {
             final double fraction = index / (double) (safeCount - 1);
             levels[index] = useLog ? Math.exp(logMin + (logMax - logMin) * fraction)
-                    : min + (max - min) * fraction;
+                    : ScalarRanges.interpolate(min, max, fraction);
         }
         return levels;
     }

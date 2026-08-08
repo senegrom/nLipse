@@ -49,6 +49,23 @@ class MarchingSquaresTest {
     }
 
     @Test
+    void interpolatesAcrossAnOverflowingValueSpan() {
+        final Viewport viewport = new Viewport(-1, 1, -1, 1);
+        final DistanceField field = (x, y) -> x < 0 ? -Double.MAX_VALUE : Double.MAX_VALUE;
+        final FieldGrid grid = FieldGrid.sample(field, viewport, 2, 2, 1,
+                CancellationToken.NONE);
+        final List<double[]> segments = new ArrayList<>();
+
+        final int count = MarchingSquares.trace(grid, field, viewport,
+                -Double.MAX_VALUE / 2, CancellationToken.NONE,
+                (x1, y1, x2, y2) -> segments.add(new double[]{x1, y1, x2, y2}));
+
+        assertEquals(1, count);
+        assertEquals(0.25, segments.getFirst()[0], EPSILON);
+        assertEquals(0.25, segments.getFirst()[2], EPSILON);
+    }
+
+    @Test
     void ambiguousSaddleUsesCentreSampleAndProducesTwoSegments() {
         final Viewport viewport = new Viewport(-1, 1, -1, 1);
         final DistanceField field = (x, y) -> x * y + 0.1;

@@ -1,5 +1,6 @@
 package nlipse.render;
 
+import java.util.Optional;
 import java.util.stream.IntStream;
 import nlipse.geometry.Point2;
 import nlipse.math.DistanceField;
@@ -16,19 +17,11 @@ public final class FieldGrid {
     private final int[] pixelXs;
     private final int[] pixelYs;
     private final double[] values;
-    private final double minValue;
-    private final double maxValue;
-    private final int minColumn;
-    private final int minRow;
-    private final int maxColumn;
-    private final int maxRow;
-    private final Viewport viewport;
+    private final Optional<FieldExtrema> extrema;
 
     private FieldGrid(final int pixelWidth, final int pixelHeight, final int step,
             final int columns, final int rows, final int[] pixelXs, final int[] pixelYs,
-            final double[] values, final double minValue, final double maxValue,
-            final int minColumn, final int minRow, final int maxColumn, final int maxRow,
-            final Viewport viewport) {
+            final double[] values, final Optional<FieldExtrema> extrema) {
         this.pixelWidth = pixelWidth;
         this.pixelHeight = pixelHeight;
         this.step = step;
@@ -37,13 +30,7 @@ public final class FieldGrid {
         this.pixelXs = pixelXs;
         this.pixelYs = pixelYs;
         this.values = values;
-        this.minValue = minValue;
-        this.maxValue = maxValue;
-        this.minColumn = minColumn;
-        this.minRow = minRow;
-        this.maxColumn = maxColumn;
-        this.maxRow = maxRow;
-        this.viewport = viewport;
+        this.extrema = extrema;
     }
 
     public static FieldGrid sample(final DistanceField field, final Viewport viewport,
@@ -111,18 +98,19 @@ public final class FieldGrid {
             }
         }
 
-        if (!Double.isFinite(minValue) || !Double.isFinite(maxValue)) {
-            minValue = 0;
-            maxValue = 1;
-            minColumn = 0;
-            minRow = 0;
-            maxColumn = columns - 1;
-            maxRow = rows - 1;
+        final Optional<FieldExtrema> extrema;
+        if (Double.isFinite(minValue) && Double.isFinite(maxValue)) {
+            extrema = Optional.of(new FieldExtrema(minValue, maxValue,
+                    new Point2(viewport.worldX(pixelXs[minColumn], pixelWidth),
+                            viewport.worldY(pixelYs[minRow], pixelHeight)),
+                    new Point2(viewport.worldX(pixelXs[maxColumn], pixelWidth),
+                            viewport.worldY(pixelYs[maxRow], pixelHeight))));
+        } else {
+            extrema = Optional.empty();
         }
 
         return new FieldGrid(pixelWidth, pixelHeight, step, columns, rows,
-                pixelXs, pixelYs, values, minValue, maxValue,
-                minColumn, minRow, maxColumn, maxRow, viewport);
+                pixelXs, pixelYs, values, extrema);
     }
 
     private static void sampleRow(final DistanceField field, final double[] worldXs,
@@ -191,27 +179,13 @@ public final class FieldGrid {
         return values[row * columns + column];
     }
 
-    public double getMinValue() {
-        return minValue;
-    }
-
-    public double getMaxValue() {
-        return maxValue;
+    public Optional<FieldExtrema> getExtrema() {
+        return extrema;
     }
 
     public long estimatedBytes() {
         return 128L + (long) values.length * Double.BYTES
                 + (long) (pixelXs.length + pixelYs.length) * Integer.BYTES;
-    }
-
-    public Point2 getMinPoint() {
-        return new Point2(viewport.worldX(pixelXs[minColumn], pixelWidth),
-                viewport.worldY(pixelYs[minRow], pixelHeight));
-    }
-
-    public Point2 getMaxPoint() {
-        return new Point2(viewport.worldX(pixelXs[maxColumn], pixelWidth),
-                viewport.worldY(pixelYs[maxRow], pixelHeight));
     }
 
     private record RowExtrema(

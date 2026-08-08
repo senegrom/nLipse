@@ -29,7 +29,7 @@ For the optimized JDK 25 launch path, first create a platform- and JDK-specific 
 ./scripts/run-optimized.sh
 ```
 
-PowerShell equivalents are available as `scripts/create-aot-cache.ps1` and `scripts/run-optimized.ps1`. The AOT cache is generated under `target/` and must be recreated after changing the application, JDK build, operating system, or CPU architecture.
+PowerShell equivalents are available as `scripts/create-aot-cache.ps1` and `scripts/run-optimized.ps1`. The AOT cache and its metadata fingerprint are generated under `target/`. The optimized launchers automatically ignore the cache and warn when the application or JDK fingerprint has changed; recreate it after changing the operating system or CPU architecture.
 
 ## Controls
 

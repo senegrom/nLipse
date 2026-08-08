@@ -33,11 +33,19 @@ jobs:
         run: mvn --batch-mode --no-transfer-progress verify
 
       - name: Check shell launchers
-        run: sh -n scripts/create-aot-cache.sh scripts/run-optimized.sh
+        run: sh -n scripts/aot-common.sh scripts/create-aot-cache.sh scripts/run-optimized.sh
 
       - name: Verify PowerShell AOT launcher
         shell: pwsh
         run: ./scripts/create-aot-cache.ps1
 
       - name: Verify AOT cache output
-        run: test -s target/nlipse.aot
+        run: |
+          test -s target/nlipse.aot
+          test -s target/nlipse.aot.meta
+          . scripts/aot-common.sh
+          aot_metadata_is_current target/nlipse.jar target/nlipse.aot.meta
+          if aot_metadata_is_current pom.xml target/nlipse.aot.meta; then
+            echo "Stale AOT metadata was accepted" >&2
+            exit 1
+          fi

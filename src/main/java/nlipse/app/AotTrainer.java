@@ -6,6 +6,7 @@ import nlipse.model.CurveType;
 import nlipse.model.Focus;
 import nlipse.model.PlotSnapshot;
 import nlipse.render.CancellationToken;
+import nlipse.render.FieldExtrema;
 import nlipse.render.PlotRenderer;
 import nlipse.render.RenderQuality;
 import nlipse.render.RenderRequest;
@@ -52,8 +53,10 @@ public final class AotTrainer {
                 CancellationToken.NONE);
         final int centre = result.image().getRGB(result.image().getWidth() / 2,
                 result.image().getHeight() / 2);
-        return Double.doubleToLongBits(result.fieldMin())
-                ^ Long.rotateLeft(Double.doubleToLongBits(result.fieldMax()), 17)
+        final FieldExtrema extrema = result.extrema().orElseThrow(
+                () -> new IllegalStateException("AOT training field has no finite samples"));
+        return Double.doubleToLongBits(extrema.minimum())
+                ^ Long.rotateLeft(Double.doubleToLongBits(extrema.maximum()), 17)
                 ^ Integer.toUnsignedLong(centre);
     }
 

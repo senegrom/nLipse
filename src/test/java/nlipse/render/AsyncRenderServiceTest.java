@@ -5,12 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.image.BufferedImage;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import nlipse.geometry.Point2;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
 import nlipse.model.PlotSnapshot;
@@ -58,7 +58,6 @@ class AsyncRenderServiceTest {
 
     private static RenderResult result(final RenderRequest request) {
         return new RenderResult(new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB),
-                request.sequence(), request.quality(), 0, 1,
-                new Point2(0, 0), new Point2(1, 1), 1);
+                request.sequence(), request.quality(), Optional.empty(), 1);
     }
 }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Color;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import nlipse.model.CurveType;
@@ -25,8 +26,7 @@ class PlotRendererTest {
         assertEquals(120, firstResult.image().getWidth());
         assertEquals(90, firstResult.image().getHeight());
         assertEquals(0xFF000000, firstResult.image().getRGB(10, 10) & 0xFF000000);
-        assertTrue(Double.isFinite(firstResult.fieldMin()));
-        assertTrue(Double.isFinite(firstResult.fieldMax()));
+        assertTrue(firstResult.extrema().isPresent());
         assertEquals(1, renderer.getCacheMisses());
         assertEquals(1, renderer.getCacheHits());
         assertEquals(120, secondResult.image().getWidth());
@@ -59,6 +59,26 @@ class PlotRendererTest {
         assertEquals(2, PlotRenderer.levels(1, 3, 3, false)[1], 1e-12);
         assertEquals(10, PlotRenderer.levels(1, 100, 3, true)[1], 1e-12);
         assertEquals(1, PlotRenderer.levels(2, 2, 20, false).length);
+        final double[] extreme = PlotRenderer.levels(
+                -Double.MAX_VALUE, Double.MAX_VALUE, 3, false);
+        assertEquals(-Double.MAX_VALUE, extreme[0]);
+        assertEquals(0, extreme[1]);
+        assertEquals(Double.MAX_VALUE, extreme[2]);
+    }
+
+    @Test
+    void reportsWhenAFieldHasNoFiniteSamples() {
+        final PlotSnapshot invalid = new PlotSnapshot(CurveType.LIPSE,
+                List.of(new Focus(Double.MAX_VALUE, 0, Double.MAX_VALUE)),
+                0, 1, 4, new Viewport(-1, 1, -1, 1),
+                true, true, true, false, -1);
+
+        final RenderResult result = new PlotRenderer().render(
+                new RenderRequest(invalid, 40, 40, RenderQuality.FULL),
+                CancellationToken.NONE);
+
+        assertTrue(result.extrema().isEmpty());
+        assertEquals(Color.WHITE.getRGB(), result.image().getRGB(2, 2));
     }
 
     private static PlotSnapshot snapshot(final double minimum, final double maximum,

@@ -25,11 +25,13 @@ import javax.swing.Timer;
 import javax.swing.event.TableModelEvent;
 import nlipse.math.DistanceField;
 import nlipse.math.DistanceFields;
+import nlipse.math.ScalarRanges;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
 import nlipse.model.PlotModel;
 import nlipse.model.PlotSnapshot;
 import nlipse.render.AsyncRenderService;
+import nlipse.render.FieldExtrema;
 import nlipse.render.PlotRenderer;
 import nlipse.render.RenderQuality;
 import nlipse.render.RenderRequest;
@@ -470,34 +472,43 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void renderCompleted(final RenderResult result) {
-        sampledMin = result.fieldMin();
-        sampledMax = result.fieldMax();
-        fullMin = sampledMin;
-        fullMax = sampledMax;
-        if (!Double.isFinite(fullMin) || !Double.isFinite(fullMax) || fullMax <= fullMin) {
-            final double centre = Double.isFinite(fullMin) ? fullMin : 0;
-            final double padding = Math.max(1, Math.abs(centre) * 0.05);
-            fullMin = centre - padding;
-            fullMax = centre + padding;
-            if (!Double.isFinite(fullMin) || !Double.isFinite(fullMax)) {
-                if (centre >= 0) {
-                    fullMin = Math.nextDown(centre);
-                    fullMax = centre;
-                } else {
-                    fullMin = centre;
-                    fullMax = Math.nextUp(centre);
+        final FieldExtrema extrema = result.extrema().orElse(null);
+        final boolean rangeChanged;
+        if (extrema == null) {
+            sampledMin = Double.NaN;
+            sampledMax = Double.NaN;
+            pendingRangeAdjustment = RangeAdjustment.NONE;
+            rangeChanged = false;
+        } else {
+            sampledMin = extrema.minimum();
+            sampledMax = extrema.maximum();
+            fullMin = sampledMin;
+            fullMax = sampledMax;
+            if (fullMax <= fullMin) {
+                final double centre = fullMin;
+                final double padding = Math.max(1, Math.abs(centre) * 0.05);
+                fullMin = centre - padding;
+                fullMax = centre + padding;
+                if (!Double.isFinite(fullMin) || !Double.isFinite(fullMax)) {
+                    if (centre >= 0) {
+                        fullMin = Math.nextDown(centre);
+                        fullMax = centre;
+                    } else {
+                        fullMin = centre;
+                        fullMax = Math.nextUp(centre);
+                    }
                 }
             }
+            rangeChanged = applyPendingRangeAdjustment();
         }
-        final boolean rangeChanged = applyPendingRangeAdjustment();
         syncSlidersFromModel();
         view.getCanvas().setRenderResult(result);
         view.getRenderInfo().setText(String.format(Locale.ROOT,
-                "%s · %.1f ms · %d×%d · cache %s",
+                "%s · %.1f ms · %d×%d · cache %s%s",
                 result.quality() == RenderQuality.FULL ? "Full" : "Preview",
                 result.renderNanos() / 1_000_000.0,
                 result.image().getWidth(), result.image().getHeight(),
-                renderer.cacheSummary()));
+                renderer.cacheSummary(), extrema == null ? " · no finite samples" : ""));
         if (rangeChanged) {
             requestFullRender();
         }
@@ -522,16 +533,14 @@ public final class PlotController implements AutoCloseable {
         double newMax = oldMax;
         if (adjustment == RangeAdjustment.AUTO_FIT
                 || oldMax < fullMin || oldMin > fullMax || oldMin > oldMax) {
-            final double range = fullMax - fullMin;
-            newMin = fullMin + range * 0.05;
-            newMax = fullMin + range * 0.95;
+            newMin = ScalarRanges.interpolate(fullMin, fullMax, 0.05);
+            newMax = ScalarRanges.interpolate(fullMin, fullMax, 0.95);
         } else {
             newMin = Math.max(fullMin, oldMin);
             newMax = Math.min(fullMax, oldMax);
             if (newMin > newMax) {
-                final double range = fullMax - fullMin;
-                newMin = fullMin + range * 0.05;
-                newMax = fullMin + range * 0.95;
+                newMin = ScalarRanges.interpolate(fullMin, fullMax, 0.05);
+                newMax = ScalarRanges.interpolate(fullMin, fullMax, 0.95);
             }
         }
         if (sameDouble(oldMin, newMin) && sameDouble(oldMax, newMax)) {
@@ -563,21 +572,29 @@ public final class PlotController implements AutoCloseable {
 
     private void updateDistanceLabels() {
         view.getDistanceMinLabel().setText(String.format(Locale.ROOT,
-                "Dmin: %.5g   (field min: %.5g)", model.getDistanceMin(), sampledMin));
+                "Dmin: %.5g   (field min: %s)", model.getDistanceMin(),
+                formatFieldValue(sampledMin)));
         view.getDistanceMaxLabel().setText(String.format(Locale.ROOT,
-                "Dmax: %.5g   (field max: %.5g)", model.getDistanceMax(), sampledMax));
+                "Dmax: %.5g   (field max: %s)", model.getDistanceMax(),
+                formatFieldValue(sampledMax)));
     }
 
     private double sliderToDistance(final int sliderValue) {
-        return fullMin + (fullMax - fullMin) * sliderValue / (double) SLIDER_TICKS;
+        return ScalarRanges.interpolate(fullMin, fullMax,
+                sliderValue / (double) SLIDER_TICKS);
     }
 
     private int distanceToSlider(final double distance) {
         if (fullMax <= fullMin) {
             return SLIDER_TICKS / 2;
         }
-        final int value = (int) Math.round(SLIDER_TICKS * (distance - fullMin) / (fullMax - fullMin));
+        final int value = (int) Math.round(SLIDER_TICKS
+                * ScalarRanges.fraction(distance, fullMin, fullMax));
         return Math.clamp(value, 0, SLIDER_TICKS);
+    }
+
+    private static String formatFieldValue(final double value) {
+        return Double.isFinite(value) ? String.format(Locale.ROOT, "%.5g", value) : "unavailable";
     }
 
     private void syncTableFromModel() {
