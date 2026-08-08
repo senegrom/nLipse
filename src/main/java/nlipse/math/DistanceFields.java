@@ -24,20 +24,16 @@ public final class DistanceFields {
             if (focus == null) {
                 throw new IllegalArgumentException("Focus " + (i + 1) + " is null");
             }
-            xs[i] = focus.getX();
-            ys[i] = focus.getY();
-            weights[i] = focus.getWeight();
+            xs[i] = focus.x();
+            ys[i] = focus.y();
+            weights[i] = focus.weight();
         }
 
-        switch (type) {
-            case CASSIN:
-                return new CassiniField(xs, ys, weights);
-            case HYPERB:
-                return new HyperbolaField(xs, ys, weights);
-            case LIPSE:
-            default:
-                return new SumField(xs, ys, weights);
-        }
+        return switch (type) {
+            case LIPSE -> new SumField(xs, ys, weights);
+            case CASSIN -> new CassiniField(xs, ys, weights);
+            case HYPERB -> new HyperbolaField(xs, ys, weights);
+        };
     }
 
     private abstract static class FocusField implements DistanceField {

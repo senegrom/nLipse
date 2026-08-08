@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
@@ -22,13 +22,13 @@ class PlotRendererTest {
         final RenderResult secondResult = renderer.render(
                 new RenderRequest(second, 120, 90, RenderQuality.FULL), CancellationToken.NONE);
 
-        assertEquals(120, firstResult.getImage().getWidth());
-        assertEquals(90, firstResult.getImage().getHeight());
-        assertTrue(Double.isFinite(firstResult.getFieldMin()));
-        assertTrue(Double.isFinite(firstResult.getFieldMax()));
+        assertEquals(120, firstResult.image().getWidth());
+        assertEquals(90, firstResult.image().getHeight());
+        assertTrue(Double.isFinite(firstResult.fieldMin()));
+        assertTrue(Double.isFinite(firstResult.fieldMax()));
         assertEquals(1, renderer.getCacheMisses());
         assertEquals(1, renderer.getCacheHits());
-        assertEquals(120, secondResult.getImage().getWidth());
+        assertEquals(120, secondResult.image().getWidth());
     }
 
     @Test
@@ -37,7 +37,7 @@ class PlotRendererTest {
         renderer.render(new RenderRequest(snapshot(1, 3, 4, true),
                 80, 80, RenderQuality.FULL), CancellationToken.NONE);
         final PlotSnapshot moved = new PlotSnapshot(CurveType.LIPSE,
-                Arrays.asList(new Focus(-0.5, 0, 1), new Focus(1, 0, 1)),
+                List.of(new Focus(-0.5, 0, 1), new Focus(1, 0, 1)),
                 1, 3, 4, new Viewport(-2, 2, -2, 2), true, true, true, false, 0);
         renderer.render(new RenderRequest(moved, 80, 80, RenderQuality.FULL), CancellationToken.NONE);
 
@@ -62,7 +62,7 @@ class PlotRendererTest {
     private static PlotSnapshot snapshot(final double minimum, final double maximum,
             final int count, final boolean background) {
         return new PlotSnapshot(CurveType.LIPSE,
-                Arrays.asList(new Focus(-1, 0, 1), new Focus(1, 0, 1)),
+                List.of(new Focus(-1, 0, 1), new Focus(1, 0, 1)),
                 minimum, maximum, count, new Viewport(-2, 2, -2, 2),
                 background, true, true, false, 0);
     }

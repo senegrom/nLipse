@@ -10,7 +10,7 @@ public enum RenderQuality {
         this.sampleStep = sampleStep;
     }
 
-    public int getSampleStep() {
+    public int sampleStep() {
         return sampleStep;
     }
 }

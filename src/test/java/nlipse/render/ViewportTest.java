@@ -34,12 +34,12 @@ class ViewportTest {
     void panAndZoomAreCursorCentred() {
         final Viewport viewport = new Viewport(-1, 1, -1, 1);
         final Viewport panned = viewport.panPixels(10, -20, 101, 101);
-        assertEquals(-1.2, panned.getXMin(), EPSILON);
-        assertEquals(-1.4, panned.getYMin(), EPSILON);
+        assertEquals(-1.2, panned.xMin(), EPSILON);
+        assertEquals(-1.4, panned.yMin(), EPSILON);
 
         final Viewport zoomed = viewport.zoomAtPixel(50, 50, 101, 101, 0.5);
-        assertEquals(-0.5, zoomed.getXMin(), EPSILON);
-        assertEquals(0.5, zoomed.getXMax(), EPSILON);
+        assertEquals(-0.5, zoomed.xMin(), EPSILON);
+        assertEquals(0.5, zoomed.xMax(), EPSILON);
     }
 
     @Test

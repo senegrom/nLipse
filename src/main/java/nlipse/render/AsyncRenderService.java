@@ -5,7 +5,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
@@ -25,12 +24,8 @@ public final class AsyncRenderService implements AutoCloseable {
     public AsyncRenderService(final RenderEngine engine, final Executor callbackExecutor) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.callbackExecutor = Objects.requireNonNull(callbackExecutor, "callbackExecutor");
-        final ThreadFactory threadFactory = runnable -> {
-            final Thread thread = new Thread(runnable, "nlipse-renderer");
-            thread.setDaemon(true);
-            return thread;
-        };
-        worker = Executors.newSingleThreadExecutor(threadFactory);
+        worker = Executors.newSingleThreadExecutor(
+                Thread.ofPlatform().name("nlipse-renderer").daemon().factory());
     }
 
     public synchronized long submit(final RenderRequest request,

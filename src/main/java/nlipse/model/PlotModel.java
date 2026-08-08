@@ -23,17 +23,17 @@ public final class PlotModel {
         if (config == null) {
             throw new IllegalArgumentException("Configuration is required");
         }
-        curveType = config.getCurveType();
-        foci = new ArrayList<>(config.getFoci());
-        distanceMin = config.getDistanceMin();
-        distanceMax = config.getDistanceMax();
-        curveCount = config.getCurveCount();
-        viewport = config.getViewport();
-        defaultViewport = config.getViewport();
-        showBackground = config.isShowBackground();
-        showExtrema = config.isShowExtrema();
-        antiAlias = config.isAntiAlias();
-        logSpacing = config.isLogSpacing();
+        curveType = config.curveType();
+        foci = new ArrayList<>(config.foci());
+        distanceMin = config.distanceMin();
+        distanceMax = config.distanceMax();
+        curveCount = config.curveCount();
+        viewport = config.viewport();
+        defaultViewport = config.viewport();
+        showBackground = config.showBackground();
+        showExtrema = config.showExtrema();
+        antiAlias = config.antiAlias();
+        logSpacing = config.logSpacing();
         selectedFocusIndex = -1;
     }
 
@@ -62,7 +62,7 @@ public final class PlotModel {
     }
 
     public synchronized List<Focus> getFociCopy() {
-        return new ArrayList<>(foci);
+        return List.copyOf(foci);
     }
 
     public synchronized int addFocus(final Focus focus) {

@@ -13,7 +13,7 @@ public enum CurveType {
         this.defaultLogSpacing = defaultLogSpacing;
     }
 
-    public boolean isDefaultLogSpacing() {
+    public boolean defaultLogSpacing() {
         return defaultLogSpacing;
     }
 

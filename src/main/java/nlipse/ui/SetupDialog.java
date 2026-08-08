@@ -77,10 +77,10 @@ public final class SetupDialog extends JDialog {
     }
 
     private void initialise(final PlotConfig initial) {
-        curveType.setSelectedItem(initial.getCurveType());
-        for (final Focus focus : initial.getFoci()) {
-            focusModel.addRow(new Object[]{format(focus.getX()), format(focus.getY()),
-                    format(focus.getWeight())});
+        curveType.setSelectedItem(initial.curveType());
+        for (final Focus focus : initial.foci()) {
+            focusModel.addRow(new Object[]{format(focus.x()), format(focus.y()),
+                    format(focus.weight())});
         }
         focusTable.setRowHeight(22);
         final DefaultCellEditor editor = new DefaultCellEditor(new JTextField());
@@ -88,17 +88,17 @@ public final class SetupDialog extends JDialog {
         focusTable.setDefaultEditor(Object.class, editor);
         focusTable.setPreferredScrollableViewportSize(new Dimension(285, 165));
 
-        distanceMin.setText(format(initial.getDistanceMin()));
-        distanceMax.setText(format(initial.getDistanceMax()));
-        curveCount.setText(Integer.toString(initial.getCurveCount()));
-        xMin.setText(format(initial.getViewport().getXMin()));
-        xMax.setText(format(initial.getViewport().getXMax()));
-        yMin.setText(format(initial.getViewport().getYMin()));
-        yMax.setText(format(initial.getViewport().getYMax()));
-        showBackground.setSelected(initial.isShowBackground());
-        showExtrema.setSelected(initial.isShowExtrema());
-        antiAlias.setSelected(initial.isAntiAlias());
-        logSpacing.setSelected(initial.isLogSpacing());
+        distanceMin.setText(format(initial.distanceMin()));
+        distanceMax.setText(format(initial.distanceMax()));
+        curveCount.setText(Integer.toString(initial.curveCount()));
+        xMin.setText(format(initial.viewport().xMin()));
+        xMax.setText(format(initial.viewport().xMax()));
+        yMin.setText(format(initial.viewport().yMin()));
+        yMax.setText(format(initial.viewport().yMax()));
+        showBackground.setSelected(initial.showBackground());
+        showExtrema.setSelected(initial.showExtrema());
+        antiAlias.setSelected(initial.antiAlias());
+        logSpacing.setSelected(initial.logSpacing());
     }
 
     private void buildUi() {

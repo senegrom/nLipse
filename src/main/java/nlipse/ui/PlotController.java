@@ -110,9 +110,9 @@ public final class PlotController implements AutoCloseable {
             }
             model.setCurveType(type);
             suppressControls = true;
-            view.getLogSpacing().setSelected(type.isDefaultLogSpacing());
+            view.getLogSpacing().setSelected(type.defaultLogSpacing());
             suppressControls = false;
-            model.setLogSpacing(type.isDefaultLogSpacing());
+            model.setLogSpacing(type.defaultLogSpacing());
             refreshCursorField();
             markRangeAdjustment(RangeAdjustment.AUTO_FIT);
             requestFullRender();
@@ -150,8 +150,8 @@ public final class PlotController implements AutoCloseable {
 
         view.getAddFocus().addActionListener(event -> {
             final Viewport viewport = model.getViewport();
-            model.addFocus(new Focus((viewport.getXMin() + viewport.getXMax()) * 0.5,
-                    (viewport.getYMin() + viewport.getYMax()) * 0.5, 1));
+            model.addFocus(new Focus((viewport.xMin() + viewport.xMax()) * 0.5,
+                    (viewport.yMin() + viewport.yMax()) * 0.5, 1));
             refreshCursorField();
             syncTableFromModel();
             markRangeAdjustment(RangeAdjustment.CLAMP);
@@ -183,9 +183,9 @@ public final class PlotController implements AutoCloseable {
                 final double value = parseFinite(view.getFocusTableModel().getValueAt(row, column));
                 final Focus focus = model.getFocus(row);
                 if (column == 0) {
-                    model.setFocusPosition(row, value, focus.getY());
+                    model.setFocusPosition(row, value, focus.y());
                 } else if (column == 1) {
-                    model.setFocusPosition(row, focus.getX(), value);
+                    model.setFocusPosition(row, focus.x(), value);
                 } else {
                     model.setFocusWeight(row, value);
                 }
@@ -344,7 +344,7 @@ public final class PlotController implements AutoCloseable {
             return;
         }
         final Focus focus = model.getFocus(selected);
-        model.setFocusPosition(selected, focus.getX() + dx, focus.getY() + dy);
+        model.setFocusPosition(selected, focus.x() + dx, focus.y() + dy);
         refreshCursorField();
         syncFocusRow(selected);
         markRangeAdjustment(RangeAdjustment.CLAMP);
@@ -374,8 +374,8 @@ public final class PlotController implements AutoCloseable {
         double bestDistance = HIT_RADIUS * HIT_RADIUS;
         for (int index = 0; index < foci.size(); index++) {
             final Focus focus = foci.get(index);
-            final double dx = viewport.pixelX(focus.getX(), canvas.getWidth()) - pixelX;
-            final double dy = viewport.pixelY(focus.getY(), canvas.getHeight()) - pixelY;
+            final double dx = viewport.pixelX(focus.x(), canvas.getWidth()) - pixelX;
+            final double dy = viewport.pixelY(focus.y(), canvas.getHeight()) - pixelY;
             final double distance = dx * dx + dy * dy;
             if (distance < bestDistance) {
                 bestDistance = distance;
@@ -466,8 +466,8 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void renderCompleted(final RenderResult result) {
-        fullMin = result.getFieldMin();
-        fullMax = result.getFieldMax();
+        fullMin = result.fieldMin();
+        fullMax = result.fieldMax();
         if (!Double.isFinite(fullMin) || !Double.isFinite(fullMax) || fullMax <= fullMin) {
             fullMin = Double.isFinite(fullMin) ? fullMin : 0;
             fullMax = fullMin + 1;
@@ -477,9 +477,9 @@ public final class PlotController implements AutoCloseable {
         view.getCanvas().setRenderResult(result);
         view.getRenderInfo().setText(String.format(Locale.ROOT,
                 "%s · %.1f ms · %d×%d · cache %s",
-                result.getQuality() == RenderQuality.FULL ? "Full" : "Preview",
-                result.getRenderNanos() / 1_000_000.0,
-                result.getImage().getWidth(), result.getImage().getHeight(),
+                result.quality() == RenderQuality.FULL ? "Full" : "Preview",
+                result.renderNanos() / 1_000_000.0,
+                result.image().getWidth(), result.image().getHeight(),
                 renderer.cacheSummary()));
         if (rangeChanged) {
             requestFullRender();
@@ -560,7 +560,7 @@ public final class PlotController implements AutoCloseable {
             return SLIDER_TICKS / 2;
         }
         final int value = (int) Math.round(SLIDER_TICKS * (distance - fullMin) / (fullMax - fullMin));
-        return Math.max(0, Math.min(SLIDER_TICKS, value));
+        return Math.clamp(value, 0, SLIDER_TICKS);
     }
 
     private void syncTableFromModel() {
@@ -575,15 +575,15 @@ public final class PlotController implements AutoCloseable {
         }
         final Focus focus = model.getFocus(index);
         suppressTable = true;
-        view.getFocusTableModel().setValueAt(format(focus.getX()), index, 0);
-        view.getFocusTableModel().setValueAt(format(focus.getY()), index, 1);
-        view.getFocusTableModel().setValueAt(format(focus.getWeight()), index, 2);
+        view.getFocusTableModel().setValueAt(format(focus.x()), index, 0);
+        view.getFocusTableModel().setValueAt(format(focus.y()), index, 1);
+        view.getFocusTableModel().setValueAt(format(focus.weight()), index, 2);
         suppressTable = false;
     }
 
     private void refreshCursorField() {
         final PlotSnapshot snapshot = model.snapshot();
-        cursorField = DistanceFields.create(snapshot.getCurveType(), snapshot.getFoci());
+        cursorField = DistanceFields.create(snapshot.curveType(), snapshot.foci());
     }
 
     private void updateCursorInfo(final int pixelX, final int pixelY) {

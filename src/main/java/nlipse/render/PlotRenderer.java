@@ -46,42 +46,42 @@ public final class PlotRenderer implements RenderEngine {
         final long started = System.nanoTime();
         token.throwIfCancelled();
 
-        final PlotSnapshot snapshot = request.getSnapshot();
-        final DistanceField field = DistanceFields.create(snapshot.getCurveType(), snapshot.getFoci());
+        final PlotSnapshot snapshot = request.snapshot();
+        final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci());
         final FieldGrid grid = getGrid(request, field, token);
         token.throwIfCancelled();
 
-        final BufferedImage image = new BufferedImage(request.getWidth(), request.getHeight(),
+        final BufferedImage image = new BufferedImage(request.width(), request.height(),
                 BufferedImage.TYPE_INT_ARGB);
         final Graphics2D graphics = image.createGraphics();
         try {
             graphics.setColor(Color.WHITE);
-            graphics.fillRect(0, 0, request.getWidth(), request.getHeight());
+            graphics.fillRect(0, 0, request.width(), request.height());
             graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                    snapshot.isAntiAlias() ? RenderingHints.VALUE_ANTIALIAS_ON
+                    snapshot.antiAlias() ? RenderingHints.VALUE_ANTIALIAS_ON
                             : RenderingHints.VALUE_ANTIALIAS_OFF);
 
-            if (snapshot.isShowBackground()) {
+            if (snapshot.showBackground()) {
                 drawBackground(graphics, grid, token);
             }
-            drawAxes(graphics, snapshot.getViewport(), request.getWidth(), request.getHeight());
+            drawAxes(graphics, snapshot.viewport(), request.width(), request.height());
             drawContours(graphics, request, grid, field, token);
             drawFoci(graphics, request);
-            if (snapshot.isShowExtrema()) {
-                drawMarker(graphics, snapshot.getViewport(), request.getWidth(), request.getHeight(),
+            if (snapshot.showExtrema()) {
+                drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
                         grid.getMinPoint(), MIN_COLOR, 7);
-                drawMarker(graphics, snapshot.getViewport(), request.getWidth(), request.getHeight(),
+                drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
                         grid.getMaxPoint(), MAX_COLOR, 7);
             }
             graphics.setColor(Color.BLACK);
             graphics.setStroke(new BasicStroke(1f));
-            graphics.drawRect(0, 0, request.getWidth() - 1, request.getHeight() - 1);
+            graphics.drawRect(0, 0, request.width() - 1, request.height() - 1);
         } finally {
             graphics.dispose();
         }
 
         token.throwIfCancelled();
-        return new RenderResult(image, request.getSequence(), request.getQuality(),
+        return new RenderResult(image, request.sequence(), request.quality(),
                 grid.getMinValue(), grid.getMaxValue(), grid.getMinPoint(), grid.getMaxPoint(),
                 System.nanoTime() - started);
     }
@@ -97,8 +97,8 @@ public final class PlotRenderer implements RenderEngine {
             }
         }
         cacheMisses.incrementAndGet();
-        final FieldGrid sampled = FieldGrid.sample(field, request.getSnapshot().getViewport(),
-                request.getWidth(), request.getHeight(), request.getQuality().getSampleStep(), token);
+        final FieldGrid sampled = FieldGrid.sample(field, request.snapshot().viewport(),
+                request.width(), request.height(), request.quality().sampleStep(), token);
         token.throwIfCancelled();
         synchronized (gridCache) {
             gridCache.put(key, sampled);
@@ -119,7 +119,7 @@ public final class PlotRenderer implements RenderEngine {
             for (int column = 0; column < grid.getColumns(); column++) {
                 final double value = grid.getValue(column, row);
                 final double normalized = range > 0 && Double.isFinite(value)
-                        ? clamp01((value - min) / range) : 0;
+                        ? Math.clamp((value - min) / range, 0, 1) : 0;
                 sampled.setRGB(column, row, blend(Color.WHITE, BACKGROUND_TARGET, normalized).getRGB());
             }
         }
@@ -136,11 +136,11 @@ public final class PlotRenderer implements RenderEngine {
             final int width, final int height) {
         graphics.setColor(AXIS_COLOR);
         graphics.setStroke(new BasicStroke(1f));
-        if (viewport.getYMin() <= 0 && viewport.getYMax() >= 0) {
+        if (viewport.yMin() <= 0 && viewport.yMax() >= 0) {
             final double y = viewport.pixelY(0, height);
             graphics.drawLine(0, (int) Math.round(y), width - 1, (int) Math.round(y));
         }
-        if (viewport.getXMin() <= 0 && viewport.getXMax() >= 0) {
+        if (viewport.xMin() <= 0 && viewport.xMax() >= 0) {
             final double x = viewport.pixelX(0, width);
             graphics.drawLine((int) Math.round(x), 0, (int) Math.round(x), height - 1);
         }
@@ -148,16 +148,16 @@ public final class PlotRenderer implements RenderEngine {
 
     private static void drawContours(final Graphics2D graphics, final RenderRequest request,
             final FieldGrid grid, final DistanceField field, final CancellationToken token) {
-        final PlotSnapshot snapshot = request.getSnapshot();
-        final double[] levels = levels(snapshot.getDistanceMin(), snapshot.getDistanceMax(),
-                snapshot.getCurveCount(), snapshot.isLogSpacing());
-        graphics.setStroke(new BasicStroke(request.getQuality() == RenderQuality.FULL ? 1.25f : 1f,
+        final PlotSnapshot snapshot = request.snapshot();
+        final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
+                snapshot.curveCount(), snapshot.logSpacing());
+        graphics.setStroke(new BasicStroke(request.quality() == RenderQuality.FULL ? 1.25f : 1f,
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         for (int index = 0; index < levels.length; index++) {
             token.throwIfCancelled();
             graphics.setColor(curveColor(index, levels.length));
             final Path2D.Double path = new Path2D.Double();
-            MarchingSquares.trace(grid, field, snapshot.getViewport(), levels[index], token,
+            MarchingSquares.trace(grid, field, snapshot.viewport(), levels[index], token,
                     (x1, y1, x2, y2) -> {
                         path.moveTo(x1, y1);
                         path.lineTo(x2, y2);
@@ -167,20 +167,20 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private static void drawFoci(final Graphics2D graphics, final RenderRequest request) {
-        final PlotSnapshot snapshot = request.getSnapshot();
-        for (int index = 0; index < snapshot.getFoci().size(); index++) {
-            final Focus focus = snapshot.getFoci().get(index);
-            final Point2 point = new Point2(focus.getX(), focus.getY());
-            drawMarker(graphics, snapshot.getViewport(), request.getWidth(), request.getHeight(), point,
-                    index == snapshot.getSelectedFocusIndex() ? SELECTED_FOCUS_COLOR : FOCUS_COLOR,
-                    index == snapshot.getSelectedFocusIndex() ? 10 : 8);
+        final PlotSnapshot snapshot = request.snapshot();
+        for (int index = 0; index < snapshot.foci().size(); index++) {
+            final Focus focus = snapshot.foci().get(index);
+            final Point2 point = new Point2(focus.x(), focus.y());
+            drawMarker(graphics, snapshot.viewport(), request.width(), request.height(), point,
+                    index == snapshot.selectedFocusIndex() ? SELECTED_FOCUS_COLOR : FOCUS_COLOR,
+                    index == snapshot.selectedFocusIndex() ? 10 : 8);
         }
     }
 
     private static void drawMarker(final Graphics2D graphics, final Viewport viewport,
             final int width, final int height, final Point2 point, final Color color, final int diameter) {
-        final double x = viewport.pixelX(point.getX(), width);
-        final double y = viewport.pixelY(point.getY(), height);
+        final double x = viewport.pixelX(point.x(), width);
+        final double y = viewport.pixelY(point.y(), height);
         final int left = (int) Math.round(x - diameter / 2.0);
         final int top = (int) Math.round(y - diameter / 2.0);
         graphics.setColor(color);
@@ -218,16 +218,13 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private static Color blend(final Color from, final Color to, final double fraction) {
-        final double t = clamp01(fraction);
+        final double t = Math.clamp(fraction, 0, 1);
         final int red = (int) Math.round(from.getRed() + (to.getRed() - from.getRed()) * t);
         final int green = (int) Math.round(from.getGreen() + (to.getGreen() - from.getGreen()) * t);
         final int blue = (int) Math.round(from.getBlue() + (to.getBlue() - from.getBlue()) * t);
         return new Color(red, green, blue);
     }
 
-    private static double clamp01(final double value) {
-        return Math.max(0, Math.min(1, value));
-    }
 
     public long getCacheHits() {
         return cacheHits.get();

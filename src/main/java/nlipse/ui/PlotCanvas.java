@@ -27,7 +27,7 @@ public final class PlotCanvas extends JComponent {
     }
 
     public void setRenderResult(final RenderResult result) {
-        image = result.getImage();
+        image = result.image();
         rendering = false;
         message = "";
         repaint();

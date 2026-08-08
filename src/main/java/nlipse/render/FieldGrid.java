@@ -53,8 +53,8 @@ public final class FieldGrid {
             throw new IllegalArgumentException("Grid size must be at least 2 by 2");
         }
         final int step = Math.max(1, requestedStep);
-        final int columns = (pixelWidth - 1 + step - 1) / step + 1;
-        final int rows = (pixelHeight - 1 + step - 1) / step + 1;
+        final int columns = Math.ceilDiv(pixelWidth - 1, step) + 1;
+        final int rows = Math.ceilDiv(pixelHeight - 1, step) + 1;
         final int[] pixelXs = new int[columns];
         final int[] pixelYs = new int[rows];
         for (int column = 0; column < columns; column++) {
@@ -164,8 +164,8 @@ public final class FieldGrid {
     }
 
     public double interpolateAtPixel(final double pixelX, final double pixelY) {
-        final double clampedX = Math.max(0, Math.min(pixelWidth - 1.0, pixelX));
-        final double clampedY = Math.max(0, Math.min(pixelHeight - 1.0, pixelY));
+        final double clampedX = Math.clamp(pixelX, 0, pixelWidth - 1.0);
+        final double clampedY = Math.clamp(pixelY, 0, pixelHeight - 1.0);
         final int left = locate(pixelXs, clampedX);
         final int top = locate(pixelYs, clampedY);
         final int right = Math.min(left + 1, columns - 1);

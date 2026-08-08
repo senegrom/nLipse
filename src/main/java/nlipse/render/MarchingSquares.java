@@ -184,7 +184,7 @@ public final class MarchingSquares {
         if (difference == 0 || !Double.isFinite(difference)) {
             t = 0.5;
         } else {
-            t = Math.max(0, Math.min(1, (level - value0) / difference));
+            t = Math.clamp((level - value0) / difference, 0, 1);
         }
         return new EdgePoint(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
     }
@@ -193,7 +193,7 @@ public final class MarchingSquares {
             final SegmentConsumer consumer) {
         final EdgePoint a = edges[first];
         final EdgePoint b = edges[second];
-        consumer.accept(a.x, a.y, b.x, b.y);
+        consumer.accept(a.x(), a.y(), b.x(), b.y());
     }
 
     private static double sample(final DistanceField field, final Viewport viewport,
@@ -202,13 +202,6 @@ public final class MarchingSquares {
                 viewport.worldY(pixelY, grid.getPixelHeight()));
     }
 
-    private static final class EdgePoint {
-        private final double x;
-        private final double y;
-
-        private EdgePoint(final double x, final double y) {
-            this.x = x;
-            this.y = y;
-        }
+    private record EdgePoint(double x, double y) {
     }
 }

@@ -15,8 +15,8 @@ class FieldGridTest {
 
         assertEquals(-2, grid.getMinValue(), EPSILON);
         assertEquals(2, grid.getMaxValue(), EPSILON);
-        assertEquals(-1, grid.getMinPoint().getX(), EPSILON);
-        assertEquals(-1, grid.getMinPoint().getY(), EPSILON);
+        assertEquals(-1, grid.getMinPoint().x(), EPSILON);
+        assertEquals(-1, grid.getMinPoint().y(), EPSILON);
         assertEquals(0, grid.interpolateAtPixel(1, 1), EPSILON);
     }
 

@@ -14,8 +14,8 @@ class PlotModelTest {
         final PlotSnapshot before = model.snapshot();
         model.setFocusPosition(0, 99, 100);
         final PlotSnapshot after = model.snapshot();
-        assertNotEquals(before.getFoci().get(0), after.getFoci().get(0));
-        assertEquals(2, before.getFoci().get(0).getX(), 1e-12);
+        assertNotEquals(before.foci().get(0), after.foci().get(0));
+        assertEquals(2, before.foci().get(0).x(), 1e-12);
     }
 
     @Test

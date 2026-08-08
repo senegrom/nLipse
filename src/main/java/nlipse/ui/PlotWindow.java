@@ -160,20 +160,20 @@ public final class PlotWindow extends JFrame {
     }
 
     private void initialise(final PlotSnapshot snapshot) {
-        curveType.setSelectedItem(snapshot.getCurveType());
-        curveCount.setText(Integer.toString(snapshot.getCurveCount()));
-        logSpacing.setSelected(snapshot.isLogSpacing());
-        showBackground.setSelected(snapshot.isShowBackground());
-        showExtrema.setSelected(snapshot.isShowExtrema());
-        antiAlias.setSelected(snapshot.isAntiAlias());
-        setFocusRows(snapshot.getFoci(), snapshot.getSelectedFocusIndex());
+        curveType.setSelectedItem(snapshot.curveType());
+        curveCount.setText(Integer.toString(snapshot.curveCount()));
+        logSpacing.setSelected(snapshot.logSpacing());
+        showBackground.setSelected(snapshot.showBackground());
+        showExtrema.setSelected(snapshot.showExtrema());
+        antiAlias.setSelected(snapshot.antiAlias());
+        setFocusRows(snapshot.foci(), snapshot.selectedFocusIndex());
     }
 
     public void setFocusRows(final List<Focus> foci, final int selectedIndex) {
         focusTableModel.setRowCount(0);
         for (final Focus focus : foci) {
-            focusTableModel.addRow(new Object[]{format(focus.getX()), format(focus.getY()),
-                    format(focus.getWeight())});
+            focusTableModel.addRow(new Object[]{format(focus.x()), format(focus.y()),
+                    format(focus.weight())});
         }
         if (selectedIndex >= 0 && selectedIndex < foci.size()) {
             focusTable.setRowSelectionInterval(selectedIndex, selectedIndex);
