@@ -1,0 +1,26 @@
+name: Export current source
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/export-current.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/upload-artifact@v4
+        with:
+          name: current-source
+          path: |
+            src
+            scripts
+            pom.xml
+            README.md
+            .gitignore
+            .github/workflows/ci.yml
