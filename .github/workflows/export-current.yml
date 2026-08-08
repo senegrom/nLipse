@@ -25,7 +25,7 @@ jobs:
           JAVA_PARENT=$(dirname "$JAVA_HOME")
           JAVA_NAME=$(basename "$JAVA_HOME")
           MAVEN_HOME=$(dirname "$(dirname "$(readlink -f "$(command -v mvn)")")")
-          tar -C "$JAVA_PARENT" -czf jdk25.tar.gz "$JAVA_NAME"
+          tar -C "$JAVA_PARENT" -chzf jdk25.tar.gz "$JAVA_NAME"
           tar -C "$(dirname "$MAVEN_HOME")" -czf maven.tar.gz "$(basename "$MAVEN_HOME")"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
