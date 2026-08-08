@@ -1,5 +1,9 @@
-/bin/
+/target/
 *.class
-out.log
 *.log
 .settings/
+.classpath
+.project
+.idea/
+*.iml
+.DS_Store

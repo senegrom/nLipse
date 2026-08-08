@@ -1,0 +1,40 @@
+name: CI
+
+"on":
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Java 25
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build and test
+        run: mvn --batch-mode --no-transfer-progress verify
+
+      - name: Verify JDK 25 AOT training path
+        run: |
+          java -Djava.awt.headless=true -XX:+UseCompactObjectHeaders \
+            -XX:AOTCacheOutput=target/nlipse.aot \
+            -cp target/nlipse-0.5.0-SNAPSHOT.jar nlipse.app.AotTrainer
+          test -s target/nlipse.aot

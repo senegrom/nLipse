@@ -1,0 +1,37 @@
+name: Export JDK 25 toolchain
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/export-current.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Package toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAVA_PARENT=$(dirname "$JAVA_HOME")
+          JAVA_NAME=$(basename "$JAVA_HOME")
+          MAVEN_HOME=$(dirname "$(dirname "$(readlink -f "$(command -v mvn)")")")
+          tar -C "$JAVA_PARENT" -czf jdk25.tar.gz "$JAVA_NAME"
+          tar -C "$(dirname "$MAVEN_HOME")" -czf maven.tar.gz "$(basename "$MAVEN_HOME")"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jdk25-toolchain
+          path: |
+            jdk25.tar.gz
+            maven.tar.gz
+          if-no-files-found: error
+          retention-days: 1
