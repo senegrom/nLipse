@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
@@ -38,6 +39,30 @@ class DistanceFieldsTest {
         final DistanceField field = DistanceFields.create(CurveType.HYPERB,
                 List.of(new Focus(1, 2, 3)));
         assertEquals(0, field.value(100, -50), EPSILON);
+    }
+
+
+    @Test
+    void largeHyperbolaMatchesBruteForceReference() {
+        final List<Focus> foci = IntStream.range(0, 64)
+                .mapToObj(index -> new Focus(index * 0.17 - 4, index % 7 - 3,
+                        index % 5 - 2.25))
+                .toList();
+        final DistanceField field = DistanceFields.create(CurveType.HYPERB, foci);
+        final double x = 0.75;
+        final double y = -1.25;
+        final double[] distances = foci.stream()
+                .mapToDouble(focus -> Math.hypot(x - focus.x(), y - focus.y()) * focus.weight())
+                .toArray();
+        double sum = 0;
+        for (int i = 0; i < distances.length; i++) {
+            for (int j = 0; j < i; j++) {
+                sum += Math.abs(distances[i] - distances[j]);
+            }
+        }
+        final double expected = 2 * sum / ((double) distances.length * (distances.length - 1));
+
+        assertEquals(expected, field.value(x, y), 1e-10);
     }
 
     @Test

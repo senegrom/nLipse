@@ -1,5 +1,6 @@
 package nlipse.math;
 
+import java.util.Arrays;
 import java.util.List;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
@@ -83,6 +84,8 @@ public final class DistanceFields {
     }
 
     private static final class HyperbolaField extends FocusField {
+        private static final int SORT_THRESHOLD = 24;
+
         private final ThreadLocal<double[]> buffer;
 
         HyperbolaField(final double[] xs, final double[] ys, final double[] weights) {
@@ -99,11 +102,22 @@ public final class DistanceFields {
             for (int i = 0; i < xs.length; i++) {
                 distances[i] = distance(i, x, y) * weights[i];
             }
-            double sum = 0;
-            for (int i = 0; i < xs.length; i++) {
-                for (int j = 0; j < i; j++) {
-                    sum += Math.abs(distances[i] - distances[j]);
+            final double sum;
+            if (xs.length < SORT_THRESHOLD) {
+                double pairwiseSum = 0;
+                for (int i = 0; i < xs.length; i++) {
+                    for (int j = 0; j < i; j++) {
+                        pairwiseSum += Math.abs(distances[i] - distances[j]);
+                    }
                 }
+                sum = pairwiseSum;
+            } else {
+                Arrays.sort(distances);
+                double sortedSum = 0;
+                for (int i = 0; i < distances.length; i++) {
+                    sortedSum += (2.0 * i - distances.length + 1) * distances[i];
+                }
+                sum = sortedSum;
             }
             return 2 * sum / ((double) xs.length * (xs.length - 1));
         }

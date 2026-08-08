@@ -1,6 +1,8 @@
 package nlipse.render;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -27,6 +29,23 @@ class MarchingSquaresTest {
             assertEquals(1, segment[0], EPSILON);
             assertEquals(1, segment[2], EPSILON);
         }
+    }
+
+
+    @Test
+    void tracesSortedLevelsInOneGridPass() {
+        final Viewport viewport = new Viewport(-2, 2, -1, 1);
+        final DistanceField field = (x, y) -> x;
+        final FieldGrid grid = FieldGrid.sample(field, viewport, 5, 3, 1, CancellationToken.NONE);
+        final double[] levels = {-1, 0, 1};
+
+        final int[] counts = MarchingSquares.traceLevels(grid, field, viewport, levels,
+                CancellationToken.NONE, (levelIndex, x1, y1, x2, y2) -> { });
+
+        assertArrayEquals(new int[]{2, 2, 2}, counts);
+        assertThrows(IllegalArgumentException.class, () -> MarchingSquares.traceLevels(
+                grid, field, viewport, new double[]{1, 0}, CancellationToken.NONE,
+                (levelIndex, x1, y1, x2, y2) -> { }));
     }
 
     @Test

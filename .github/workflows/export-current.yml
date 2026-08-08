@@ -1,0 +1,31 @@
+name: Export Maven cache
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/export-current.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Resolve build dependencies
+        run: mvn --batch-mode --no-transfer-progress -DskipTests dependency:go-offline
+      - name: Package Maven repository
+        shell: bash
+        run: tar -C "$HOME/.m2" -czf maven-repository.tar.gz repository
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maven-repository
+          path: maven-repository.tar.gz
+          if-no-files-found: error
+          retention-days: 1

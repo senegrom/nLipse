@@ -2,6 +2,7 @@ package nlipse.render;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class FieldGridTest {
@@ -18,6 +19,22 @@ class FieldGridTest {
         assertEquals(-1, grid.getMinPoint().x(), EPSILON);
         assertEquals(-1, grid.getMinPoint().y(), EPSILON);
         assertEquals(0, grid.interpolateAtPixel(1, 1), EPSILON);
+    }
+
+
+    @Test
+    void largeGridSamplesEveryPointAndReportsItsFootprint() {
+        final AtomicInteger calls = new AtomicInteger();
+        final FieldGrid grid = FieldGrid.sample((x, y) -> {
+            calls.incrementAndGet();
+            return x - y;
+        }, new Viewport(-2, 3, -4, 5), 512, 300, 1, CancellationToken.NONE);
+
+        assertEquals(512 * 300, calls.get());
+        assertEquals(-7, grid.getMinValue(), EPSILON);
+        assertEquals(7, grid.getMaxValue(), EPSILON);
+        assertEquals(512L * 300 * Double.BYTES + (512L + 300) * Integer.BYTES + 128,
+                grid.estimatedBytes());
     }
 
     @Test
