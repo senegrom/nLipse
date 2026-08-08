@@ -7,7 +7,6 @@ import javax.swing.SwingUtilities;
  * @version 0.2.3
  */
 public class Main {
-	public final static String	prgmName	= "nLipse";
 	public final static String	version		= "0.2.3";
 
 	public static void main(final String[] args) {

@@ -89,7 +89,6 @@ public class PlotPane extends JPanel {
 
 	public int addPlot(final PlotCurve p, final Color c) {
 		p.mainColor = c;
-		p.mainStroke = mainStroke;
 		plots.add(p);
 		return plots.size();
 	}

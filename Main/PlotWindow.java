@@ -130,6 +130,12 @@ public class PlotWindow {
 		installKeyboardShortcuts();
 		installTableListeners();
 
+		// Apply the Cassini log-spacing default on startup, not only on type switch
+		final boolean shouldLog = config.curveType == CurveType.CASSIN;
+		if (config.logSpacing != shouldLog) {
+			config.logSpacing = shouldLog;
+			chkLog.setSelected(shouldLog);
+		}
 		computeFullRange();
 		if (config.dmin < fullMin || config.dmax > fullMax || config.dmin >= config.dmax)
 			autoFitDistRange();
@@ -462,9 +468,11 @@ public class PlotWindow {
 	}
 
 	private void installKeyboardShortcuts() {
-		final JRootPane root = frame.getRootPane();
-		final InputMap im = root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-		final ActionMap am = root.getActionMap();
+		// Bind to the (focusable, click-to-focus) draw panel only: window-global
+		// bindings would steal arrows/Delete from text fields and table editors
+		final JPanel draw = pl.getDrawPanel();
+		final InputMap im = draw.getInputMap(JComponent.WHEN_FOCUSED);
+		final ActionMap am = draw.getActionMap();
 
 		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "deleteFocus");
 		am.put("deleteFocus", new AbstractAction() {
@@ -508,10 +516,11 @@ public class PlotWindow {
 		if (idx < 0 || idx >= config.foci.size() || config.foci.size() <= 1)
 			return;
 		config.foci.remove(idx);
-		if (selectedFocusIndex >= idx)
+		// Keep "nothing selected" instead of side-selecting focus 0
+		if (selectedFocusIndex == idx)
+			selectedFocusIndex = -1;
+		else if (selectedFocusIndex > idx)
 			selectedFocusIndex--;
-		if (selectedFocusIndex < 0)
-			selectedFocusIndex = 0;
 		if (selectedFocusIndex >= config.foci.size())
 			selectedFocusIndex = config.foci.size() - 1;
 		rebuildAndSyncTable();

@@ -10,12 +10,10 @@ import simpleGeom.Point;
 public abstract class PlotDistanceCurve extends PlotCurve {
 	protected final double		dist;
 	protected final int			n;
-	protected final Point[]		points;
 	protected final double[]	fxCache, fyCache;
 	protected final double[]	weights;
 
 	public PlotDistanceCurve(final Point[] points, final double dist, final double[] ws) {
-		this.points = points;
 		this.dist = dist;
 		this.weights = ws;
 		this.n = points.length;

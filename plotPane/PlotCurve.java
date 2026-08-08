@@ -4,10 +4,8 @@
 
 package plotPane;
 
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.Stroke;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.util.stream.IntStream;
@@ -15,17 +13,13 @@ import java.util.stream.IntStream;
 public abstract class PlotCurve {
 	protected final static Color	bkgrdColorDef	= new Color(0, 100, 0);
 	protected final static boolean	bkgrdOnDef		= false;
-	protected final static Stroke	bkgrdStrokeDef	= new BasicStroke();
 	private final static double		eps				= 0.5;
 	protected final static Color	mainColorDef	= Color.BLACK;
-	protected final static Stroke	mainStrokeDef	= new BasicStroke();
 	private final static int		PALETTE_SIZE	= 256;
 
 	protected Color					bkgrdColor		= bkgrdColorDef;
 	protected boolean				bkgrdOn			= bkgrdOnDef;
-	protected Stroke				bkgrdStroke		= bkgrdStrokeDef;
 	protected Color					mainColor		= mainColorDef;
-	protected Stroke				mainStroke		= mainStrokeDef;
 
 	public void drawMe(final Graphics2D g, final PlotPane p) {
 		final int dminX = -1;
@@ -110,10 +104,6 @@ public abstract class PlotCurve {
 	public abstract double getLocalFColorMax(PlotPane p);
 
 	public abstract double getLocalFColorMin(PlotPane p);
-
-	public final boolean isBkgrdOn() {
-		return bkgrdOn;
-	}
 
 	private final boolean pointIsToBeDrawn(final int x, final int y, final PlotPane p, final double[] xs, final double[] ys) {
 		xs[0] = p.unfitx(x - eps);
