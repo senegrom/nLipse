@@ -107,6 +107,14 @@ public final class SetupDialog extends JDialog {
         final JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
 
+        // Picking a family applies its level-spacing default immediately (the
+        // main window's type switch does the same); the checkbox stays editable.
+        curveType.addActionListener(event -> {
+            final CurveType selected = (CurveType) curveType.getSelectedItem();
+            if (selected != null) {
+                logSpacing.setSelected(selected.defaultLogSpacing());
+            }
+        });
         form.add(labelledRow("Curve family:", curveType));
         form.add(Box.createVerticalStrut(7));
 

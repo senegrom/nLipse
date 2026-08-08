@@ -19,12 +19,20 @@ class PlotModelTest {
     }
 
     @Test
-    void removingSelectedFocusSelectsItsSuccessor() {
+    void removingSelectedFocusClearsSelection() {
         final PlotModel model = new PlotModel(PlotConfig.defaults());
         model.setSelectedFocusIndex(1);
         assertTrue(model.removeFocus(1));
-        assertEquals(1, model.getSelectedFocusIndex());
+        assertEquals(-1, model.getSelectedFocusIndex());
         assertEquals(2, model.getFocusCount());
+    }
+
+    @Test
+    void removingBelowSelectionShiftsSelectionDown() {
+        final PlotModel model = new PlotModel(PlotConfig.defaults());
+        model.setSelectedFocusIndex(2);
+        assertTrue(model.removeFocus(0));
+        assertEquals(1, model.getSelectedFocusIndex());
     }
 
     @Test

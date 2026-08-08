@@ -82,7 +82,9 @@ public final class PlotModel {
         if (selectedFocusIndex > index) {
             selectedFocusIndex--;
         } else if (selectedFocusIndex == index) {
-            selectedFocusIndex = Math.min(index, foci.size() - 1);
+            // Deleting the selection leaves nothing selected; auto-selecting a
+            // neighbour would let a repeated Delete remove foci the user never chose.
+            selectedFocusIndex = -1;
         }
         return true;
     }

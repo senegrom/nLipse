@@ -19,7 +19,7 @@ Older Java releases are deliberately unsupported. The build enforces Java 21+, c
 
 ```bash
 mvn clean verify
-java -jar target/nlipse-0.4.0-SNAPSHOT.jar
+java -jar target/nlipse-0.4.1-SNAPSHOT.jar
 ```
 
 ## Controls
