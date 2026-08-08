@@ -62,6 +62,8 @@ public final class PlotController implements AutoCloseable {
     private boolean suppressControls;
     private double fullMin;
     private double fullMax;
+    private double sampledMin;
+    private double sampledMax;
     private RangeAdjustment pendingRangeAdjustment = RangeAdjustment.CLAMP;
     private DistanceField cursorField;
 
@@ -82,6 +84,8 @@ public final class PlotController implements AutoCloseable {
         this.renderService = renderService;
         fullMin = Math.min(0, model.getDistanceMin());
         fullMax = Math.max(fullMin + 1, model.getDistanceMax());
+        sampledMin = fullMin;
+        sampledMax = fullMax;
         refreshCursorField();
 
         previewTimer = new Timer(40, event -> submit(RenderQuality.PREVIEW));
@@ -466,11 +470,24 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void renderCompleted(final RenderResult result) {
-        fullMin = result.fieldMin();
-        fullMax = result.fieldMax();
+        sampledMin = result.fieldMin();
+        sampledMax = result.fieldMax();
+        fullMin = sampledMin;
+        fullMax = sampledMax;
         if (!Double.isFinite(fullMin) || !Double.isFinite(fullMax) || fullMax <= fullMin) {
-            fullMin = Double.isFinite(fullMin) ? fullMin : 0;
-            fullMax = fullMin + 1;
+            final double centre = Double.isFinite(fullMin) ? fullMin : 0;
+            final double padding = Math.max(1, Math.abs(centre) * 0.05);
+            fullMin = centre - padding;
+            fullMax = centre + padding;
+            if (!Double.isFinite(fullMin) || !Double.isFinite(fullMax)) {
+                if (centre >= 0) {
+                    fullMin = Math.nextDown(centre);
+                    fullMax = centre;
+                } else {
+                    fullMin = centre;
+                    fullMax = Math.nextUp(centre);
+                }
+            }
         }
         final boolean rangeChanged = applyPendingRangeAdjustment();
         syncSlidersFromModel();
@@ -546,9 +563,9 @@ public final class PlotController implements AutoCloseable {
 
     private void updateDistanceLabels() {
         view.getDistanceMinLabel().setText(String.format(Locale.ROOT,
-                "Dmin: %.5g   (field min: %.5g)", model.getDistanceMin(), fullMin));
+                "Dmin: %.5g   (field min: %.5g)", model.getDistanceMin(), sampledMin));
         view.getDistanceMaxLabel().setText(String.format(Locale.ROOT,
-                "Dmax: %.5g   (field max: %.5g)", model.getDistanceMax(), fullMax));
+                "Dmax: %.5g   (field max: %.5g)", model.getDistanceMax(), sampledMax));
     }
 
     private double sliderToDistance(final int sliderValue) {

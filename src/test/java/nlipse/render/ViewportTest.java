@@ -2,6 +2,7 @@ package nlipse.render;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +48,24 @@ class ViewportTest {
         assertThrows(IllegalArgumentException.class, () -> new Viewport(0, 0, -1, 1));
         assertThrows(IllegalArgumentException.class,
                 () -> new Viewport(Double.NaN, 1, -1, 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> new Viewport(-Double.MAX_VALUE, Double.MAX_VALUE, -1, 1));
         final Viewport viewport = new Viewport(-1, 1, -1, 1);
         assertThrows(IllegalArgumentException.class, () -> viewport.worldX(0, 1));
+    }
+
+    @Test
+    void transformationsStopAtRepresentableBounds() {
+        Viewport viewport = new Viewport(-1, 1, -1, 1);
+        for (int iteration = 0; iteration < 10_000; iteration++) {
+            viewport = viewport.zoomAtPixel(50, 50, 101, 101, 0.85);
+        }
+
+        assertTrue(viewport.xMin() < viewport.xMax());
+        assertTrue(viewport.yMin() < viewport.yMax());
+        assertEquals(viewport, viewport.panPixels(Double.MAX_VALUE, 0, 101, 101));
+
+        final Viewport normal = new Viewport(-1, 1, -1, 1);
+        assertEquals(normal, normal.zoomAtPixel(50, 50, 101, 101, Double.MAX_VALUE));
     }
 }

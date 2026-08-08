@@ -18,8 +18,8 @@ The build intentionally emits Java 25 bytecode and does not support older Java r
 ## Build and run
 
 ```bash
-mvn clean verify
-java -jar target/nlipse-0.5.0-SNAPSHOT.jar
+mvn verify
+java -jar target/nlipse.jar
 ```
 
 For the optimized JDK 25 launch path, first create a platform- and JDK-specific AOT cache and then run with compact object headers enabled:

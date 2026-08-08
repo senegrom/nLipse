@@ -118,8 +118,6 @@ public final class FieldGrid {
             minRow = 0;
             maxColumn = columns - 1;
             maxRow = rows - 1;
-        } else if (maxValue <= minValue) {
-            maxValue = minValue + 1;
         }
 
         return new FieldGrid(pixelWidth, pixelHeight, step, columns, rows,
@@ -214,46 +212,6 @@ public final class FieldGrid {
     public Point2 getMaxPoint() {
         return new Point2(viewport.worldX(pixelXs[maxColumn], pixelWidth),
                 viewport.worldY(pixelYs[maxRow], pixelHeight));
-    }
-
-    public double interpolateAtPixel(final double pixelX, final double pixelY) {
-        final double clampedX = Math.clamp(pixelX, 0, pixelWidth - 1.0);
-        final double clampedY = Math.clamp(pixelY, 0, pixelHeight - 1.0);
-        final int left = locate(pixelXs, clampedX);
-        final int top = locate(pixelYs, clampedY);
-        final int right = Math.min(left + 1, columns - 1);
-        final int bottom = Math.min(top + 1, rows - 1);
-        final double x0 = pixelXs[left];
-        final double x1 = pixelXs[right];
-        final double y0 = pixelYs[top];
-        final double y1 = pixelYs[bottom];
-        final double tx = x1 == x0 ? 0 : (clampedX - x0) / (x1 - x0);
-        final double ty = y1 == y0 ? 0 : (clampedY - y0) / (y1 - y0);
-        final double a = getValue(left, top);
-        final double b = getValue(right, top);
-        final double c = getValue(right, bottom);
-        final double d = getValue(left, bottom);
-        if (!Double.isFinite(a) || !Double.isFinite(b)
-                || !Double.isFinite(c) || !Double.isFinite(d)) {
-            return Double.NaN;
-        }
-        final double topValue = a + (b - a) * tx;
-        final double bottomValue = d + (c - d) * tx;
-        return topValue + (bottomValue - topValue) * ty;
-    }
-
-    private static int locate(final int[] coordinates, final double value) {
-        int low = 0;
-        int high = coordinates.length - 1;
-        while (low + 1 < high) {
-            final int middle = (low + high) >>> 1;
-            if (coordinates[middle] <= value) {
-                low = middle;
-            } else {
-                high = middle;
-            }
-        }
-        return low;
     }
 
     private record RowExtrema(

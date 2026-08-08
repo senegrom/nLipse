@@ -52,14 +52,16 @@ public final class PlotRenderer implements RenderEngine {
                 BufferedImage.TYPE_INT_ARGB);
         final Graphics2D graphics = image.createGraphics();
         try {
-            graphics.setColor(Color.WHITE);
-            graphics.fillRect(0, 0, request.width(), request.height());
+            if (!snapshot.showBackground()) {
+                graphics.setColor(Color.WHITE);
+                graphics.fillRect(0, 0, request.width(), request.height());
+            }
             graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                     snapshot.antiAlias() ? RenderingHints.VALUE_ANTIALIAS_ON
                             : RenderingHints.VALUE_ANTIALIAS_OFF);
 
             if (snapshot.showBackground()) {
-                drawBackground(graphics, grid, token);
+                drawBackground(image, graphics, grid, token);
             }
             drawAxes(graphics, snapshot.viewport(), request.width(), request.height());
             drawContours(graphics, request, grid, field, token);
@@ -120,11 +122,28 @@ public final class PlotRenderer implements RenderEngine {
         }
     }
 
-    private static void drawBackground(final Graphics2D graphics, final FieldGrid grid,
-            final CancellationToken token) {
+    private static void drawBackground(final BufferedImage image, final Graphics2D graphics,
+            final FieldGrid grid, final CancellationToken token) {
+        if (grid.getColumns() == image.getWidth() && grid.getRows() == image.getHeight()) {
+            final int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+            fillBackgroundPixels(pixels, grid, token);
+            return;
+        }
         final BufferedImage sampled = new BufferedImage(grid.getColumns(), grid.getRows(),
                 BufferedImage.TYPE_INT_RGB);
         final int[] pixels = ((DataBufferInt) sampled.getRaster().getDataBuffer()).getData();
+        fillBackgroundPixels(pixels, grid, token);
+        final Object oldInterpolation = graphics.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        graphics.drawImage(sampled, 0, 0, grid.getPixelWidth(), grid.getPixelHeight(), null);
+        if (oldInterpolation != null) {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
+        }
+    }
+
+    private static void fillBackgroundPixels(final int[] pixels, final FieldGrid grid,
+            final CancellationToken token) {
         final double min = grid.getMinValue();
         final double range = grid.getMaxValue() - min;
         for (int row = 0; row < grid.getRows(); row++) {
@@ -144,13 +163,6 @@ public final class PlotRenderer implements RenderEngine {
                 }
                 pixels[offset + column] = BACKGROUND_PALETTE[paletteIndex];
             }
-        }
-        final Object oldInterpolation = graphics.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
-        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        graphics.drawImage(sampled, 0, 0, grid.getPixelWidth(), grid.getPixelHeight(), null);
-        if (oldInterpolation != null) {
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
         }
     }
 
@@ -236,11 +248,10 @@ public final class PlotRenderer implements RenderEngine {
     static double[] levels(final double min, final double max, final int count,
             final boolean logarithmic) {
         final int safeCount = Math.max(1, count);
-        final double[] levels = new double[safeCount];
-        if (safeCount == 1) {
-            levels[0] = min;
-            return levels;
+        if (safeCount == 1 || min == max) {
+            return new double[]{min};
         }
+        final double[] levels = new double[safeCount];
         final boolean useLog = logarithmic && min > 0 && max > 0;
         final double logMin = useLog ? Math.log(min) : 0;
         final double logMax = useLog ? Math.log(max) : 0;

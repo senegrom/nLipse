@@ -43,9 +43,9 @@ public final class DistanceFields {
         protected final double[] weights;
 
         FocusField(final double[] xs, final double[] ys, final double[] weights) {
-            this.xs = xs.clone();
-            this.ys = ys.clone();
-            this.weights = weights.clone();
+            this.xs = xs;
+            this.ys = ys;
+            this.weights = weights;
         }
 
         protected final double distance(final int index, final double x, final double y) {

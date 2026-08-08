@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-JAR="target/nlipse-0.5.0-SNAPSHOT.jar"
+JAR="target/nlipse.jar"
 if [ ! -f "$JAR" ]; then
   mvn --batch-mode --no-transfer-progress -DskipTests package
 fi

@@ -24,6 +24,7 @@ class PlotRendererTest {
 
         assertEquals(120, firstResult.image().getWidth());
         assertEquals(90, firstResult.image().getHeight());
+        assertEquals(0xFF000000, firstResult.image().getRGB(10, 10) & 0xFF000000);
         assertTrue(Double.isFinite(firstResult.fieldMin()));
         assertTrue(Double.isFinite(firstResult.fieldMax()));
         assertEquals(1, renderer.getCacheMisses());
@@ -57,6 +58,7 @@ class PlotRendererTest {
     void generatesLinearAndLogarithmicLevels() {
         assertEquals(2, PlotRenderer.levels(1, 3, 3, false)[1], 1e-12);
         assertEquals(10, PlotRenderer.levels(1, 100, 3, true)[1], 1e-12);
+        assertEquals(1, PlotRenderer.levels(2, 2, 20, false).length);
     }
 
     private static PlotSnapshot snapshot(final double minimum, final double maximum,

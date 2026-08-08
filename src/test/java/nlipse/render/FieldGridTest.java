@@ -9,7 +9,7 @@ class FieldGridTest {
     private static final double EPSILON = 1e-12;
 
     @Test
-    void samplesExtremaAndInterpolates() {
+    void samplesExtrema() {
         final Viewport viewport = new Viewport(-1, 1, -1, 1);
         final FieldGrid grid = FieldGrid.sample((x, y) -> x + y, viewport,
                 3, 3, 1, CancellationToken.NONE);
@@ -18,9 +18,16 @@ class FieldGridTest {
         assertEquals(2, grid.getMaxValue(), EPSILON);
         assertEquals(-1, grid.getMinPoint().x(), EPSILON);
         assertEquals(-1, grid.getMinPoint().y(), EPSILON);
-        assertEquals(0, grid.interpolateAtPixel(1, 1), EPSILON);
     }
 
+    @Test
+    void constantFieldPreservesItsActualExtrema() {
+        final FieldGrid grid = FieldGrid.sample((x, y) -> 7,
+                new Viewport(-1, 1, -1, 1), 4, 4, 1, CancellationToken.NONE);
+
+        assertEquals(7, grid.getMinValue(), EPSILON);
+        assertEquals(7, grid.getMaxValue(), EPSILON);
+    }
 
     @Test
     void largeGridSamplesEveryPointAndReportsItsFootprint() {

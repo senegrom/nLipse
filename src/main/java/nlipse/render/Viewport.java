@@ -10,6 +10,9 @@ public record Viewport(double xMin, double xMax, double yMin, double yMax) {
         if (xMin >= xMax || yMin >= yMax) {
             throw new IllegalArgumentException("Viewport bounds must have min < max");
         }
+        if (!Double.isFinite(xMax - xMin) || !Double.isFinite(yMax - yMin)) {
+            throw new IllegalArgumentException("Viewport spans must be finite");
+        }
     }
 
     public double width() {
@@ -46,7 +49,7 @@ public record Viewport(double xMin, double xMax, double yMin, double yMax) {
         requireResolution(pixelHeight);
         final double dxWorld = dxPixels * width() / (pixelWidth - 1.0);
         final double dyWorld = dyPixels * height() / (pixelHeight - 1.0);
-        return new Viewport(xMin - dxWorld, xMax - dxWorld,
+        return transformedOrThis(xMin - dxWorld, xMax - dxWorld,
                 yMin + dyWorld, yMax + dyWorld);
     }
 
@@ -57,11 +60,23 @@ public record Viewport(double xMin, double xMax, double yMin, double yMax) {
         }
         final double centreX = worldX(pixelX, pixelWidth);
         final double centreY = worldY(pixelY, pixelHeight);
-        return new Viewport(
+        return transformedOrThis(
                 centreX + (xMin - centreX) * scale,
                 centreX + (xMax - centreX) * scale,
                 centreY + (yMin - centreY) * scale,
                 centreY + (yMax - centreY) * scale);
+    }
+
+    private Viewport transformedOrThis(final double newXMin, final double newXMax,
+            final double newYMin, final double newYMax) {
+        if (!Double.isFinite(newXMin) || !Double.isFinite(newXMax)
+                || !Double.isFinite(newYMin) || !Double.isFinite(newYMax)
+                || newXMin >= newXMax || newYMin >= newYMax
+                || !Double.isFinite(newXMax - newXMin)
+                || !Double.isFinite(newYMax - newYMin)) {
+            return this;
+        }
+        return new Viewport(newXMin, newXMax, newYMin, newYMax);
     }
 
     private static void requireResolution(final int resolution) {
