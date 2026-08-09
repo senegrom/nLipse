@@ -8,7 +8,6 @@ import java.awt.event.FocusEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -290,9 +289,7 @@ public final class PlotController implements AutoCloseable {
             public void mouseMoved(final MouseEvent event) {
                 updateCursorInfo(event.getX(), event.getY());
             }
-        };
-        canvas.addMouseListener(mouse);
-        canvas.addMouseMotionListener(new MouseMotionAdapter() {
+
             @Override
             public void mouseDragged(final MouseEvent event) {
                 updateCursorInfo(event.getX(), event.getY());
@@ -314,7 +311,12 @@ public final class PlotController implements AutoCloseable {
                     requestInteractiveRender();
                 }
             }
-        });
+        };
+        // One adapter, registered for both delivery paths: mouseMoved only
+        // reaches MouseMotionListener registrations, so registering it solely
+        // as a MouseListener silently starves the hover coordinates.
+        canvas.addMouseListener(mouse);
+        canvas.addMouseMotionListener(mouse);
         canvas.addMouseWheelListener(this::zoom);
     }
 
