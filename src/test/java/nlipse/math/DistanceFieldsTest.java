@@ -20,11 +20,51 @@ class DistanceFieldsTest {
     }
 
     @Test
+    void ellipseRecoversFiniteCancellationAfterIntermediateOverflow() {
+        final double coordinate = Double.MAX_VALUE * 0.75;
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE,
+                List.of(new Focus(coordinate, 0, 1), new Focus(coordinate, 0, 1),
+                        new Focus(coordinate, 0, -1), new Focus(coordinate, 0, -1)));
+
+        assertEquals(0, field.value(0, 0), 0);
+    }
+
+    @Test
     void cassiniUsesWeightedProduct() {
         final DistanceField field = DistanceFields.create(CurveType.CASSIN,
                 List.of(new Focus(0, 0, 1), new Focus(3, 4, 1)));
         assertEquals(12, field.value(0, 4), EPSILON);
         assertEquals(0, field.value(0, 0), EPSILON);
+    }
+
+    @Test
+    void cassiniAccumulatesInTheLogDomainBeforeExponentiating() {
+        final double coordinate = 1e200;
+        final DistanceField field = DistanceFields.create(CurveType.CASSIN,
+                List.of(new Focus(coordinate, 0, 2), new Focus(-coordinate, 0, -2)));
+
+        assertEquals(1, field.value(0, 0), 1e-12);
+    }
+
+    @Test
+    void cassiniRecoversFiniteCancellationWithExtremeWeights() {
+        final DistanceField field = DistanceFields.create(CurveType.CASSIN, List.of(
+                new Focus(0, 0, Double.MAX_VALUE),
+                new Focus(0, 0, -Double.MAX_VALUE),
+                new Focus(0, 0, 1)));
+
+        assertEquals(Math.E, field.value(Math.E, 0), 1e-14);
+    }
+
+    @Test
+    void cassiniPreservesZeroAndSingularFactorSemantics() {
+        final DistanceField zeroWeight = DistanceFields.create(CurveType.CASSIN,
+                List.of(new Focus(0, 0, 0)));
+        final DistanceField undefined = DistanceFields.create(CurveType.CASSIN,
+                List.of(new Focus(0, 0, 1), new Focus(0, 0, -1)));
+
+        assertEquals(1, zeroWeight.value(0, 0), 0);
+        assertTrue(Double.isNaN(undefined.value(0, 0)));
     }
 
     @Test
@@ -40,7 +80,6 @@ class DistanceFieldsTest {
                 List.of(new Focus(1, 2, 3)));
         assertEquals(0, field.value(100, -50), EPSILON);
     }
-
 
     @Test
     void largeHyperbolaMatchesBruteForceReference() {
@@ -63,6 +102,18 @@ class DistanceFieldsTest {
         final double expected = 2 * sum / ((double) distances.length * (distances.length - 1));
 
         assertEquals(expected, field.value(x, y), 1e-10);
+    }
+
+    @Test
+    void hyperbolaAvoidsOverflowWhenTheFinalMeanIsFinite() {
+        final double coordinate = Double.MAX_VALUE * 0.75;
+        final DistanceField field = DistanceFields.create(CurveType.HYPERB,
+                List.of(new Focus(coordinate, 0, 1), new Focus(coordinate, 0, 1),
+                        new Focus(coordinate, 0, -1), new Focus(coordinate, 0, -1)));
+
+        final double value = field.value(0, 0);
+        assertTrue(Double.isFinite(value));
+        assertEquals(4.0 / 3.0, value / coordinate, 1e-12);
     }
 
     @Test

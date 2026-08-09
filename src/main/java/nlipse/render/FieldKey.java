@@ -27,4 +27,8 @@ record FieldKey(
                 request.height(),
                 request.quality().sampleStep());
     }
+
+    FieldKey withSampleStep(final int newSampleStep) {
+        return new FieldKey(curveType, foci, viewport, width, height, newSampleStep);
+    }
 }

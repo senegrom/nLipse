@@ -66,6 +66,27 @@ class MarchingSquaresTest {
     }
 
     @Test
+    void derivedPreviewUsesFullGridForAdaptiveSamples() {
+        final Viewport viewport = new Viewport(-1, 1, -1, 1);
+        final java.util.concurrent.atomic.AtomicInteger calls =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final DistanceField field = (x, y) -> {
+            calls.incrementAndGet();
+            return 0.3 - x * x - y * y;
+        };
+        final FieldGrid full = FieldGrid.sample(field, viewport, 5, 5, 1,
+                CancellationToken.NONE);
+        final FieldGrid coarse = full.coarsen(4, viewport);
+        calls.set(0);
+
+        final int count = MarchingSquares.trace(coarse, field, viewport, 0,
+                CancellationToken.NONE, (x1, y1, x2, y2) -> { });
+
+        assertTrue(count > 0);
+        assertEquals(0, calls.get());
+    }
+
+    @Test
     void ambiguousSaddleUsesCentreSampleAndProducesTwoSegments() {
         final Viewport viewport = new Viewport(-1, 1, -1, 1);
         final DistanceField field = (x, y) -> x * y + 0.1;

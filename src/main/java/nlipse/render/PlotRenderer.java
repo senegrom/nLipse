@@ -7,6 +7,7 @@ import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -19,9 +20,9 @@ import nlipse.math.ScalarRanges;
 import nlipse.model.Focus;
 import nlipse.model.PlotSnapshot;
 
-/** CPU renderer that shares and caches one scalar-field grid per geometry/view. */
+/** CPU renderer with bounded field and marker-free layer caches. */
 public final class PlotRenderer implements RenderEngine {
-    private static final long CACHE_BUDGET_BYTES = 128L * 1024 * 1024;
+    private static final long MEBIBYTE = 1024L * 1024;
     private static final int PALETTE_SIZE = 256;
     private static final Color BACKGROUND_TARGET = new Color(0, 100, 0);
     private static final Color AXIS_COLOR = new Color(125, 125, 125);
@@ -31,10 +32,25 @@ public final class PlotRenderer implements RenderEngine {
     private static final Color MAX_COLOR = new Color(15, 175, 190);
     private static final int[] BACKGROUND_PALETTE = createBackgroundPalette();
 
+    private final long cacheBudgetBytes;
+    private final long gridBudgetBytes;
+    private final long layerBudgetBytes;
     private final Map<FieldKey, FieldGrid> gridCache = new LinkedHashMap<>(8, 0.75f, true);
+    private final Map<LayerKey, BufferedImage> layerCache = new LinkedHashMap<>(8, 0.75f, true);
     private final AtomicLong cacheHits = new AtomicLong();
     private final AtomicLong cacheMisses = new AtomicLong();
+    private final AtomicLong derivedGridHits = new AtomicLong();
+    private final AtomicLong layerCacheHits = new AtomicLong();
+    private final AtomicLong layerCacheMisses = new AtomicLong();
+    private final AtomicLong fullQualityPreviewHits = new AtomicLong();
     private long cachedGridBytes;
+    private long cachedLayerBytes;
+
+    public PlotRenderer() {
+        cacheBudgetBytes = cacheBudgetBytes();
+        gridBudgetBytes = cacheBudgetBytes * 2 / 3;
+        layerBudgetBytes = cacheBudgetBytes - gridBudgetBytes;
+    }
 
     @Override
     public RenderResult render(final RenderRequest request, final CancellationToken token) {
@@ -45,27 +61,26 @@ public final class PlotRenderer implements RenderEngine {
         token.throwIfCancelled();
 
         final PlotSnapshot snapshot = request.snapshot();
-        final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci());
-        final FieldGrid grid = getGrid(request, field, token);
+        final RenderArtifacts cachedFull = request.quality() == RenderQuality.PREVIEW
+                ? fullQualityArtifacts(request) : null;
+        final FieldGrid grid;
+        final BufferedImage staticLayer;
+        if (cachedFull != null) {
+            grid = cachedFull.grid();
+            staticLayer = cachedFull.layer();
+        } else {
+            final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci());
+            grid = getGrid(request, field, token);
+            staticLayer = getStaticLayer(request, grid, field, token);
+        }
         token.throwIfCancelled();
 
-        final BufferedImage image = new BufferedImage(request.width(), request.height(),
-                BufferedImage.TYPE_INT_ARGB);
+        final BufferedImage image = copyImage(staticLayer);
         final Graphics2D graphics = image.createGraphics();
         try {
-            if (!snapshot.showBackground()) {
-                graphics.setColor(Color.WHITE);
-                graphics.fillRect(0, 0, request.width(), request.height());
-            }
             graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                     snapshot.antiAlias() ? RenderingHints.VALUE_ANTIALIAS_ON
                             : RenderingHints.VALUE_ANTIALIAS_OFF);
-
-            if (snapshot.showBackground()) {
-                drawBackground(image, graphics, grid, token);
-            }
-            drawAxes(graphics, snapshot.viewport(), request.width(), request.height());
-            drawContours(graphics, request, grid, field, token);
             drawFoci(graphics, request);
             if (snapshot.showExtrema()) {
                 grid.getExtrema().ifPresent(extrema -> {
@@ -87,6 +102,29 @@ public final class PlotRenderer implements RenderEngine {
                 System.nanoTime() - started);
     }
 
+    private RenderArtifacts fullQualityArtifacts(final RenderRequest request) {
+        final FieldKey fullFieldKey = FieldKey.from(request).withSampleStep(1);
+        final FieldGrid grid;
+        synchronized (gridCache) {
+            grid = gridCache.get(fullFieldKey);
+        }
+        if (grid == null) {
+            return null;
+        }
+        final LayerKey fullLayerKey = LayerKey.from(request).asFullQuality();
+        final BufferedImage layer;
+        synchronized (layerCache) {
+            layer = layerCache.get(fullLayerKey);
+        }
+        if (layer == null) {
+            return null;
+        }
+        cacheHits.incrementAndGet();
+        layerCacheHits.incrementAndGet();
+        fullQualityPreviewHits.incrementAndGet();
+        return new RenderArtifacts(grid, layer);
+    }
+
     private FieldGrid getGrid(final RenderRequest request, final DistanceField field,
             final CancellationToken token) {
         final FieldKey key = FieldKey.from(request);
@@ -98,10 +136,30 @@ public final class PlotRenderer implements RenderEngine {
             }
         }
 
+        if (key.sampleStep() > 1) {
+            final FieldKey fullKey = key.withSampleStep(1);
+            final FieldGrid fullGrid;
+            synchronized (gridCache) {
+                fullGrid = gridCache.get(fullKey);
+            }
+            if (fullGrid != null) {
+                token.throwIfCancelled();
+                final FieldGrid derived = fullGrid.coarsen(key.sampleStep(),
+                        request.snapshot().viewport());
+                derivedGridHits.incrementAndGet();
+                cacheHits.incrementAndGet();
+                return cacheGrid(key, derived);
+            }
+        }
+
         cacheMisses.incrementAndGet();
         final FieldGrid sampled = FieldGrid.sample(field, request.snapshot().viewport(),
                 request.width(), request.height(), request.quality().sampleStep(), token);
         token.throwIfCancelled();
+        return cacheGrid(key, sampled);
+    }
+
+    private FieldGrid cacheGrid(final FieldKey key, final FieldGrid sampled) {
         synchronized (gridCache) {
             final FieldGrid raced = gridCache.get(key);
             if (raced != null) {
@@ -110,18 +168,111 @@ public final class PlotRenderer implements RenderEngine {
             }
             gridCache.put(key, sampled);
             cachedGridBytes += sampled.estimatedBytes();
-            evictOversizedCache();
+            evictOversizedGridCache();
+            return sampled;
         }
-        return sampled;
     }
 
-    private void evictOversizedCache() {
+    private BufferedImage getStaticLayer(final RenderRequest request, final FieldGrid grid,
+            final DistanceField field, final CancellationToken token) {
+        final LayerKey key = LayerKey.from(request);
+        synchronized (layerCache) {
+            final BufferedImage cached = layerCache.get(key);
+            if (cached != null) {
+                layerCacheHits.incrementAndGet();
+                return cached;
+            }
+        }
+
+        layerCacheMisses.incrementAndGet();
+        final BufferedImage rendered = renderStaticLayer(request, grid, field, token);
+        final long bytes = imageBytes(rendered);
+        if (bytes > layerBudgetBytes) {
+            return rendered;
+        }
+        synchronized (layerCache) {
+            final BufferedImage raced = layerCache.get(key);
+            if (raced != null) {
+                layerCacheHits.incrementAndGet();
+                return raced;
+            }
+            layerCache.put(key, rendered);
+            cachedLayerBytes += bytes;
+            evictOversizedLayerCache();
+            return rendered;
+        }
+    }
+
+    private static BufferedImage renderStaticLayer(final RenderRequest request,
+            final FieldGrid grid, final DistanceField field, final CancellationToken token) {
+        final PlotSnapshot snapshot = request.snapshot();
+        final BufferedImage image = new BufferedImage(request.width(), request.height(),
+                BufferedImage.TYPE_INT_ARGB);
+        final Graphics2D graphics = image.createGraphics();
+        try {
+            if (!snapshot.showBackground()) {
+                graphics.setColor(Color.WHITE);
+                graphics.fillRect(0, 0, request.width(), request.height());
+            }
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    snapshot.antiAlias() ? RenderingHints.VALUE_ANTIALIAS_ON
+                            : RenderingHints.VALUE_ANTIALIAS_OFF);
+            if (snapshot.showBackground()) {
+                drawBackground(image, graphics, grid, token);
+            }
+            drawAxes(graphics, snapshot.viewport(), request.width(), request.height());
+            drawContours(graphics, request, grid, field, token);
+        } finally {
+            graphics.dispose();
+        }
+        token.throwIfCancelled();
+        return image;
+    }
+
+    private void evictOversizedGridCache() {
         final Iterator<Map.Entry<FieldKey, FieldGrid>> entries = gridCache.entrySet().iterator();
-        while (cachedGridBytes > CACHE_BUDGET_BYTES && gridCache.size() > 1 && entries.hasNext()) {
+        while (cachedGridBytes > gridBudgetBytes && gridCache.size() > 1 && entries.hasNext()) {
             final Map.Entry<FieldKey, FieldGrid> entry = entries.next();
             cachedGridBytes -= entry.getValue().estimatedBytes();
             entries.remove();
         }
+    }
+
+    private void evictOversizedLayerCache() {
+        final Iterator<Map.Entry<LayerKey, BufferedImage>> entries = layerCache.entrySet().iterator();
+        while (cachedLayerBytes > layerBudgetBytes && entries.hasNext()) {
+            final Map.Entry<LayerKey, BufferedImage> entry = entries.next();
+            cachedLayerBytes -= imageBytes(entry.getValue());
+            entries.remove();
+        }
+    }
+
+    private static long cacheBudgetBytes() {
+        final long maximumHeap = Runtime.getRuntime().maxMemory();
+        final long defaultBudget = Math.clamp(maximumHeap / 8, 32 * MEBIBYTE, 256 * MEBIBYTE);
+        final String configured = System.getProperty("nlipse.cacheMiB");
+        if (configured == null || configured.isBlank()) {
+            return defaultBudget;
+        }
+        try {
+            final long mebibytes = Long.parseLong(configured.trim());
+            return Math.clamp(mebibytes, 16, 2048) * MEBIBYTE;
+        } catch (final NumberFormatException ignored) {
+            return defaultBudget;
+        }
+    }
+
+    private static BufferedImage copyImage(final BufferedImage source) {
+        final BufferedImage copy = new BufferedImage(source.getWidth(), source.getHeight(),
+                BufferedImage.TYPE_INT_ARGB);
+        final int[] sourcePixels = ((DataBufferInt) source.getRaster().getDataBuffer()).getData();
+        final int[] targetPixels = ((DataBufferInt) copy.getRaster().getDataBuffer()).getData();
+        System.arraycopy(sourcePixels, 0, targetPixels, 0, sourcePixels.length);
+        return copy;
+    }
+
+    private static long imageBytes(final BufferedImage image) {
+        return 128L + (long) image.getWidth() * image.getHeight() * Integer.BYTES;
     }
 
     private static void drawBackground(final BufferedImage image, final Graphics2D graphics,
@@ -211,24 +362,20 @@ public final class PlotRenderer implements RenderEngine {
         final PlotSnapshot snapshot = request.snapshot();
         final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
                 snapshot.curveCount(), snapshot.logSpacing());
-        final Path2D.Float[] paths = new Path2D.Float[levels.length];
+        final ContourPath[] paths = new ContourPath[levels.length];
         for (int index = 0; index < paths.length; index++) {
-            paths[index] = new Path2D.Float();
+            paths[index] = new ContourPath();
         }
 
         MarchingSquares.traceLevels(grid, field, snapshot.viewport(), levels, token,
-                (levelIndex, x1, y1, x2, y2) -> {
-                    final Path2D.Float path = paths[levelIndex];
-                    path.moveTo(x1, y1);
-                    path.lineTo(x2, y2);
-                });
+                (levelIndex, x1, y1, x2, y2) -> paths[levelIndex].append(x1, y1, x2, y2));
 
         graphics.setStroke(new BasicStroke(request.quality() == RenderQuality.FULL ? 1.25f : 1f,
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         for (int index = 0; index < paths.length; index++) {
             token.throwIfCancelled();
             graphics.setColor(curveColor(index, paths.length));
-            graphics.draw(paths[index]);
+            graphics.draw(paths[index].path);
         }
     }
 
@@ -262,16 +409,22 @@ public final class PlotRenderer implements RenderEngine {
         if (safeCount == 1 || min == max) {
             return new double[]{min};
         }
-        final double[] levels = new double[safeCount];
+        final double[] generated = new double[safeCount];
         final boolean useLog = logarithmic && min > 0 && max > 0;
         final double logMin = useLog ? Math.log(min) : 0;
         final double logMax = useLog ? Math.log(max) : 0;
+        int uniqueCount = 0;
         for (int index = 0; index < safeCount; index++) {
             final double fraction = index / (double) (safeCount - 1);
-            levels[index] = useLog ? Math.exp(logMin + (logMax - logMin) * fraction)
+            final double level = useLog ? Math.exp(logMin + (logMax - logMin) * fraction)
                     : ScalarRanges.interpolate(min, max, fraction);
+            if (uniqueCount == 0
+                    || Double.doubleToLongBits(level)
+                            != Double.doubleToLongBits(generated[uniqueCount - 1])) {
+                generated[uniqueCount++] = level;
+            }
         }
-        return levels;
+        return uniqueCount == generated.length ? generated : Arrays.copyOf(generated, uniqueCount);
     }
 
     private static Color curveColor(final int index, final int count) {
@@ -290,14 +443,99 @@ public final class PlotRenderer implements RenderEngine {
         return cacheMisses.get();
     }
 
+    public long getDerivedGridHits() {
+        return derivedGridHits.get();
+    }
+
+    public long getLayerCacheHits() {
+        return layerCacheHits.get();
+    }
+
+    public long getLayerCacheMisses() {
+        return layerCacheMisses.get();
+    }
+
+    public long getFullQualityPreviewHits() {
+        return fullQualityPreviewHits.get();
+    }
+
     public long getCachedGridBytes() {
         synchronized (gridCache) {
             return cachedGridBytes;
         }
     }
 
+    public long getCachedLayerBytes() {
+        synchronized (layerCache) {
+            return cachedLayerBytes;
+        }
+    }
+
+    public long getCacheBudgetBytes() {
+        return cacheBudgetBytes;
+    }
+
     public String cacheSummary() {
-        return String.format(Locale.ROOT, "%d hits / %d misses / %.1f MiB",
-                getCacheHits(), getCacheMisses(), getCachedGridBytes() / 1_048_576.0);
+        return String.format(Locale.ROOT,
+                "grid %d/%d (+%d derived), layer %d/%d (+%d full-preview), %.1f/%.1f MiB",
+                getCacheHits(), getCacheMisses(), getDerivedGridHits(),
+                getLayerCacheHits(), getLayerCacheMisses(), getFullQualityPreviewHits(),
+                (getCachedGridBytes() + getCachedLayerBytes()) / (double) MEBIBYTE,
+                cacheBudgetBytes / (double) MEBIBYTE);
+    }
+
+    private record LayerKey(
+            FieldKey fieldKey,
+            double distanceMin,
+            double distanceMax,
+            int curveCount,
+            boolean logSpacing,
+            boolean showBackground,
+            boolean antiAlias,
+            RenderQuality quality) {
+
+        static LayerKey from(final RenderRequest request) {
+            final PlotSnapshot snapshot = request.snapshot();
+            return new LayerKey(FieldKey.from(request), snapshot.distanceMin(),
+                    snapshot.distanceMax(), snapshot.curveCount(), snapshot.logSpacing(),
+                    snapshot.showBackground(), snapshot.antiAlias(), request.quality());
+        }
+
+        LayerKey asFullQuality() {
+            return new LayerKey(fieldKey.withSampleStep(1), distanceMin, distanceMax,
+                    curveCount, logSpacing, showBackground, antiAlias, RenderQuality.FULL);
+        }
+    }
+
+    private record RenderArtifacts(FieldGrid grid, BufferedImage layer) {
+    }
+
+    private static final class ContourPath {
+        private static final double JOIN_TOLERANCE = 1e-7;
+
+        private final Path2D.Float path = new Path2D.Float();
+        private double lastX = Double.NaN;
+        private double lastY = Double.NaN;
+
+        void append(final double x1, final double y1, final double x2, final double y2) {
+            if (same(lastX, x1) && same(lastY, y1)) {
+                path.lineTo(x2, y2);
+                lastX = x2;
+                lastY = y2;
+            } else if (same(lastX, x2) && same(lastY, y2)) {
+                path.lineTo(x1, y1);
+                lastX = x1;
+                lastY = y1;
+            } else {
+                path.moveTo(x1, y1);
+                path.lineTo(x2, y2);
+                lastX = x2;
+                lastY = y2;
+            }
+        }
+
+        private static boolean same(final double first, final double second) {
+            return Math.abs(first - second) <= JOIN_TOLERANCE;
+        }
     }
 }

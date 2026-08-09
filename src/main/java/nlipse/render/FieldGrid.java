@@ -1,13 +1,25 @@
 package nlipse.render;
 
+import java.lang.ref.WeakReference;
 import java.util.Optional;
-import java.util.stream.IntStream;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinWorkerThread;
+import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.atomic.AtomicInteger;
 import nlipse.geometry.Point2;
 import nlipse.math.DistanceField;
 
 /** Reusable sample grid shared by shading, extrema and contour extraction. */
 public final class FieldGrid {
     private static final long PARALLEL_SAMPLE_THRESHOLD = 128L * 1024;
+    private static final int ROWS_PER_TASK = 16;
+    private static final AtomicInteger SAMPLER_NUMBER = new AtomicInteger();
+    private static final int SAMPLER_PARALLELISM = samplerParallelism();
+    private static final ForkJoinPool SAMPLE_POOL = new ForkJoinPool(
+            SAMPLER_PARALLELISM,
+            FieldGrid::newSamplerThread,
+            null,
+            true);
 
     private final int pixelWidth;
     private final int pixelHeight;
@@ -18,10 +30,12 @@ public final class FieldGrid {
     private final int[] pixelYs;
     private final double[] values;
     private final Optional<FieldExtrema> extrema;
+    private final WeakReference<FieldGrid> sampleSource;
 
     private FieldGrid(final int pixelWidth, final int pixelHeight, final int step,
             final int columns, final int rows, final int[] pixelXs, final int[] pixelYs,
-            final double[] values, final Optional<FieldExtrema> extrema) {
+            final double[] values, final Optional<FieldExtrema> extrema,
+            final FieldGrid sampleSource) {
         this.pixelWidth = pixelWidth;
         this.pixelHeight = pixelHeight;
         this.step = step;
@@ -31,6 +45,7 @@ public final class FieldGrid {
         this.pixelYs = pixelYs;
         this.values = values;
         this.extrema = extrema;
+        this.sampleSource = sampleSource == null ? null : new WeakReference<>(sampleSource);
     }
 
     public static FieldGrid sample(final DistanceField field, final Viewport viewport,
@@ -63,88 +78,204 @@ public final class FieldGrid {
         }
 
         final double[] values = new double[columns * rows];
-        final RowExtrema[] rowExtrema = new RowExtrema[rows];
-        final IntStream rowIndexes = IntStream.range(0, rows);
-        if ((long) columns * rows >= PARALLEL_SAMPLE_THRESHOLD
-                && Runtime.getRuntime().availableProcessors() > 1) {
-            rowIndexes.parallel().forEach(row -> sampleRow(field, worldXs, worldYs[row],
-                    columns, row, values, rowExtrema, token));
+        final double[] rowMinima = new double[rows];
+        final double[] rowMaxima = new double[rows];
+        final int[] rowMinColumns = new int[rows];
+        final int[] rowMaxColumns = new int[rows];
+        final boolean[] rowValid = new boolean[rows];
+        if ((long) columns * rows >= PARALLEL_SAMPLE_THRESHOLD && SAMPLER_PARALLELISM > 1) {
+            SAMPLE_POOL.invoke(new SampleRowsTask(field, worldXs, worldYs, columns,
+                    0, rows, values, rowMinima, rowMaxima,
+                    rowMinColumns, rowMaxColumns, rowValid, token));
         } else {
-            rowIndexes.forEach(row -> sampleRow(field, worldXs, worldYs[row],
-                    columns, row, values, rowExtrema, token));
+            sampleRows(field, worldXs, worldYs, columns, 0, rows, values,
+                    rowMinima, rowMaxima, rowMinColumns, rowMaxColumns, rowValid, token);
         }
         token.throwIfCancelled();
 
-        double minValue = Double.POSITIVE_INFINITY;
-        double maxValue = Double.NEGATIVE_INFINITY;
-        int minColumn = 0;
-        int minRow = 0;
-        int maxColumn = 0;
-        int maxRow = 0;
-        for (int row = 0; row < rows; row++) {
-            final RowExtrema extrema = rowExtrema[row];
-            if (extrema == null || !extrema.valid()) {
-                continue;
-            }
-            if (extrema.minValue() < minValue) {
-                minValue = extrema.minValue();
-                minColumn = extrema.minColumn();
-                minRow = row;
-            }
-            if (extrema.maxValue() > maxValue) {
-                maxValue = extrema.maxValue();
-                maxColumn = extrema.maxColumn();
-                maxRow = row;
-            }
-        }
-
-        final Optional<FieldExtrema> extrema;
-        if (Double.isFinite(minValue) && Double.isFinite(maxValue)) {
-            extrema = Optional.of(new FieldExtrema(minValue, maxValue,
-                    new Point2(viewport.worldX(pixelXs[minColumn], pixelWidth),
-                            viewport.worldY(pixelYs[minRow], pixelHeight)),
-                    new Point2(viewport.worldX(pixelXs[maxColumn], pixelWidth),
-                            viewport.worldY(pixelYs[maxRow], pixelHeight))));
-        } else {
-            extrema = Optional.empty();
-        }
-
+        final Optional<FieldExtrema> extrema = extremaFromRows(viewport, pixelWidth, pixelHeight,
+                pixelXs, pixelYs, rowMinima, rowMaxima,
+                rowMinColumns, rowMaxColumns, rowValid);
         return new FieldGrid(pixelWidth, pixelHeight, step, columns, rows,
-                pixelXs, pixelYs, values, extrema);
+                pixelXs, pixelYs, values, extrema, null);
     }
 
-    private static void sampleRow(final DistanceField field, final double[] worldXs,
-            final double worldY, final int columns, final int row, final double[] values,
-            final RowExtrema[] rowExtrema, final CancellationToken token) {
-        if (token.isCancelled()) {
-            return;
+    /**
+     * Builds a coarser grid by selecting samples from this grid without evaluating the field again.
+     */
+    public FieldGrid coarsen(final int requestedStep, final Viewport viewport) {
+        if (viewport == null) {
+            throw new IllegalArgumentException("Viewport is required");
         }
-        final int offset = row * columns;
-        double minValue = Double.POSITIVE_INFINITY;
-        double maxValue = Double.NEGATIVE_INFINITY;
-        int minColumn = 0;
-        int maxColumn = 0;
-        boolean valid = false;
-        for (int column = 0; column < columns; column++) {
-            if ((column & 255) == 0 && token.isCancelled()) {
-                return;
+        final int targetStep = Math.max(1, requestedStep);
+        if (targetStep == step) {
+            return this;
+        }
+        if (targetStep < step || targetStep % step != 0) {
+            throw new IllegalArgumentException("Target step must be a multiple of the source step");
+        }
+
+        final int targetColumns = Math.ceilDiv(pixelWidth - 1, targetStep) + 1;
+        final int targetRows = Math.ceilDiv(pixelHeight - 1, targetStep) + 1;
+        final int[] targetPixelXs = new int[targetColumns];
+        final int[] targetPixelYs = new int[targetRows];
+        final double[] targetValues = new double[targetColumns * targetRows];
+        final double[] rowMinima = new double[targetRows];
+        final double[] rowMaxima = new double[targetRows];
+        final int[] rowMinColumns = new int[targetRows];
+        final int[] rowMaxColumns = new int[targetRows];
+        final boolean[] rowValid = new boolean[targetRows];
+
+        for (int column = 0; column < targetColumns; column++) {
+            targetPixelXs[column] = Math.min(column * targetStep, pixelWidth - 1);
+        }
+        for (int row = 0; row < targetRows; row++) {
+            final int pixelY = Math.min(row * targetStep, pixelHeight - 1);
+            targetPixelYs[row] = pixelY;
+            final int sourceRow = sourceIndex(pixelY, pixelHeight, rows);
+            final int targetOffset = row * targetColumns;
+            double minimum = Double.POSITIVE_INFINITY;
+            double maximum = Double.NEGATIVE_INFINITY;
+            int minimumColumn = 0;
+            int maximumColumn = 0;
+            boolean valid = false;
+            for (int column = 0; column < targetColumns; column++) {
+                final int sourceColumn = sourceIndex(targetPixelXs[column], pixelWidth, columns);
+                final double value = values[sourceRow * columns + sourceColumn];
+                targetValues[targetOffset + column] = value;
+                if (!Double.isFinite(value)) {
+                    continue;
+                }
+                if (!valid || value < minimum) {
+                    minimum = value;
+                    minimumColumn = column;
+                }
+                if (!valid || value > maximum) {
+                    maximum = value;
+                    maximumColumn = column;
+                }
+                valid = true;
             }
-            final double value = field.value(worldXs[column], worldY);
-            values[offset + column] = value;
-            if (!Double.isFinite(value)) {
+            rowMinima[row] = minimum;
+            rowMaxima[row] = maximum;
+            rowMinColumns[row] = minimumColumn;
+            rowMaxColumns[row] = maximumColumn;
+            rowValid[row] = valid;
+        }
+
+        final Optional<FieldExtrema> targetExtrema = extremaFromRows(viewport,
+                pixelWidth, pixelHeight, targetPixelXs, targetPixelYs,
+                rowMinima, rowMaxima, rowMinColumns, rowMaxColumns, rowValid);
+        final FieldGrid rootSource = sampleSource == null ? this
+                : Optional.ofNullable(sampleSource.get()).orElse(this);
+        return new FieldGrid(pixelWidth, pixelHeight, targetStep,
+                targetColumns, targetRows, targetPixelXs, targetPixelYs,
+                targetValues, targetExtrema, rootSource);
+    }
+
+    private int sourceIndex(final int pixelCoordinate, final int pixelResolution,
+            final int sampleCount) {
+        if (pixelCoordinate == pixelResolution - 1) {
+            return sampleCount - 1;
+        }
+        return pixelCoordinate / step;
+    }
+
+    private static int samplerParallelism() {
+        final int processors = Runtime.getRuntime().availableProcessors();
+        final int defaultParallelism = Math.min(32, Math.max(1, processors - 1));
+        final String configured = System.getProperty("nlipse.renderThreads");
+        if (configured == null || configured.isBlank()) {
+            return defaultParallelism;
+        }
+        try {
+            return Math.clamp(Integer.parseInt(configured.trim()), 1, 256);
+        } catch (final NumberFormatException ignored) {
+            return defaultParallelism;
+        }
+    }
+
+    private static ForkJoinWorkerThread newSamplerThread(final ForkJoinPool pool) {
+        final ForkJoinWorkerThread thread = ForkJoinPool.defaultForkJoinWorkerThreadFactory
+                .newThread(pool);
+        thread.setName("nlipse-sampler-" + SAMPLER_NUMBER.incrementAndGet());
+        thread.setDaemon(true);
+        return thread;
+    }
+
+    private static void sampleRows(final DistanceField field, final double[] worldXs,
+            final double[] worldYs, final int columns, final int fromRow, final int toRow,
+            final double[] values, final double[] rowMinima, final double[] rowMaxima,
+            final int[] rowMinColumns, final int[] rowMaxColumns, final boolean[] rowValid,
+            final CancellationToken token) {
+        for (int row = fromRow; row < toRow; row++) {
+            token.throwIfCancelled();
+            final int offset = row * columns;
+            double minimum = Double.POSITIVE_INFINITY;
+            double maximum = Double.NEGATIVE_INFINITY;
+            int minimumColumn = 0;
+            int maximumColumn = 0;
+            boolean valid = false;
+            for (int column = 0; column < columns; column++) {
+                if ((column & 127) == 0) {
+                    token.throwIfCancelled();
+                }
+                final double value = field.value(worldXs[column], worldYs[row]);
+                values[offset + column] = value;
+                if (!Double.isFinite(value)) {
+                    continue;
+                }
+                if (!valid || value < minimum) {
+                    minimum = value;
+                    minimumColumn = column;
+                }
+                if (!valid || value > maximum) {
+                    maximum = value;
+                    maximumColumn = column;
+                }
+                valid = true;
+            }
+            rowMinima[row] = minimum;
+            rowMaxima[row] = maximum;
+            rowMinColumns[row] = minimumColumn;
+            rowMaxColumns[row] = maximumColumn;
+            rowValid[row] = valid;
+        }
+    }
+
+    private static Optional<FieldExtrema> extremaFromRows(final Viewport viewport,
+            final int pixelWidth, final int pixelHeight, final int[] pixelXs,
+            final int[] pixelYs, final double[] rowMinima, final double[] rowMaxima,
+            final int[] rowMinColumns, final int[] rowMaxColumns, final boolean[] rowValid) {
+        double minimum = Double.POSITIVE_INFINITY;
+        double maximum = Double.NEGATIVE_INFINITY;
+        int minimumColumn = 0;
+        int minimumRow = 0;
+        int maximumColumn = 0;
+        int maximumRow = 0;
+        for (int row = 0; row < rowValid.length; row++) {
+            if (!rowValid[row]) {
                 continue;
             }
-            if (!valid || value < minValue) {
-                minValue = value;
-                minColumn = column;
+            if (rowMinima[row] < minimum) {
+                minimum = rowMinima[row];
+                minimumColumn = rowMinColumns[row];
+                minimumRow = row;
             }
-            if (!valid || value > maxValue) {
-                maxValue = value;
-                maxColumn = column;
+            if (rowMaxima[row] > maximum) {
+                maximum = rowMaxima[row];
+                maximumColumn = rowMaxColumns[row];
+                maximumRow = row;
             }
-            valid = true;
         }
-        rowExtrema[row] = new RowExtrema(minValue, minColumn, maxValue, maxColumn, valid);
+        if (!Double.isFinite(minimum) || !Double.isFinite(maximum)) {
+            return Optional.empty();
+        }
+        return Optional.of(new FieldExtrema(minimum, maximum,
+                new Point2(viewport.worldX(pixelXs[minimumColumn], pixelWidth),
+                        viewport.worldY(pixelYs[minimumRow], pixelHeight)),
+                new Point2(viewport.worldX(pixelXs[maximumColumn], pixelWidth),
+                        viewport.worldY(pixelYs[maximumRow], pixelHeight))));
     }
 
     public int getPixelWidth() {
@@ -183,16 +314,91 @@ public final class FieldGrid {
         return extrema;
     }
 
+    /** Returns a cached finite value for an exact pixel, or NaN when unavailable. */
+    public double finiteValueAtPixel(final double pixelX, final double pixelY) {
+        if (pixelX != Math.rint(pixelX) || pixelY != Math.rint(pixelY)
+                || pixelX < 0 || pixelX >= pixelWidth
+                || pixelY < 0 || pixelY >= pixelHeight) {
+            return Double.NaN;
+        }
+        final int integerX = (int) pixelX;
+        final int integerY = (int) pixelY;
+        final boolean sampledX = integerX == pixelWidth - 1 || integerX % step == 0;
+        final boolean sampledY = integerY == pixelHeight - 1 || integerY % step == 0;
+        if (sampledX && sampledY) {
+            final int column = integerX == pixelWidth - 1 ? columns - 1 : integerX / step;
+            final int row = integerY == pixelHeight - 1 ? rows - 1 : integerY / step;
+            final double value = values[row * columns + column];
+            return Double.isFinite(value) ? value : Double.NaN;
+        }
+        if (sampleSource != null) {
+            final FieldGrid source = sampleSource.get();
+            if (source != null) {
+                return source.finiteValueAtPixel(pixelX, pixelY);
+            }
+        }
+        return Double.NaN;
+    }
+
     public long estimatedBytes() {
         return 128L + (long) values.length * Double.BYTES
                 + (long) (pixelXs.length + pixelYs.length) * Integer.BYTES;
     }
 
-    private record RowExtrema(
-            double minValue,
-            int minColumn,
-            double maxValue,
-            int maxColumn,
-            boolean valid) {
+    private static final class SampleRowsTask extends RecursiveAction {
+        private static final long serialVersionUID = 1L;
+
+        private final transient DistanceField field;
+        private final double[] worldXs;
+        private final double[] worldYs;
+        private final int columns;
+        private final int fromRow;
+        private final int toRow;
+        private final double[] values;
+        private final double[] rowMinima;
+        private final double[] rowMaxima;
+        private final int[] rowMinColumns;
+        private final int[] rowMaxColumns;
+        private final boolean[] rowValid;
+        private final transient CancellationToken token;
+
+        SampleRowsTask(final DistanceField field, final double[] worldXs,
+                final double[] worldYs, final int columns, final int fromRow, final int toRow,
+                final double[] values, final double[] rowMinima, final double[] rowMaxima,
+                final int[] rowMinColumns, final int[] rowMaxColumns,
+                final boolean[] rowValid, final CancellationToken token) {
+            this.field = field;
+            this.worldXs = worldXs;
+            this.worldYs = worldYs;
+            this.columns = columns;
+            this.fromRow = fromRow;
+            this.toRow = toRow;
+            this.values = values;
+            this.rowMinima = rowMinima;
+            this.rowMaxima = rowMaxima;
+            this.rowMinColumns = rowMinColumns;
+            this.rowMaxColumns = rowMaxColumns;
+            this.rowValid = rowValid;
+            this.token = token;
+        }
+
+        @Override
+        protected void compute() {
+            token.throwIfCancelled();
+            if (toRow - fromRow <= ROWS_PER_TASK) {
+                sampleRows(field, worldXs, worldYs, columns, fromRow, toRow,
+                        values, rowMinima, rowMaxima, rowMinColumns,
+                        rowMaxColumns, rowValid, token);
+                return;
+            }
+            final int middle = (fromRow + toRow) >>> 1;
+            invokeAll(
+                    new SampleRowsTask(field, worldXs, worldYs, columns, fromRow, middle,
+                            values, rowMinima, rowMaxima, rowMinColumns,
+                            rowMaxColumns, rowValid, token),
+                    new SampleRowsTask(field, worldXs, worldYs, columns, middle, toRow,
+                            values, rowMinima, rowMaxima, rowMinColumns,
+                            rowMaxColumns, rowValid, token));
+        }
     }
 }

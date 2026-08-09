@@ -53,6 +53,9 @@ public final class MarchingSquares {
             final double y0 = grid.getPixelY(row);
             final double y1 = grid.getPixelY(row + 1);
             for (int column = 0; column < grid.getColumns() - 1; column++) {
+                if ((column & 127) == 0) {
+                    token.throwIfCancelled();
+                }
                 final double x0 = grid.getPixelX(column);
                 final double x1 = grid.getPixelX(column + 1);
                 final double topLeft = grid.getValue(column, row);
@@ -226,6 +229,10 @@ public final class MarchingSquares {
 
     private static double sample(final DistanceField field, final Viewport viewport,
             final FieldGrid grid, final double pixelX, final double pixelY) {
+        final double cached = grid.finiteValueAtPixel(pixelX, pixelY);
+        if (Double.isFinite(cached)) {
+            return cached;
+        }
         return field.value(viewport.worldX(pixelX, grid.getPixelWidth()),
                 viewport.worldY(pixelY, grid.getPixelHeight()));
     }

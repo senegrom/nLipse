@@ -61,25 +61,110 @@ public final class DistanceFields {
         @Override
         public double value(final double x, final double y) {
             double sum = 0;
+            double compensation = 0;
+            double largestMagnitude = 0;
+            boolean allTermsFinite = true;
             for (int i = 0; i < xs.length; i++) {
-                sum += distance(i, x, y) * weights[i];
+                final double term = distance(i, x, y) * weights[i];
+                allTermsFinite &= Double.isFinite(term);
+                largestMagnitude = Math.max(largestMagnitude, Math.abs(term));
+                final double next = sum + term;
+                if (Math.abs(sum) >= Math.abs(term)) {
+                    compensation += (sum - next) + term;
+                } else {
+                    compensation += (term - next) + sum;
+                }
+                sum = next;
             }
-            return sum;
+            final double result = sum + compensation;
+            if (Double.isFinite(result) || !allTermsFinite || largestMagnitude == 0) {
+                return result;
+            }
+
+            // Recover finite cancellations without allowing an intermediate sum to overflow.
+            sum = 0;
+            compensation = 0;
+            for (int i = 0; i < xs.length; i++) {
+                final double term = distance(i, x, y) * weights[i] / largestMagnitude;
+                final double next = sum + term;
+                if (Math.abs(sum) >= Math.abs(term)) {
+                    compensation += (sum - next) + term;
+                } else {
+                    compensation += (term - next) + sum;
+                }
+                sum = next;
+            }
+            return largestMagnitude * (sum + compensation);
         }
     }
 
     private static final class CassiniField extends FocusField {
+        private static final double LOG_MAX_VALUE = Math.log(Double.MAX_VALUE);
+        private static final double LOG_MIN_VALUE = Math.log(Double.MIN_VALUE);
+
+        private final double weightScale;
+
         CassiniField(final double[] xs, final double[] ys, final double[] weights) {
             super(xs, ys, weights);
+            double maximum = 0;
+            for (final double weight : weights) {
+                maximum = Math.max(maximum, Math.abs(weight));
+            }
+            weightScale = maximum;
         }
 
         @Override
         public double value(final double x, final double y) {
-            double product = 1;
-            for (int i = 0; i < xs.length; i++) {
-                product *= Math.pow(distance(i, x, y), weights[i]);
+            if (weightScale == 0) {
+                return 1;
             }
-            return product;
+            double normalizedLogarithm = 0;
+            double compensation = 0;
+            boolean hasZeroFactor = false;
+            boolean hasInfiniteFactor = false;
+            for (int i = 0; i < xs.length; i++) {
+                final double weight = weights[i];
+                if (weight == 0) {
+                    continue;
+                }
+                final double distance = distance(i, x, y);
+                if (distance == 0) {
+                    if (weight > 0) {
+                        hasZeroFactor = true;
+                    } else {
+                        hasInfiniteFactor = true;
+                    }
+                } else if (Double.isInfinite(distance)) {
+                    if (weight > 0) {
+                        hasInfiniteFactor = true;
+                    } else {
+                        hasZeroFactor = true;
+                    }
+                } else {
+                    final double term = weight / weightScale * Math.log(distance);
+                    final double next = normalizedLogarithm + term;
+                    if (Math.abs(normalizedLogarithm) >= Math.abs(term)) {
+                        compensation += (normalizedLogarithm - next) + term;
+                    } else {
+                        compensation += (term - next) + normalizedLogarithm;
+                    }
+                    normalizedLogarithm = next;
+                }
+            }
+            if (hasZeroFactor && hasInfiniteFactor) {
+                return Double.NaN;
+            }
+            if (hasZeroFactor) {
+                return 0;
+            }
+            final double logarithm = weightScale * (normalizedLogarithm + compensation);
+            if (hasInfiniteFactor || logarithm > LOG_MAX_VALUE) {
+                return Double.POSITIVE_INFINITY;
+            }
+            if (logarithm < LOG_MIN_VALUE) {
+                return 0;
+            }
+            return Math.exp(logarithm);
         }
     }
 
@@ -99,27 +184,59 @@ public final class DistanceFields {
                 return 0;
             }
             final double[] distances = buffer.get();
+            double largestMagnitude = 0;
+            boolean allFinite = true;
             for (int i = 0; i < xs.length; i++) {
                 distances[i] = distance(i, x, y) * weights[i];
+                allFinite &= Double.isFinite(distances[i]);
+                largestMagnitude = Math.max(largestMagnitude, Math.abs(distances[i]));
             }
-            final double sum;
-            if (xs.length < SORT_THRESHOLD) {
-                double pairwiseSum = 0;
-                for (int i = 0; i < xs.length; i++) {
-                    for (int j = 0; j < i; j++) {
-                        pairwiseSum += Math.abs(distances[i] - distances[j]);
-                    }
+            if (!allFinite) {
+                return pairwiseMean(distances, 1);
+            }
+            if (largestMagnitude == 0) {
+                return 0;
+            }
+
+            final double scale = largestMagnitude > Double.MAX_VALUE / (4.0 * xs.length)
+                    ? largestMagnitude : 1;
+            if (scale != 1) {
+                for (int i = 0; i < distances.length; i++) {
+                    distances[i] /= scale;
                 }
-                sum = pairwiseSum;
+            }
+
+            final double normalizedMean;
+            if (xs.length < SORT_THRESHOLD) {
+                normalizedMean = pairwiseMean(distances, 1);
             } else {
                 Arrays.sort(distances);
-                double sortedSum = 0;
+                double sum = 0;
+                double compensation = 0;
                 for (int i = 0; i < distances.length; i++) {
-                    sortedSum += (2.0 * i - distances.length + 1) * distances[i];
+                    final double term = (2.0 * i - distances.length + 1) * distances[i];
+                    final double next = sum + term;
+                    if (Math.abs(sum) >= Math.abs(term)) {
+                        compensation += (sum - next) + term;
+                    } else {
+                        compensation += (term - next) + sum;
+                    }
+                    sum = next;
                 }
-                sum = sortedSum;
+                normalizedMean = 2 * (sum + compensation)
+                        / ((double) distances.length * (distances.length - 1));
             }
-            return 2 * sum / ((double) xs.length * (xs.length - 1));
+            return scale * normalizedMean;
+        }
+
+        private static double pairwiseMean(final double[] distances, final double scale) {
+            double sum = 0;
+            for (int i = 0; i < distances.length; i++) {
+                for (int j = 0; j < i; j++) {
+                    sum += Math.abs(distances[i] - distances[j]);
+                }
+            }
+            return scale * 2 * sum / ((double) distances.length * (distances.length - 1));
         }
     }
 }
