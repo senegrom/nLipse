@@ -12,12 +12,19 @@ import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import javax.imageio.ImageIO;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.InputMap;
 import javax.swing.JComponent;
+import javax.swing.JFileChooser;
+import javax.swing.JOptionPane;
 import javax.swing.JSlider;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
@@ -28,6 +35,8 @@ import nlipse.math.DistanceFields;
 import nlipse.math.ScalarRanges;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
+import nlipse.model.PlotConfig;
+import nlipse.model.PlotConfigIO;
 import nlipse.model.PlotModel;
 import nlipse.model.PlotSnapshot;
 import nlipse.render.AsyncRenderService;
@@ -142,17 +151,26 @@ public final class PlotController implements AutoCloseable {
             }
         });
         view.getShowBackground().addActionListener(event -> {
-            model.setShowBackground(view.getShowBackground().isSelected());
-            requestFullRender();
+            if (!suppressControls) {
+                model.setShowBackground(view.getShowBackground().isSelected());
+                requestFullRender();
+            }
         });
         view.getShowExtrema().addActionListener(event -> {
-            model.setShowExtrema(view.getShowExtrema().isSelected());
-            requestFullRender();
+            if (!suppressControls) {
+                model.setShowExtrema(view.getShowExtrema().isSelected());
+                requestFullRender();
+            }
         });
         view.getAntiAlias().addActionListener(event -> {
-            model.setAntiAlias(view.getAntiAlias().isSelected());
-            requestFullRender();
+            if (!suppressControls) {
+                model.setAntiAlias(view.getAntiAlias().isSelected());
+                requestFullRender();
+            }
         });
+        view.getSaveSetup().addActionListener(event -> saveSetup());
+        view.getLoadSetup().addActionListener(event -> loadSetup());
+        view.getExportImage().addActionListener(event -> exportImage());
 
         view.getAddFocus().addActionListener(event -> {
             final Viewport viewport = model.getViewport();
@@ -320,9 +338,86 @@ public final class PlotController implements AutoCloseable {
         view.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(final WindowEvent event) {
+                saveLastSession();
                 close();
             }
         });
+    }
+
+    private void saveLastSession() {
+        try {
+            PlotConfigIO.save(PlotConfigIO.lastSessionFile(), model.snapshot());
+        } catch (final IOException | RuntimeException failed) {
+            // Last-session persistence is best-effort; never block closing.
+            System.err.println("Could not save the last session: " + failed.getMessage());
+        }
+    }
+
+    private void saveSetup() {
+        final JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Save plot setup");
+        chooser.setSelectedFile(new File("nlipse-setup.properties"));
+        if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        try {
+            PlotConfigIO.save(chooser.getSelectedFile().toPath(), model.snapshot());
+        } catch (final IOException failed) {
+            JOptionPane.showMessageDialog(view, failed.getMessage(), "Save failed",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void loadSetup() {
+        final JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Load plot setup");
+        if (chooser.showOpenDialog(view) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        final Path file = chooser.getSelectedFile().toPath();
+        final PlotConfig config;
+        try {
+            config = PlotConfigIO.load(file);
+        } catch (final IOException | IllegalArgumentException failed) {
+            JOptionPane.showMessageDialog(view, failed.getMessage(), "Load failed",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        model.apply(config);
+        suppressControls = true;
+        view.syncControls(model.snapshot());
+        suppressControls = false;
+        refreshCursorField();
+        syncTableFromModel();
+        markRangeAdjustment(RangeAdjustment.CLAMP);
+        requestFullRender();
+    }
+
+    private void exportImage() {
+        final BufferedImage image = view.getCanvas().image();
+        if (image == null) {
+            JOptionPane.showMessageDialog(view, "Nothing has been rendered yet.", "Export PNG",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        final JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export plot as PNG");
+        chooser.setSelectedFile(new File("nlipse-plot.png"));
+        if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File target = chooser.getSelectedFile();
+        if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".png")) {
+            target = new File(target.getParentFile(), target.getName() + ".png");
+        }
+        try {
+            if (!ImageIO.write(image, "png", target)) {
+                throw new IOException("no PNG writer is installed");
+            }
+        } catch (final IOException failed) {
+            JOptionPane.showMessageDialog(view, failed.getMessage(), "Export failed",
+                    JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void bindNudge(final InputMap inputMap, final ActionMap actionMap,

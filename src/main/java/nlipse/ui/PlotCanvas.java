@@ -33,6 +33,11 @@ public final class PlotCanvas extends JComponent {
         repaint();
     }
 
+    /** The most recent completed render, or null before the first one. */
+    public BufferedImage image() {
+        return image;
+    }
+
     public void setRendering(final boolean value) {
         rendering = value;
         repaint();

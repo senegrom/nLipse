@@ -12,7 +12,7 @@ public final class PlotModel {
     private double distanceMax;
     private int curveCount;
     private Viewport viewport;
-    private final Viewport defaultViewport;
+    private Viewport defaultViewport;
     private boolean showBackground;
     private boolean showExtrema;
     private boolean antiAlias;
@@ -40,6 +40,27 @@ public final class PlotModel {
     public synchronized PlotSnapshot snapshot() {
         return new PlotSnapshot(curveType, foci, distanceMin, distanceMax, curveCount,
                 viewport, showBackground, showExtrema, antiAlias, logSpacing, selectedFocusIndex);
+    }
+
+    /** Replace the whole state with a loaded setup; the loaded viewport also
+     *  becomes the new "Reset view" target. Selection is cleared. */
+    public synchronized void apply(final PlotConfig config) {
+        if (config == null) {
+            throw new IllegalArgumentException("Configuration is required");
+        }
+        curveType = config.curveType();
+        foci.clear();
+        foci.addAll(config.foci());
+        distanceMin = config.distanceMin();
+        distanceMax = config.distanceMax();
+        curveCount = config.curveCount();
+        viewport = config.viewport();
+        defaultViewport = config.viewport();
+        showBackground = config.showBackground();
+        showExtrema = config.showExtrema();
+        antiAlias = config.antiAlias();
+        logSpacing = config.logSpacing();
+        selectedFocusIndex = -1;
     }
 
     public synchronized CurveType getCurveType() {

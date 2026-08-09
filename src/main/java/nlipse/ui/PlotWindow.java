@@ -56,6 +56,9 @@ public final class PlotWindow extends JFrame {
     private final JButton removeFocus = new JButton("Remove");
     private final JButton fitDistance = new JButton("Fit distance");
     private final JButton resetView = new JButton("Reset view");
+    private final JButton saveSetup = new JButton("Save setup…");
+    private final JButton loadSetup = new JButton("Load setup…");
+    private final JButton exportImage = new JButton("Export PNG…");
     private final JLabel cursorInfo = new JLabel("Move over plot for coordinates");
     private final JLabel renderInfo = new JLabel(" ", SwingConstants.LEFT);
 
@@ -110,6 +113,19 @@ public final class PlotWindow extends JFrame {
         side.add(options);
         side.add(Box.createVerticalStrut(8));
 
+        final JPanel session = new JPanel();
+        session.setLayout(new BoxLayout(session, BoxLayout.Y_AXIS));
+        session.setBorder(BorderFactory.createTitledBorder("Session"));
+        final JPanel setupRow = rowPanel();
+        setupRow.add(saveSetup);
+        setupRow.add(loadSetup);
+        session.add(setupRow);
+        final JPanel exportRow = rowPanel();
+        exportRow.add(exportImage);
+        session.add(exportRow);
+        side.add(session);
+        side.add(Box.createVerticalStrut(8));
+
         final JPanel cursorPanel = new JPanel(new BorderLayout());
         cursorPanel.setBorder(BorderFactory.createTitledBorder("Cursor"));
         cursorPanel.add(cursorInfo, BorderLayout.CENTER);
@@ -160,6 +176,13 @@ public final class PlotWindow extends JFrame {
     }
 
     private void initialise(final PlotSnapshot snapshot) {
+        syncControls(snapshot);
+    }
+
+    /** Align every non-slider control with the model (after a setup load).
+     *  Callers must hold the controller's suppress flags: the combo and
+     *  checkbox listeners fire on programmatic changes too. */
+    public void syncControls(final PlotSnapshot snapshot) {
         curveType.setSelectedItem(snapshot.curveType());
         curveCount.setText(Integer.toString(snapshot.curveCount()));
         logSpacing.setSelected(snapshot.logSpacing());
@@ -206,6 +229,9 @@ public final class PlotWindow extends JFrame {
     public JButton getRemoveFocus() { return removeFocus; }
     public JButton getFitDistance() { return fitDistance; }
     public JButton getResetView() { return resetView; }
+    public JButton getSaveSetup() { return saveSetup; }
+    public JButton getLoadSetup() { return loadSetup; }
+    public JButton getExportImage() { return exportImage; }
     public JLabel getCursorInfo() { return cursorInfo; }
     public JLabel getRenderInfo() { return renderInfo; }
 }
