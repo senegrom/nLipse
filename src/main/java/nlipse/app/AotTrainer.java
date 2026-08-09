@@ -24,9 +24,9 @@ public final class AotTrainer {
         final PlotRenderer renderer = new PlotRenderer();
         long checksum = 0;
         for (int iteration = 0; iteration < 3; iteration++) {
-            checksum ^= render(renderer, ellipse());
-            checksum ^= render(renderer, cassini());
-            checksum ^= render(renderer, hyperbola());
+            checksum ^= renderSequence(renderer, ellipse());
+            checksum ^= renderSequence(renderer, cassini());
+            checksum ^= renderSequence(renderer, hyperbola());
         }
         System.out.println("nLipse AOT training complete: " + Long.toUnsignedString(checksum));
     }
@@ -45,6 +45,23 @@ public final class AotTrainer {
                 throw new IllegalStateException("Missing application class: " + className, exception);
             }
         }
+    }
+
+    private static long renderSequence(final PlotRenderer renderer,
+            final PlotSnapshot snapshot) {
+        long checksum = render(renderer, snapshot);
+        final Viewport pannedViewport = snapshot.viewport().panPixels(24, -12, 720, 540);
+        final PlotSnapshot panned = new PlotSnapshot(snapshot.curveType(), snapshot.foci(),
+                snapshot.distanceMin(), snapshot.distanceMax(), snapshot.curveCount(),
+                pannedViewport, snapshot.showBackground(), snapshot.showExtrema(),
+                snapshot.antiAlias(), snapshot.logSpacing(), snapshot.selectedFocusIndex());
+        checksum ^= Long.rotateLeft(render(renderer, panned), 11);
+        final PlotSnapshot restyled = new PlotSnapshot(snapshot.curveType(), snapshot.foci(),
+                snapshot.distanceMin(), snapshot.distanceMax(), snapshot.curveCount(),
+                snapshot.viewport(), !snapshot.showBackground(), snapshot.showExtrema(),
+                snapshot.antiAlias(), snapshot.logSpacing(), snapshot.selectedFocusIndex());
+        checksum ^= Long.rotateLeft(render(renderer, restyled), 23);
+        return checksum;
     }
 
     private static long render(final PlotRenderer renderer, final PlotSnapshot snapshot) {

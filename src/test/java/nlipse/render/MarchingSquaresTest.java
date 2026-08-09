@@ -31,7 +31,6 @@ class MarchingSquaresTest {
         }
     }
 
-
     @Test
     void tracesSortedLevelsInOneGridPass() {
         final Viewport viewport = new Viewport(-2, 2, -1, 1);
@@ -87,15 +86,81 @@ class MarchingSquaresTest {
     }
 
     @Test
-    void ambiguousSaddleUsesCentreSampleAndProducesTwoSegments() {
+    void asymptoticDeciderAvoidsCentreEvaluationWhenDeterminantIsNonZero() {
         final Viewport viewport = new Viewport(-1, 1, -1, 1);
-        final DistanceField field = (x, y) -> x * y + 0.1;
-        final FieldGrid grid = FieldGrid.sample(field, viewport, 2, 2, 1, CancellationToken.NONE);
+        final java.util.concurrent.atomic.AtomicInteger calls =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final DistanceField field = (x, y) -> {
+            calls.incrementAndGet();
+            return x * y + 0.1;
+        };
+        final FieldGrid grid = FieldGrid.sample(field, viewport, 2, 2, 1,
+                CancellationToken.NONE);
+        calls.set(0);
 
         final int count = MarchingSquares.trace(grid, field, viewport, 0,
                 CancellationToken.NONE, (x1, y1, x2, y2) -> { });
 
         assertEquals(2, count);
+        assertEquals(0, calls.get());
+    }
+
+    @Test
+    void asymptoticDeciderChoosesTheBilinearConnectivity() {
+        final Viewport viewport = new Viewport(-1, 1, -1, 1);
+        final DistanceField field = (x, y) -> x * y + 0.5;
+        final FieldGrid grid = FieldGrid.sample(field, viewport, 2, 2, 1,
+                CancellationToken.NONE);
+        final List<double[]> segments = new ArrayList<>();
+
+        final int count = MarchingSquares.trace(grid, field, viewport, 0,
+                CancellationToken.NONE,
+                (x1, y1, x2, y2) -> segments.add(new double[]{x1, y1, x2, y2}));
+
+        assertEquals(2, count);
+        assertTrue(segments.stream().anyMatch(segment -> connectsTopAndLeft(segment)));
+        assertTrue(segments.stream().anyMatch(segment -> connectsRightAndBottom(segment)));
+    }
+
+    @Test
+    void asymptoticDeciderHandlesOppositeExtremeFiniteValuesWithoutFallback() {
+        final Viewport viewport = new Viewport(-1, 1, -1, 1);
+        final java.util.concurrent.atomic.AtomicInteger calls =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final DistanceField field = (x, y) -> {
+            calls.incrementAndGet();
+            return x * y < 0 ? Double.MAX_VALUE : -Double.MAX_VALUE;
+        };
+        final FieldGrid grid = FieldGrid.sample(field, viewport, 2, 2, 1,
+                CancellationToken.NONE);
+        calls.set(0);
+
+        final int count = MarchingSquares.trace(grid, field, viewport,
+                Double.MAX_VALUE / 2, CancellationToken.NONE,
+                (x1, y1, x2, y2) -> { });
+
+        assertEquals(2, count);
+        assertEquals(0, calls.get());
+    }
+
+    @Test
+    void exactAsymptoticTieFallsBackToOneCentreEvaluation() {
+        final Viewport viewport = new Viewport(-1, 1, -1, 1);
+        final java.util.concurrent.atomic.AtomicInteger calls =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final DistanceField field = (x, y) -> {
+            calls.incrementAndGet();
+            return x * y;
+        };
+        final FieldGrid grid = FieldGrid.sample(field, viewport, 2, 2, 1,
+                CancellationToken.NONE);
+        calls.set(0);
+
+        final int count = MarchingSquares.trace(grid, field, viewport, 0,
+                CancellationToken.NONE, (x1, y1, x2, y2) -> { });
+
+        assertEquals(2, count);
+        assertEquals(1, calls.get());
     }
 
     @Test
@@ -109,4 +174,30 @@ class MarchingSquaresTest {
 
         assertTrue(count > 0);
     }
+    private static boolean connectsTopAndLeft(final double[] segment) {
+        return (isTop(segment[0], segment[1]) && isLeft(segment[2], segment[3]))
+                || (isTop(segment[2], segment[3]) && isLeft(segment[0], segment[1]));
+    }
+
+    private static boolean connectsRightAndBottom(final double[] segment) {
+        return (isRight(segment[0], segment[1]) && isBottom(segment[2], segment[3]))
+                || (isRight(segment[2], segment[3]) && isBottom(segment[0], segment[1]));
+    }
+
+    private static boolean isTop(final double x, final double y) {
+        return x >= 0 && x <= 1 && Math.abs(y) <= EPSILON;
+    }
+
+    private static boolean isBottom(final double x, final double y) {
+        return x >= 0 && x <= 1 && Math.abs(y - 1) <= EPSILON;
+    }
+
+    private static boolean isLeft(final double x, final double y) {
+        return y >= 0 && y <= 1 && Math.abs(x) <= EPSILON;
+    }
+
+    private static boolean isRight(final double x, final double y) {
+        return y >= 0 && y <= 1 && Math.abs(x - 1) <= EPSILON;
+    }
+
 }

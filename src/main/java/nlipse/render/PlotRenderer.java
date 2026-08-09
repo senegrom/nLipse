@@ -4,12 +4,13 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
-import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -33,23 +34,35 @@ public final class PlotRenderer implements RenderEngine {
     private static final int[] BACKGROUND_PALETTE = createBackgroundPalette();
 
     private final long cacheBudgetBytes;
+    private final long worldTileBudgetBytes;
     private final long gridBudgetBytes;
+    private final long contourBudgetBytes;
     private final long layerBudgetBytes;
+    private final WorldFieldCache worldFieldCache;
     private final Map<FieldKey, FieldGrid> gridCache = new LinkedHashMap<>(8, 0.75f, true);
+    private final Map<ContourKey, ContourGeometry> contourCache =
+            new LinkedHashMap<>(8, 0.75f, true);
     private final Map<LayerKey, BufferedImage> layerCache = new LinkedHashMap<>(8, 0.75f, true);
     private final AtomicLong cacheHits = new AtomicLong();
     private final AtomicLong cacheMisses = new AtomicLong();
     private final AtomicLong derivedGridHits = new AtomicLong();
+    private final AtomicLong contourCacheHits = new AtomicLong();
+    private final AtomicLong contourCacheMisses = new AtomicLong();
     private final AtomicLong layerCacheHits = new AtomicLong();
     private final AtomicLong layerCacheMisses = new AtomicLong();
     private final AtomicLong fullQualityPreviewHits = new AtomicLong();
     private long cachedGridBytes;
+    private long cachedContourBytes;
     private long cachedLayerBytes;
 
     public PlotRenderer() {
         cacheBudgetBytes = cacheBudgetBytes();
-        gridBudgetBytes = cacheBudgetBytes * 2 / 3;
-        layerBudgetBytes = cacheBudgetBytes - gridBudgetBytes;
+        worldTileBudgetBytes = cacheBudgetBytes * 45 / 100;
+        gridBudgetBytes = cacheBudgetBytes * 20 / 100;
+        contourBudgetBytes = cacheBudgetBytes * 15 / 100;
+        layerBudgetBytes = cacheBudgetBytes - worldTileBudgetBytes
+                - gridBudgetBytes - contourBudgetBytes;
+        worldFieldCache = new WorldFieldCache(worldTileBudgetBytes);
     }
 
     @Override
@@ -153,8 +166,11 @@ public final class PlotRenderer implements RenderEngine {
         }
 
         cacheMisses.incrementAndGet();
-        final FieldGrid sampled = FieldGrid.sample(field, request.snapshot().viewport(),
-                request.width(), request.height(), request.quality().sampleStep(), token);
+        final FieldGrid sampled = key.sampleStep() == 1
+                ? worldFieldCache.sample(key.identity(), field, request.snapshot().viewport(),
+                        request.width(), request.height(), token)
+                : FieldGrid.sample(field, request.snapshot().viewport(),
+                        request.width(), request.height(), key.sampleStep(), token);
         token.throwIfCancelled();
         return cacheGrid(key, sampled);
     }
@@ -166,8 +182,12 @@ public final class PlotRenderer implements RenderEngine {
                 cacheHits.incrementAndGet();
                 return raced;
             }
+            final long bytes = sampled.estimatedBytes();
+            if (bytes > gridBudgetBytes) {
+                return sampled;
+            }
             gridCache.put(key, sampled);
-            cachedGridBytes += sampled.estimatedBytes();
+            cachedGridBytes += bytes;
             evictOversizedGridCache();
             return sampled;
         }
@@ -203,7 +223,7 @@ public final class PlotRenderer implements RenderEngine {
         }
     }
 
-    private static BufferedImage renderStaticLayer(final RenderRequest request,
+    private BufferedImage renderStaticLayer(final RenderRequest request,
             final FieldGrid grid, final DistanceField field, final CancellationToken token) {
         final PlotSnapshot snapshot = request.snapshot();
         final BufferedImage image = new BufferedImage(request.width(), request.height(),
@@ -221,7 +241,10 @@ public final class PlotRenderer implements RenderEngine {
                 drawBackground(image, graphics, grid, token);
             }
             drawAxes(graphics, snapshot.viewport(), request.width(), request.height());
-            drawContours(graphics, request, grid, field, token);
+            final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
+                    snapshot.curveCount(), snapshot.logSpacing());
+            final ContourGeometry contours = getContourGeometry(request, grid, field, levels, token);
+            drawContours(graphics, request, contours, token);
         } finally {
             graphics.dispose();
         }
@@ -229,11 +252,55 @@ public final class PlotRenderer implements RenderEngine {
         return image;
     }
 
+    private ContourGeometry getContourGeometry(final RenderRequest request,
+            final FieldGrid grid, final DistanceField field, final double[] levels,
+            final CancellationToken token) {
+        final ContourKey key = ContourKey.from(request, levels);
+        synchronized (contourCache) {
+            final ContourGeometry cached = contourCache.get(key);
+            if (cached != null) {
+                contourCacheHits.incrementAndGet();
+                return cached;
+            }
+        }
+
+        contourCacheMisses.incrementAndGet();
+        final ContourGeometry traced = grid.getExtrema().isEmpty()
+                ? ContourGeometry.trace(grid, field, request.snapshot().viewport(),
+                        new double[0], token)
+                : ContourGeometry.trace(grid, field, request.snapshot().viewport(), levels, token);
+        final long bytes = traced.estimatedBytes();
+        if (bytes > contourBudgetBytes) {
+            return traced;
+        }
+        synchronized (contourCache) {
+            final ContourGeometry raced = contourCache.get(key);
+            if (raced != null) {
+                contourCacheHits.incrementAndGet();
+                return raced;
+            }
+            contourCache.put(key, traced);
+            cachedContourBytes += bytes;
+            evictOversizedContourCache();
+            return traced;
+        }
+    }
+
     private void evictOversizedGridCache() {
         final Iterator<Map.Entry<FieldKey, FieldGrid>> entries = gridCache.entrySet().iterator();
         while (cachedGridBytes > gridBudgetBytes && gridCache.size() > 1 && entries.hasNext()) {
             final Map.Entry<FieldKey, FieldGrid> entry = entries.next();
             cachedGridBytes -= entry.getValue().estimatedBytes();
+            entries.remove();
+        }
+    }
+
+    private void evictOversizedContourCache() {
+        final Iterator<Map.Entry<ContourKey, ContourGeometry>> entries =
+                contourCache.entrySet().iterator();
+        while (cachedContourBytes > contourBudgetBytes && entries.hasNext()) {
+            final Map.Entry<ContourKey, ContourGeometry> entry = entries.next();
+            cachedContourBytes -= entry.getValue().estimatedBytes();
             entries.remove();
         }
     }
@@ -355,27 +422,14 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private static void drawContours(final Graphics2D graphics, final RenderRequest request,
-            final FieldGrid grid, final DistanceField field, final CancellationToken token) {
-        if (grid.getExtrema().isEmpty()) {
-            return;
-        }
-        final PlotSnapshot snapshot = request.snapshot();
-        final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
-                snapshot.curveCount(), snapshot.logSpacing());
-        final ContourPath[] paths = new ContourPath[levels.length];
-        for (int index = 0; index < paths.length; index++) {
-            paths[index] = new ContourPath();
-        }
-
-        MarchingSquares.traceLevels(grid, field, snapshot.viewport(), levels, token,
-                (levelIndex, x1, y1, x2, y2) -> paths[levelIndex].append(x1, y1, x2, y2));
-
+            final ContourGeometry contours, final CancellationToken token) {
         graphics.setStroke(new BasicStroke(request.quality() == RenderQuality.FULL ? 1.25f : 1f,
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        for (int index = 0; index < paths.length; index++) {
+        for (int index = 0; index < contours.levelCount(); index++) {
             token.throwIfCancelled();
-            graphics.setColor(curveColor(index, paths.length));
-            graphics.draw(paths[index].path);
+            graphics.setColor(curveColor(index, contours.levelCount()));
+            graphics.draw(contours.path(index, request.snapshot().viewport(),
+                    request.width(), request.height(), token));
         }
     }
 
@@ -447,6 +501,30 @@ public final class PlotRenderer implements RenderEngine {
         return derivedGridHits.get();
     }
 
+    public long getContourCacheHits() {
+        return contourCacheHits.get();
+    }
+
+    public long getContourCacheMisses() {
+        return contourCacheMisses.get();
+    }
+
+    public long getWorldTileHits() {
+        return worldFieldCache.tileHits();
+    }
+
+    public long getWorldTileMisses() {
+        return worldFieldCache.tileMisses();
+    }
+
+    public long getReusedWorldSamples() {
+        return worldFieldCache.reusedSamples();
+    }
+
+    public long getSampledWorldValues() {
+        return worldFieldCache.sampledValues();
+    }
+
     public long getLayerCacheHits() {
         return layerCacheHits.get();
     }
@@ -465,6 +543,16 @@ public final class PlotRenderer implements RenderEngine {
         }
     }
 
+    public long getCachedContourBytes() {
+        synchronized (contourCache) {
+            return cachedContourBytes;
+        }
+    }
+
+    public long getCachedWorldTileBytes() {
+        return worldFieldCache.cachedBytes();
+    }
+
     public long getCachedLayerBytes() {
         synchronized (layerCache) {
             return cachedLayerBytes;
@@ -477,11 +565,29 @@ public final class PlotRenderer implements RenderEngine {
 
     public String cacheSummary() {
         return String.format(Locale.ROOT,
-                "grid %d/%d (+%d derived), layer %d/%d (+%d full-preview), %.1f/%.1f MiB",
+                "tiles %d/%d (%d reused), grid %d/%d (+%d derived), "
+                        + "contour %d/%d, layer %d/%d (+%d full-preview), %.1f/%.1f MiB",
+                getWorldTileHits(), getWorldTileMisses(), getReusedWorldSamples(),
                 getCacheHits(), getCacheMisses(), getDerivedGridHits(),
+                getContourCacheHits(), getContourCacheMisses(),
                 getLayerCacheHits(), getLayerCacheMisses(), getFullQualityPreviewHits(),
-                (getCachedGridBytes() + getCachedLayerBytes()) / (double) MEBIBYTE,
+                (getCachedWorldTileBytes() + getCachedGridBytes()
+                        + getCachedContourBytes() + getCachedLayerBytes()) / (double) MEBIBYTE,
                 cacheBudgetBytes / (double) MEBIBYTE);
+    }
+
+    private record ContourKey(FieldKey fieldKey, List<Long> levelBits) {
+        ContourKey {
+            levelBits = List.copyOf(levelBits);
+        }
+
+        static ContourKey from(final RenderRequest request, final double[] levels) {
+            final List<Long> bits = new ArrayList<>(levels.length);
+            for (final double level : levels) {
+                bits.add(Double.doubleToLongBits(level));
+            }
+            return new ContourKey(FieldKey.from(request), bits);
+        }
     }
 
     private record LayerKey(
@@ -510,32 +616,4 @@ public final class PlotRenderer implements RenderEngine {
     private record RenderArtifacts(FieldGrid grid, BufferedImage layer) {
     }
 
-    private static final class ContourPath {
-        private static final double JOIN_TOLERANCE = 1e-7;
-
-        private final Path2D.Float path = new Path2D.Float();
-        private double lastX = Double.NaN;
-        private double lastY = Double.NaN;
-
-        void append(final double x1, final double y1, final double x2, final double y2) {
-            if (same(lastX, x1) && same(lastY, y1)) {
-                path.lineTo(x2, y2);
-                lastX = x2;
-                lastY = y2;
-            } else if (same(lastX, x2) && same(lastY, y2)) {
-                path.lineTo(x1, y1);
-                lastX = x1;
-                lastY = y1;
-            } else {
-                path.moveTo(x1, y1);
-                path.lineTo(x2, y2);
-                lastX = x2;
-                lastY = y2;
-            }
-        }
-
-        private static boolean same(final double first, final double second) {
-            return Math.abs(first - second) <= JOIN_TOLERANCE;
-        }
-    }
 }

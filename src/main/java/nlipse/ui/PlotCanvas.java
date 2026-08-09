@@ -15,6 +15,10 @@ public final class PlotCanvas extends JComponent {
     private static final long serialVersionUID = 1L;
 
     private transient BufferedImage image;
+    private transient BufferedImage panImage;
+    private int panOffsetX;
+    private int panOffsetY;
+    private boolean panPreview;
     private boolean rendering;
     private String message = "Preparing plot…";
 
@@ -28,6 +32,7 @@ public final class PlotCanvas extends JComponent {
 
     public void setRenderResult(final RenderResult result) {
         image = result.image();
+        clearPanPreview();
         rendering = false;
         message = "";
         repaint();
@@ -36,6 +41,70 @@ public final class PlotCanvas extends JComponent {
     /** The most recent completed render, or null before the first one. */
     public BufferedImage image() {
         return image;
+    }
+
+    /** Starts an immediate translated-image preview for an interactive pan. */
+    boolean beginPanPreview() {
+        if (image == null) {
+            return false;
+        }
+        panImage = image;
+        panOffsetX = 0;
+        panOffsetY = 0;
+        panPreview = true;
+        rendering = false;
+        repaint();
+        return true;
+    }
+
+    void updatePanPreview(final int offsetX, final int offsetY) {
+        if (!panPreview) {
+            return;
+        }
+        panOffsetX = offsetX;
+        panOffsetY = offsetY;
+        repaint();
+    }
+
+    /** Freezes the translated preview so it remains visible while the exact render runs. */
+    void commitPanPreview() {
+        if (!panPreview || panImage == null || getWidth() < 1 || getHeight() < 1) {
+            clearPanPreview();
+            return;
+        }
+        if (panOffsetX == 0 && panOffsetY == 0) {
+            image = panImage;
+            clearPanPreview();
+            repaint();
+            return;
+        }
+        final BufferedImage committed = new BufferedImage(getWidth(), getHeight(),
+                BufferedImage.TYPE_INT_ARGB);
+        final Graphics2D graphics = committed.createGraphics();
+        try {
+            graphics.setColor(getBackground());
+            graphics.fillRect(0, 0, committed.getWidth(), committed.getHeight());
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            graphics.drawImage(panImage, panOffsetX, panOffsetY,
+                    getWidth(), getHeight(), null);
+        } finally {
+            graphics.dispose();
+        }
+        image = committed;
+        clearPanPreview();
+        repaint();
+    }
+
+    boolean isPanPreviewActive() {
+        return panPreview;
+    }
+
+    private void clearPanPreview() {
+        panImage = null;
+        panOffsetX = 0;
+        panOffsetY = 0;
+        panPreview = false;
     }
 
     public void setRendering(final boolean value) {
@@ -54,10 +123,15 @@ public final class PlotCanvas extends JComponent {
         super.paintComponent(graphics);
         final Graphics2D g = (Graphics2D) graphics.create();
         try {
-            if (image != null) {
+            g.setColor(getBackground());
+            g.fillRect(0, 0, getWidth(), getHeight());
+            final BufferedImage displayed = panPreview && panImage != null ? panImage : image;
+            if (displayed != null) {
                 g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                         RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                g.drawImage(image, 0, 0, getWidth(), getHeight(), null);
+                final int offsetX = panPreview ? panOffsetX : 0;
+                final int offsetY = panPreview ? panOffsetY : 0;
+                g.drawImage(displayed, offsetX, offsetY, getWidth(), getHeight(), null);
             }
             if (image == null && !message.isEmpty()) {
                 drawCentredMessage(g, message);

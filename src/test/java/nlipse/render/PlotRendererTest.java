@@ -80,6 +80,53 @@ class PlotRendererTest {
     }
 
     @Test
+    void displayStyleChangeReusesCachedContourTopology() {
+        final PlotRenderer renderer = new PlotRenderer();
+        final PlotSnapshot withBackground = snapshot(1, 3, 8, true, 0);
+        final PlotSnapshot withoutBackground = snapshot(1, 3, 8, false, 0);
+
+        renderer.render(new RenderRequest(withBackground, 180, 120, RenderQuality.FULL),
+                CancellationToken.NONE);
+        renderer.render(new RenderRequest(withoutBackground, 180, 120, RenderQuality.FULL),
+                CancellationToken.NONE);
+
+        assertEquals(1, renderer.getCacheMisses());
+        assertEquals(1, renderer.getCacheHits());
+        assertEquals(1, renderer.getContourCacheMisses());
+        assertEquals(1, renderer.getContourCacheHits());
+        assertEquals(2, renderer.getLayerCacheMisses());
+    }
+
+    @Test
+    void integerPixelPanReusesOverlappingWorldSamples() {
+        final int width = 129;
+        final int height = 97;
+        final int panX = 9;
+        final int panY = -6;
+        final PlotRenderer renderer = new PlotRenderer();
+        final PlotSnapshot initial = snapshot(1, 3, 8, true, 0);
+        renderer.render(new RenderRequest(initial, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+        final long sampledBeforePan = renderer.getSampledWorldValues();
+        final Viewport pannedViewport = initial.viewport().panPixels(
+                panX, panY, width, height);
+        final PlotSnapshot panned = new PlotSnapshot(initial.curveType(), initial.foci(),
+                initial.distanceMin(), initial.distanceMax(), initial.curveCount(), pannedViewport,
+                initial.showBackground(), initial.showExtrema(), initial.antiAlias(),
+                initial.logSpacing(), initial.selectedFocusIndex());
+
+        renderer.render(new RenderRequest(panned, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+
+        final long overlap = (long) (width - Math.abs(panX))
+                * (height - Math.abs(panY));
+        final long newlyExposed = (long) width * height - overlap;
+        assertEquals(newlyExposed, renderer.getSampledWorldValues() - sampledBeforePan);
+        assertTrue(renderer.getReusedWorldSamples() >= overlap);
+        assertTrue(renderer.getWorldTileHits() > 0);
+    }
+
+    @Test
     void changedGeometryInvalidatesFieldCache() {
         final PlotRenderer renderer = new PlotRenderer();
         renderer.render(new RenderRequest(snapshot(1, 3, 4, true, 0),

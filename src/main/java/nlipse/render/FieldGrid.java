@@ -2,10 +2,7 @@ package nlipse.render;
 
 import java.lang.ref.WeakReference;
 import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.RecursiveAction;
-import java.util.concurrent.atomic.AtomicInteger;
 import nlipse.geometry.Point2;
 import nlipse.math.DistanceField;
 
@@ -13,13 +10,6 @@ import nlipse.math.DistanceField;
 public final class FieldGrid {
     private static final long PARALLEL_SAMPLE_THRESHOLD = 128L * 1024;
     private static final int ROWS_PER_TASK = 16;
-    private static final AtomicInteger SAMPLER_NUMBER = new AtomicInteger();
-    private static final int SAMPLER_PARALLELISM = samplerParallelism();
-    private static final ForkJoinPool SAMPLE_POOL = new ForkJoinPool(
-            SAMPLER_PARALLELISM,
-            FieldGrid::newSamplerThread,
-            null,
-            true);
 
     private final int pixelWidth;
     private final int pixelHeight;
@@ -83,8 +73,8 @@ public final class FieldGrid {
         final int[] rowMinColumns = new int[rows];
         final int[] rowMaxColumns = new int[rows];
         final boolean[] rowValid = new boolean[rows];
-        if ((long) columns * rows >= PARALLEL_SAMPLE_THRESHOLD && SAMPLER_PARALLELISM > 1) {
-            SAMPLE_POOL.invoke(new SampleRowsTask(field, worldXs, worldYs, columns,
+        if ((long) columns * rows >= PARALLEL_SAMPLE_THRESHOLD && SamplingPool.parallelism() > 1) {
+            SamplingPool.invoke(new SampleRowsTask(field, worldXs, worldYs, columns,
                     0, rows, values, rowMinima, rowMaxima,
                     rowMinColumns, rowMaxColumns, rowValid, token));
         } else {
@@ -181,26 +171,81 @@ public final class FieldGrid {
         return pixelCoordinate / step;
     }
 
-    private static int samplerParallelism() {
-        final int processors = Runtime.getRuntime().availableProcessors();
-        final int defaultParallelism = Math.min(32, Math.max(1, processors - 1));
-        final String configured = System.getProperty("nlipse.renderThreads");
-        if (configured == null || configured.isBlank()) {
-            return defaultParallelism;
+    static FieldGrid fromFullResolutionValues(final Viewport viewport, final int pixelWidth,
+            final int pixelHeight, final double[] values, final CancellationToken token) {
+        if (viewport == null || values == null || token == null) {
+            throw new IllegalArgumentException(
+                    "Viewport, sampled values and cancellation token are required");
         }
-        try {
-            return Math.clamp(Integer.parseInt(configured.trim()), 1, 256);
-        } catch (final NumberFormatException ignored) {
-            return defaultParallelism;
+        if (pixelWidth < 2 || pixelHeight < 2
+                || values.length != Math.multiplyExact(pixelWidth, pixelHeight)) {
+            throw new IllegalArgumentException("Full-resolution values must match the grid size");
         }
+        final int[] pixelXs = new int[pixelWidth];
+        final int[] pixelYs = new int[pixelHeight];
+        final double[] rowMinima = new double[pixelHeight];
+        final double[] rowMaxima = new double[pixelHeight];
+        final int[] rowMinColumns = new int[pixelHeight];
+        final int[] rowMaxColumns = new int[pixelHeight];
+        final boolean[] rowValid = new boolean[pixelHeight];
+        for (int column = 0; column < pixelWidth; column++) {
+            pixelXs[column] = column;
+        }
+        for (int row = 0; row < pixelHeight; row++) {
+            pixelYs[row] = row;
+        }
+        if ((long) pixelWidth * pixelHeight >= PARALLEL_SAMPLE_THRESHOLD
+                && SamplingPool.parallelism() > 1) {
+            SamplingPool.invoke(new ScanRowsTask(values, pixelWidth, 0, pixelHeight,
+                    rowMinima, rowMaxima, rowMinColumns, rowMaxColumns, rowValid, token));
+        } else {
+            scanRows(values, pixelWidth, 0, pixelHeight, rowMinima, rowMaxima,
+                    rowMinColumns, rowMaxColumns, rowValid, token);
+        }
+        final Optional<FieldExtrema> extrema = extremaFromRows(viewport, pixelWidth, pixelHeight,
+                pixelXs, pixelYs, rowMinima, rowMaxima,
+                rowMinColumns, rowMaxColumns, rowValid);
+        return new FieldGrid(pixelWidth, pixelHeight, 1, pixelWidth, pixelHeight,
+                pixelXs, pixelYs, values, extrema, null);
     }
 
-    private static ForkJoinWorkerThread newSamplerThread(final ForkJoinPool pool) {
-        final ForkJoinWorkerThread thread = ForkJoinPool.defaultForkJoinWorkerThreadFactory
-                .newThread(pool);
-        thread.setName("nlipse-sampler-" + SAMPLER_NUMBER.incrementAndGet());
-        thread.setDaemon(true);
-        return thread;
+    private static void scanRows(final double[] values, final int columns,
+            final int fromRow, final int toRow, final double[] rowMinima,
+            final double[] rowMaxima, final int[] rowMinColumns,
+            final int[] rowMaxColumns, final boolean[] rowValid,
+            final CancellationToken token) {
+        for (int row = fromRow; row < toRow; row++) {
+            token.throwIfCancelled();
+            final int offset = row * columns;
+            double minimum = Double.POSITIVE_INFINITY;
+            double maximum = Double.NEGATIVE_INFINITY;
+            int minimumColumn = 0;
+            int maximumColumn = 0;
+            boolean valid = false;
+            for (int column = 0; column < columns; column++) {
+                if ((column & 255) == 0) {
+                    token.throwIfCancelled();
+                }
+                final double value = values[offset + column];
+                if (!Double.isFinite(value)) {
+                    continue;
+                }
+                if (!valid || value < minimum) {
+                    minimum = value;
+                    minimumColumn = column;
+                }
+                if (!valid || value > maximum) {
+                    maximum = value;
+                    maximumColumn = column;
+                }
+                valid = true;
+            }
+            rowMinima[row] = minimum;
+            rowMaxima[row] = maximum;
+            rowMinColumns[row] = minimumColumn;
+            rowMaxColumns[row] = maximumColumn;
+            rowValid[row] = valid;
+        }
     }
 
     private static void sampleRows(final DistanceField field, final double[] worldXs,
@@ -343,6 +388,53 @@ public final class FieldGrid {
     public long estimatedBytes() {
         return 128L + (long) values.length * Double.BYTES
                 + (long) (pixelXs.length + pixelYs.length) * Integer.BYTES;
+    }
+
+    private static final class ScanRowsTask extends RecursiveAction {
+        private static final long serialVersionUID = 1L;
+
+        private final double[] values;
+        private final int columns;
+        private final int fromRow;
+        private final int toRow;
+        private final double[] rowMinima;
+        private final double[] rowMaxima;
+        private final int[] rowMinColumns;
+        private final int[] rowMaxColumns;
+        private final boolean[] rowValid;
+        private final transient CancellationToken token;
+
+        ScanRowsTask(final double[] values, final int columns, final int fromRow,
+                final int toRow, final double[] rowMinima, final double[] rowMaxima,
+                final int[] rowMinColumns, final int[] rowMaxColumns,
+                final boolean[] rowValid, final CancellationToken token) {
+            this.values = values;
+            this.columns = columns;
+            this.fromRow = fromRow;
+            this.toRow = toRow;
+            this.rowMinima = rowMinima;
+            this.rowMaxima = rowMaxima;
+            this.rowMinColumns = rowMinColumns;
+            this.rowMaxColumns = rowMaxColumns;
+            this.rowValid = rowValid;
+            this.token = token;
+        }
+
+        @Override
+        protected void compute() {
+            token.throwIfCancelled();
+            if (toRow - fromRow <= ROWS_PER_TASK) {
+                scanRows(values, columns, fromRow, toRow, rowMinima, rowMaxima,
+                        rowMinColumns, rowMaxColumns, rowValid, token);
+                return;
+            }
+            final int middle = (fromRow + toRow) >>> 1;
+            invokeAll(
+                    new ScanRowsTask(values, columns, fromRow, middle, rowMinima,
+                            rowMaxima, rowMinColumns, rowMaxColumns, rowValid, token),
+                    new ScanRowsTask(values, columns, middle, toRow, rowMinima,
+                            rowMaxima, rowMinColumns, rowMaxColumns, rowValid, token));
+        }
     }
 
     private static final class SampleRowsTask extends RecursiveAction {

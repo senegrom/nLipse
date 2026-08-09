@@ -105,7 +105,8 @@ public final class MarchingSquares {
         }
 
         final int mask = mask(a, b, c, d, level);
-        if ((mask == 0 || mask == 15) && grid.getStep() > 1 && depth == 0) {
+        if ((mask == 0 || mask == 15) && grid.getStep() > 1
+                && depth == 0 && x1 - x0 > 1 && y1 - y0 > 1) {
             final double centreX = (x0 + x1) * 0.5;
             final double centreY = (y0 + y1) * 0.5;
             final double centre = Double.isFinite(knownCentre) ? knownCentre
@@ -119,7 +120,8 @@ public final class MarchingSquares {
                 if (Double.isFinite(top) && Double.isFinite(right)
                         && Double.isFinite(bottom) && Double.isFinite(left)) {
                     return processCell(grid, field, viewport, level, levelIndex, token, consumer,
-                            x0, y0, centreX, centreY, a, top, centre, left, Double.NaN, depth + 1)
+                            x0, y0, centreX, centreY, a, top, centre, left,
+                            Double.NaN, depth + 1)
                             + processCell(grid, field, viewport, level, levelIndex, token, consumer,
                                     centreX, y0, x1, centreY,
                                     top, b, right, centre, Double.NaN, depth + 1)
@@ -148,13 +150,15 @@ public final class MarchingSquares {
             case 3 -> emit(levelIndex, x0, leftY, x1, rightY, consumer);
             case 4 -> emit(levelIndex, x1, rightY, bottomX, y1, consumer);
             case 5 -> emitAmbiguous(grid, field, viewport, level, levelIndex, consumer,
-                    x0, y0, x1, y1, topX, rightY, bottomX, leftY, true, knownCentre);
+                    x0, y0, x1, y1, a, b, c, d,
+                    topX, rightY, bottomX, leftY, true, knownCentre);
             case 6 -> emit(levelIndex, topX, y0, bottomX, y1, consumer);
             case 7 -> emit(levelIndex, x0, leftY, bottomX, y1, consumer);
             case 8 -> emit(levelIndex, bottomX, y1, x0, leftY, consumer);
             case 9 -> emit(levelIndex, topX, y0, bottomX, y1, consumer);
             case 10 -> emitAmbiguous(grid, field, viewport, level, levelIndex, consumer,
-                    x0, y0, x1, y1, topX, rightY, bottomX, leftY, false, knownCentre);
+                    x0, y0, x1, y1, a, b, c, d,
+                    topX, rightY, bottomX, leftY, false, knownCentre);
             case 11 -> emit(levelIndex, x1, rightY, bottomX, y1, consumer);
             case 12 -> emit(levelIndex, x1, rightY, x0, leftY, consumer);
             case 13 -> emit(levelIndex, topX, y0, x1, rightY, consumer);
@@ -166,21 +170,30 @@ public final class MarchingSquares {
     private static int emitAmbiguous(final FieldGrid grid, final DistanceField field,
             final Viewport viewport, final double level, final int levelIndex,
             final LevelSegmentConsumer consumer, final double x0, final double y0,
-            final double x1, final double y1, final double topX, final double rightY,
+            final double x1, final double y1, final double a, final double b,
+            final double c, final double d, final double topX, final double rightY,
             final double bottomX, final double leftY,
             final boolean highOnTopLeftAndBottomRight, final double knownCentre) {
-        final double centre = Double.isFinite(knownCentre) ? knownCentre
-                : sample(field, viewport, grid, (x0 + x1) * 0.5, (y0 + y1) * 0.5);
-        final boolean centreHigh = Double.isFinite(centre) && centre >= level;
+        final int asymptoticDecision = asymptoticHighConnection(
+                a, b, c, d, level, highOnTopLeftAndBottomRight);
+        final boolean highConnected;
+        if (asymptoticDecision != 0) {
+            highConnected = asymptoticDecision > 0;
+        } else {
+            final double centre = Double.isFinite(knownCentre) ? knownCentre
+                    : sample(field, viewport, grid,
+                            (x0 + x1) * 0.5, (y0 + y1) * 0.5);
+            highConnected = Double.isFinite(centre) && centre >= level;
+        }
         if (highOnTopLeftAndBottomRight) {
-            if (centreHigh) {
+            if (highConnected) {
                 emit(levelIndex, topX, y0, x1, rightY, consumer);
                 emit(levelIndex, bottomX, y1, x0, leftY, consumer);
             } else {
                 emit(levelIndex, x0, leftY, topX, y0, consumer);
                 emit(levelIndex, x1, rightY, bottomX, y1, consumer);
             }
-        } else if (centreHigh) {
+        } else if (highConnected) {
             emit(levelIndex, x0, leftY, topX, y0, consumer);
             emit(levelIndex, x1, rightY, bottomX, y1, consumer);
         } else {
@@ -188,6 +201,32 @@ public final class MarchingSquares {
             emit(levelIndex, bottomX, y1, x0, leftY, consumer);
         }
         return 2;
+    }
+
+    /** Returns 1 when high corners connect, -1 when low corners connect, and 0 for a tie. */
+    private static int asymptoticHighConnection(final double a, final double b,
+            final double c, final double d, final double level,
+            final boolean highOnTopLeftAndBottomRight) {
+        final double largestMagnitude = Math.max(Math.abs(level),
+                Math.max(Math.max(Math.abs(a), Math.abs(b)),
+                        Math.max(Math.abs(c), Math.abs(d))));
+        if (largestMagnitude > 0 && Double.isFinite(largestMagnitude)) {
+            final int exponent = Math.getExponent(largestMagnitude);
+            final double scaledLevel = Math.scalb(level, -exponent);
+            final double shiftedA = Math.scalb(a, -exponent) - scaledLevel;
+            final double shiftedB = Math.scalb(b, -exponent) - scaledLevel;
+            final double shiftedC = Math.scalb(c, -exponent) - scaledLevel;
+            final double shiftedD = Math.scalb(d, -exponent) - scaledLevel;
+            final double determinant = Math.fma(shiftedA, shiftedC,
+                    -shiftedB * shiftedD);
+            if (determinant > 0) {
+                return highOnTopLeftAndBottomRight ? 1 : -1;
+            }
+            if (determinant < 0) {
+                return highOnTopLeftAndBottomRight ? -1 : 1;
+            }
+        }
+        return 0;
     }
 
     private static int emit(final int levelIndex, final double x1, final double y1,

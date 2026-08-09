@@ -233,7 +233,7 @@ public final class PlotController implements AutoCloseable {
         canvas.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(final ComponentEvent event) {
-                if (canvas.isShowing()) {
+                if (canvas.isShowing() && !panning) {
                     requestInteractiveRender();
                 }
             }
@@ -248,6 +248,10 @@ public final class PlotController implements AutoCloseable {
                     panStartX = event.getX();
                     panStartY = event.getY();
                     panStartViewport = model.getViewport();
+                    previewTimer.stop();
+                    fullTimer.stop();
+                    renderService.cancel();
+                    canvas.beginPanPreview();
                     return;
                 }
                 final int hit = hitTest(event.getX(), event.getY());
@@ -276,8 +280,14 @@ public final class PlotController implements AutoCloseable {
 
             @Override
             public void mouseReleased(final MouseEvent event) {
-                if (panning || draggingFocus >= 0) {
+                if (panning) {
                     panning = false;
+                    panStartViewport = null;
+                    canvas.commitPanPreview();
+                    previewTimer.stop();
+                    fullTimer.stop();
+                    requestFullRender();
+                } else if (draggingFocus >= 0) {
                     draggingFocus = -1;
                     previewTimer.stop();
                     fullTimer.stop();
@@ -295,10 +305,16 @@ public final class PlotController implements AutoCloseable {
                 updateCursorInfo(event.getX(), event.getY());
                 if (panning && panStartViewport != null
                         && canvas.getWidth() >= 2 && canvas.getHeight() >= 2) {
-                    model.setViewport(panStartViewport.panPixels(event.getX() - panStartX,
-                            event.getY() - panStartY, canvas.getWidth(), canvas.getHeight()));
+                    final int offsetX = event.getX() - panStartX;
+                    final int offsetY = event.getY() - panStartY;
+                    model.setViewport(panStartViewport.panPixels(offsetX, offsetY,
+                            canvas.getWidth(), canvas.getHeight()));
                     markRangeAdjustment(RangeAdjustment.CLAMP);
-                    requestInteractiveRender();
+                    if (canvas.isPanPreviewActive()) {
+                        canvas.updatePanPreview(offsetX, offsetY);
+                    } else {
+                        requestInteractiveRender();
+                    }
                 } else if (draggingFocus >= 0 && draggingFocus < model.getFocusCount()
                         && canvas.getWidth() >= 2 && canvas.getHeight() >= 2) {
                     final Viewport viewport = model.getViewport();

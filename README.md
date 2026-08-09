@@ -43,12 +43,16 @@ PowerShell equivalents are available as `scripts/create-aot-cache.ps1` and `scri
 
 ## Rendering architecture
 
-Rendering runs on a cancellable background worker, never on Swing's event-dispatch thread. Interactive changes use a coalesced preview render and are followed by a full-quality render.
+Rendering runs on a bounded, latest-wins background queue rather than Swing's event-dispatch thread. Interactive edits still use coalesced previews followed by a full-quality render. While middle-dragging, the last completed image is translated immediately; releasing the mouse starts the exact render.
 
-The scalar field is sampled once and cached so the background, extrema and all contour levels share the same data. Large grids are sampled across the common work-stealing pool. Contours are generated in one allocation-free, multi-level marching-squares pass, including centre sampling for ambiguous cells and adaptive subdivision in coarse previews. Background pixels are written directly into the raster through a precomputed palette.
+Full-resolution field samples are cached in memory-bounded 32×32 world-space tiles. An integer-pixel pan keeps the same sampling lattice, so overlapping samples are reused exactly and only newly exposed rows and columns are evaluated. Exact viewport grids remain cached separately for fast redraws and coarse previews can be derived from a cached full grid without evaluating the field again.
 
-The field-grid cache is limited by memory rather than an arbitrary entry count. The n-hyperbola evaluator switches from quadratic pairwise comparison to a sorted O(n log n) formulation for larger focus sets.
+Contours are extracted in one multi-level marching-squares pass. Ambiguous saddle cells use the bilinear asymptotic decider, with a centre sample only for an exact numerical tie. Individual cell segments are stitched into continuous world-coordinate polylines and cached independently of background shading, anti-aliasing and focus selection. Marker-free raster layers are cached separately, so selection-only redraws do not resample the field or retrace contours. Coarse previews retain the existing bounded one-level refinement for small hidden loops; a full adaptive quadtree remains deliberately deferred until representative benchmarks justify its added complexity.
+
+CPU-bound sampling uses a renderer-owned daemon pool instead of Java's common pool. The default worker count is capped at 32 and can be overridden with `-Dnlipse.renderThreads=<count>`. The combined cache budget defaults to one-eighth of the maximum heap, bounded between 32 and 256 MiB, and can be overridden with `-Dnlipse.cacheMiB=<MiB>`.
+
+The mathematical evaluators use compensated or scaled arithmetic for extreme finite values. Cassini products are accumulated in the logarithmic domain, and larger n-hyperbola fields use a sorted O(n log n) formulation.
 
 ## Continuous integration
 
-GitHub Actions runs the complete Maven test suite and the JDK 25 AOT-training path on Java 25 for every push to `main`.
+GitHub Actions runs the complete Maven test suite and the JDK 25 AOT-training path on Java 25 for pull requests and every push to `main`.

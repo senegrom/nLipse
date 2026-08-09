@@ -28,6 +28,10 @@ record FieldKey(
                 request.quality().sampleStep());
     }
 
+    FieldIdentity identity() {
+        return new FieldIdentity(curveType, foci);
+    }
+
     FieldKey withSampleStep(final int newSampleStep) {
         return new FieldKey(curveType, foci, viewport, width, height, newSampleStep);
     }
