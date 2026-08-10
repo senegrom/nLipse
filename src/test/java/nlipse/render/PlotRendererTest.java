@@ -176,6 +176,32 @@ class PlotRendererTest {
         assertEquals(Color.WHITE.getRGB(), result.image().getRGB(2, 2));
     }
 
+    @Test
+    void rendersEveryCurveFamily() {
+        final PlotRenderer renderer = new PlotRenderer();
+        final List<Focus> foci = List.of(
+                new Focus(-0.7, 0.1, 1),
+                new Focus(0.8, -0.2, -0.75),
+                new Focus(0.1, 1.1, 0.4));
+
+        for (final CurveType type : CurveType.values()) {
+            final double minimum = type == CurveType.POTENTIAL ? -3 : 0.05;
+            final double maximum = type == CurveType.POTENTIAL ? 3 : 8;
+            final PlotSnapshot snapshot = new PlotSnapshot(type, foci,
+                    minimum, maximum, 9, new Viewport(-2, 2, -2, 2),
+                    true, true, true, type.defaultLogSpacing(), -1);
+
+            final RenderResult result = renderer.render(
+                    new RenderRequest(snapshot, 96, 72, RenderQuality.FULL),
+                    CancellationToken.NONE);
+
+            assertEquals(96, result.image().getWidth());
+            assertEquals(72, result.image().getHeight());
+            assertTrue(result.extrema().isPresent(), type.name());
+        }
+        assertEquals(CurveType.values().length, renderer.getCacheMisses());
+    }
+
     private static PlotSnapshot snapshot(final double minimum, final double maximum,
             final int count, final boolean background, final int selectedFocus) {
         return new PlotSnapshot(CurveType.LIPSE,

@@ -138,7 +138,7 @@ public final class PlotModel {
 
     public synchronized void setDistanceRange(final double min, final double max) {
         if (!Double.isFinite(min) || !Double.isFinite(max) || min > max) {
-            throw new IllegalArgumentException("Distance range must be finite and ordered");
+            throw new IllegalArgumentException("Field level range must be finite and ordered");
         }
         distanceMin = min;
         distanceMax = max;

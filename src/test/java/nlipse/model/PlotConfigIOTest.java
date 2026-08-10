@@ -74,4 +74,34 @@ class PlotConfigIOTest {
         model.resetViewport();
         assertEquals(loaded.viewport(), model.getViewport());
     }
+    @Test
+    void everyCurveFamilySurvivesPersistence() throws Exception {
+        for (final CurveType type : CurveType.values()) {
+            final PlotConfig config = new PlotConfig(type,
+                    List.of(new Focus(0, 0, 1)),
+                    -2, 3, 5, new Viewport(-1, 1, -1, 1),
+                    true, true, true, type.defaultLogSpacing());
+            final Path file = tempDirectory.resolve(type.name() + ".properties");
+
+            PlotConfigIO.save(file, new PlotModel(config).snapshot());
+
+            assertEquals(config, PlotConfigIO.load(file));
+        }
+    }
+
+    @Test
+    void invalidCurveFamilyReportsAllValidNames() throws Exception {
+        final Path file = tempDirectory.resolve("unknown-family.properties");
+        final PlotConfig config = PlotConfig.defaults();
+        PlotConfigIO.save(file, new PlotModel(config).snapshot());
+        Files.writeString(file, Files.readString(file)
+                .replace("curveType=LIPSE", "curveType=UNKNOWN"));
+
+        final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> PlotConfigIO.load(file));
+        for (final CurveType type : CurveType.values()) {
+            assertTrue(failure.getMessage().contains(type.name()));
+        }
+    }
+
 }

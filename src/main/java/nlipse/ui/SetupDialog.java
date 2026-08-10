@@ -36,6 +36,7 @@ public final class SetupDialog extends JDialog {
     private static final long serialVersionUID = 1L;
 
     private final JComboBox<CurveType> curveType = new JComboBox<>(CurveType.values());
+    private final JLabel curveDescription = new JLabel();
     private final DefaultTableModel focusModel = new DefaultTableModel(
             new String[]{"X", "Y", "Weight"}, 0) {
         private static final long serialVersionUID = 1L;
@@ -78,6 +79,7 @@ public final class SetupDialog extends JDialog {
 
     private void initialise(final PlotConfig initial) {
         curveType.setSelectedItem(initial.curveType());
+        updateCurveDescription(initial.curveType());
         for (final Focus focus : initial.foci()) {
             focusModel.addRow(new Object[]{format(focus.x()), format(focus.y()),
                     format(focus.weight())});
@@ -113,9 +115,13 @@ public final class SetupDialog extends JDialog {
             final CurveType selected = (CurveType) curveType.getSelectedItem();
             if (selected != null) {
                 logSpacing.setSelected(selected.defaultLogSpacing());
+                updateCurveDescription(selected);
             }
         });
         form.add(labelledRow("Curve family:", curveType));
+        curveDescription.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+        curveDescription.setAlignmentX(Component.LEFT_ALIGNMENT);
+        form.add(curveDescription);
         form.add(Box.createVerticalStrut(7));
 
         final JPanel focusPanel = new JPanel(new BorderLayout(5, 5));
@@ -138,7 +144,7 @@ public final class SetupDialog extends JDialog {
         form.add(Box.createVerticalStrut(7));
 
         final JPanel distancePanel = new JPanel(new GridBagLayout());
-        distancePanel.setBorder(BorderFactory.createTitledBorder("Distance levels"));
+        distancePanel.setBorder(BorderFactory.createTitledBorder("Field levels"));
         final GridBagConstraints constraints = constraints();
         addGrid(distancePanel, constraints, 0, 0, new JLabel("Min:"));
         addGrid(distancePanel, constraints, 1, 0, distanceMin);
@@ -184,6 +190,12 @@ public final class SetupDialog extends JDialog {
         setContentPane(root);
     }
 
+
+    private void updateCurveDescription(final CurveType selected) {
+        curveDescription.setText(selected.htmlDescription(330));
+        curveType.setToolTipText(selected.description());
+    }
+
     private void accept() {
         if (focusTable.isEditing()) {
             focusTable.getCellEditor().stopCellEditing();
@@ -203,8 +215,8 @@ public final class SetupDialog extends JDialog {
             if (foci.isEmpty()) {
                 throw new IllegalArgumentException("At least one focus point is required");
             }
-            final double parsedDistanceMin = parseFinite(distanceMin.getText(), "Distance min");
-            final double parsedDistanceMax = parseFinite(distanceMax.getText(), "Distance max");
+            final double parsedDistanceMin = parseFinite(distanceMin.getText(), "Minimum level");
+            final double parsedDistanceMax = parseFinite(distanceMax.getText(), "Maximum level");
             final int parsedCount = parseInteger(curveCount.getText(), "Curve count", 1, 200);
             final Viewport viewport = new Viewport(
                     parseFinite(xMin.getText(), "X min"),

@@ -33,6 +33,7 @@ public final class PlotWindow extends JFrame {
 
     private final PlotCanvas canvas = new PlotCanvas();
     private final JComboBox<CurveType> curveType = new JComboBox<>(CurveType.values());
+    private final JLabel curveDescription = new JLabel();
     private final JSlider distanceMin = new JSlider(0, 1000, 50);
     private final JSlider distanceMax = new JSlider(0, 1000, 950);
     private final JLabel distanceMinLabel = new JLabel();
@@ -54,7 +55,7 @@ public final class PlotWindow extends JFrame {
     private final JTable focusTable = new JTable(focusTableModel);
     private final JButton addFocus = new JButton("Add");
     private final JButton removeFocus = new JButton("Remove");
-    private final JButton fitDistance = new JButton("Fit distance");
+    private final JButton fitDistance = new JButton("Fit levels");
     private final JButton resetView = new JButton("Reset view");
     private final JButton saveSetup = new JButton("Save setup…");
     private final JButton loadSetup = new JButton("Load setup…");
@@ -77,17 +78,22 @@ public final class PlotWindow extends JFrame {
         final JPanel side = new JPanel();
         side.setLayout(new BoxLayout(side, BoxLayout.Y_AXIS));
         side.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        side.setPreferredSize(new Dimension(310, 780));
+        side.setPreferredSize(new Dimension(350, 780));
 
-        final JPanel typePanel = rowPanel();
+        final JPanel typePanel = new JPanel();
+        typePanel.setLayout(new BoxLayout(typePanel, BoxLayout.Y_AXIS));
         typePanel.setBorder(BorderFactory.createTitledBorder("Curve family"));
-        typePanel.add(curveType);
+        final JPanel typeRow = rowPanel();
+        typeRow.add(curveType);
+        typePanel.add(typeRow);
+        curveDescription.setBorder(BorderFactory.createEmptyBorder(0, 7, 5, 7));
+        typePanel.add(curveDescription);
         side.add(typePanel);
         side.add(Box.createVerticalStrut(6));
 
         final JPanel distancePanel = new JPanel();
         distancePanel.setLayout(new BoxLayout(distancePanel, BoxLayout.Y_AXIS));
-        distancePanel.setBorder(BorderFactory.createTitledBorder("Distance levels"));
+        distancePanel.setBorder(BorderFactory.createTitledBorder("Field levels"));
         distancePanel.add(distanceMinLabel);
         distancePanel.add(distanceMin);
         distancePanel.add(distanceMaxLabel);
@@ -167,7 +173,7 @@ public final class PlotWindow extends JFrame {
         final JScrollPane scroll = new JScrollPane(side);
         scroll.setBorder(null);
         scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setPreferredSize(new Dimension(325, 0));
+        scroll.setPreferredSize(new Dimension(365, 0));
         return scroll;
     }
 
@@ -184,12 +190,19 @@ public final class PlotWindow extends JFrame {
      *  checkbox listeners fire on programmatic changes too. */
     public void syncControls(final PlotSnapshot snapshot) {
         curveType.setSelectedItem(snapshot.curveType());
+        setCurveDescription(snapshot.curveType());
         curveCount.setText(Integer.toString(snapshot.curveCount()));
         logSpacing.setSelected(snapshot.logSpacing());
         showBackground.setSelected(snapshot.showBackground());
         showExtrema.setSelected(snapshot.showExtrema());
         antiAlias.setSelected(snapshot.antiAlias());
         setFocusRows(snapshot.foci(), snapshot.selectedFocusIndex());
+    }
+
+
+    public void setCurveDescription(final CurveType type) {
+        curveDescription.setText(type.htmlDescription(305));
+        curveType.setToolTipText(type.description());
     }
 
     public void setFocusRows(final List<Focus> foci, final int selectedIndex) {

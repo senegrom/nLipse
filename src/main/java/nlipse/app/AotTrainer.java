@@ -22,11 +22,18 @@ public final class AotTrainer {
         System.setProperty("java.awt.headless", "true");
         preloadUiClasses();
         final PlotRenderer renderer = new PlotRenderer();
+        final List<PlotSnapshot> workloads = List.of(
+                ellipse(), cassini(), hyperbola(),
+                magnitudeFamily(CurveType.NEAREST, 0.05, 4.5),
+                magnitudeFamily(CurveType.FARTHEST, 1, 7.5),
+                magnitudeFamily(CurveType.QUADRATIC, 1, 10),
+                magnitudeFamily(CurveType.RANGE, 0.05, 5.5),
+                potential());
         long checksum = 0;
-        for (int iteration = 0; iteration < 3; iteration++) {
-            checksum ^= renderSequence(renderer, ellipse());
-            checksum ^= renderSequence(renderer, cassini());
-            checksum ^= renderSequence(renderer, hyperbola());
+        for (int iteration = 0; iteration < 2; iteration++) {
+            for (final PlotSnapshot workload : workloads) {
+                checksum = Long.rotateLeft(checksum, 9) ^ renderSequence(renderer, workload);
+            }
         }
         System.out.println("nLipse AOT training complete: " + Long.toUnsignedString(checksum));
     }
@@ -103,5 +110,27 @@ public final class AotTrainer {
         return new PlotSnapshot(CurveType.HYPERB, foci,
                 0.05, 5, 20, new Viewport(-4, 4, -3, 3),
                 false, true, true, false, -1);
+    }
+
+    private static PlotSnapshot magnitudeFamily(final CurveType type,
+            final double minimum, final double maximum) {
+        return new PlotSnapshot(type,
+                List.of(
+                        new Focus(-1.7, -0.2, 1),
+                        new Focus(1.5, 0.1, 0.65),
+                        new Focus(0.2, 1.8, -1.25),
+                        new Focus(0, -1.5, 0)),
+                minimum, maximum, 22, new Viewport(-4, 4, -3, 3),
+                true, true, true, false, -1);
+    }
+
+    private static PlotSnapshot potential() {
+        return new PlotSnapshot(CurveType.POTENTIAL,
+                List.of(
+                        new Focus(-1.2, 0, 1),
+                        new Focus(1.2, 0, -1),
+                        new Focus(0, 1.6, 0.65)),
+                -2.5, 2.5, 25, new Viewport(-4, 4, -3, 3),
+                true, true, true, false, -1);
     }
 }

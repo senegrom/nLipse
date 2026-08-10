@@ -2,11 +2,20 @@
 
 nLipse is a Java Swing visualiser for implicit curves defined by weighted distances to multiple focus points.
 
-It supports:
+## Curve families
 
-- **n-Ellipse:** weighted sum of focal distances.
-- **Cassini family:** product of focal distances raised to their weights.
-- **n-Hyperbola:** average pairwise absolute difference between weighted focal distances.
+For a point `(x, y)`, let `dᵢ` be its Euclidean distance from focus `i` and `wᵢ` that focus's weight.
+
+- **n-Ellipse:** `Σ wᵢdᵢ`, the signed weighted sum of focal distances.
+- **Cassini family:** `∏ dᵢ ^ wᵢ`, accumulated in the logarithmic domain; negative weights form distance ratios.
+- **n-Hyperbola:** the mean pairwise absolute difference between the signed values `wᵢdᵢ`.
+- **Nearest-focus envelope:** `min |wᵢ|dᵢ` over non-zero weights, producing multiplicatively weighted Voronoi-style level sets.
+- **Farthest-focus envelope:** `max |wᵢ|dᵢ` over non-zero weights.
+- **Quadratic n-Ellipse:** `√Σ(|wᵢ|dᵢ)²`, the root-sum-square or L2 aggregate.
+- **Weighted-distance range:** `max |wᵢ|dᵢ − min |wᵢ|dᵢ`, measuring the span of active focal distances.
+- **Inverse-distance potential:** `Σ wᵢ/dᵢ`, with signed source and sink weights and genuine singularities at active foci.
+
+The magnitude-only envelope, quadratic and range families ignore zero-weight foci. Their weight signs are deliberately ignored; the sign remains meaningful for the n-ellipse, Cassini, n-hyperbola and potential families. The setup and main windows show the active formula and weight semantics beside the family selector.
 
 ## Requirements
 
@@ -51,7 +60,7 @@ Contours are extracted in one multi-level marching-squares pass. Ambiguous saddl
 
 CPU-bound sampling uses a renderer-owned daemon pool instead of Java's common pool. The default worker count is capped at 32 and can be overridden with `-Dnlipse.renderThreads=<count>`. The combined cache budget defaults to one-eighth of the maximum heap, bounded between 32 and 256 MiB, and can be overridden with `-Dnlipse.cacheMiB=<MiB>`.
 
-The mathematical evaluators use compensated or scaled arithmetic for extreme finite values. Cassini products are accumulated in the logarithmic domain, and larger n-hyperbola fields use a sorted O(n log n) formulation.
+The mathematical evaluators use compensated or scaled arithmetic for extreme finite values. Cassini products are accumulated in the logarithmic domain, the quadratic family uses overflow-resistant `hypot` accumulation, inverse potentials are normalized before summation, and larger n-hyperbola fields use a sorted O(n log n) formulation.
 
 ## Continuous integration
 

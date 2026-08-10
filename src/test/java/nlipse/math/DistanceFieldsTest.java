@@ -131,4 +131,75 @@ class DistanceFieldsTest {
                 List.of(new Focus(0, 0, -1), new Focus(2, 0, 0)));
         assertEquals(-1, field.value(1, 0), EPSILON);
     }
+    @Test
+    void magnitudeFamiliesUseAbsoluteWeightsAndIgnoreZeroWeights() {
+        final List<Focus> foci = List.of(
+                new Focus(0, 0, -2),
+                new Focus(3, 4, 0.5),
+                new Focus(100, 100, 0));
+        final double x = 0;
+        final double y = 4;
+
+        assertEquals(1.5, DistanceFields.create(CurveType.NEAREST, foci).value(x, y), EPSILON);
+        assertEquals(8, DistanceFields.create(CurveType.FARTHEST, foci).value(x, y), EPSILON);
+        assertEquals(Math.hypot(8, 1.5),
+                DistanceFields.create(CurveType.QUADRATIC, foci).value(x, y), EPSILON);
+        assertEquals(6.5, DistanceFields.create(CurveType.RANGE, foci).value(x, y), EPSILON);
+    }
+
+    @Test
+    void magnitudeFamiliesAreZeroWhenNoFocusIsActive() {
+        final List<Focus> foci = List.of(new Focus(0, 0, 0), new Focus(1, 1, -0.0));
+
+        for (final CurveType type : List.of(
+                CurveType.NEAREST, CurveType.FARTHEST,
+                CurveType.QUADRATIC, CurveType.RANGE)) {
+            assertEquals(0, DistanceFields.create(type, foci).value(4, -3), 0);
+        }
+    }
+
+    @Test
+    void quadraticFamilyAvoidsPrematureOverflow() {
+        final DistanceField field = DistanceFields.create(CurveType.QUADRATIC,
+                List.of(new Focus(1e308, 0, 1), new Focus(0, 1e308, 1)));
+
+        final double value = field.value(0, 0);
+        assertTrue(Double.isFinite(value));
+        assertEquals(Math.sqrt(2), value / 1e308, 1e-15);
+    }
+
+    @Test
+    void potentialUsesSignedInverseDistances() {
+        final DistanceField field = DistanceFields.create(CurveType.POTENTIAL,
+                List.of(new Focus(0, 0, 2), new Focus(3, 4, -5)));
+
+        assertEquals(-7.0 / 6.0, field.value(0, 4), EPSILON);
+    }
+
+    @Test
+    void potentialRecoversExtremeWeightCancellation() {
+        final DistanceField field = DistanceFields.create(CurveType.POTENTIAL,
+                List.of(new Focus(0, 0, Double.MAX_VALUE),
+                        new Focus(0, 0, -Double.MAX_VALUE)));
+
+        assertEquals(0, field.value(2, 0), 0);
+    }
+
+    @Test
+    void potentialPreservesSignedSingularities() {
+        final DistanceField positive = DistanceFields.create(CurveType.POTENTIAL,
+                List.of(new Focus(0, 0, 1)));
+        final DistanceField negative = DistanceFields.create(CurveType.POTENTIAL,
+                List.of(new Focus(0, 0, -1)));
+        final DistanceField undefined = DistanceFields.create(CurveType.POTENTIAL,
+                List.of(new Focus(0, 0, 1), new Focus(0, 0, -1)));
+        final DistanceField disabled = DistanceFields.create(CurveType.POTENTIAL,
+                List.of(new Focus(0, 0, 0)));
+
+        assertEquals(Double.POSITIVE_INFINITY, positive.value(0, 0));
+        assertEquals(Double.NEGATIVE_INFINITY, negative.value(0, 0));
+        assertTrue(Double.isNaN(undefined.value(0, 0)));
+        assertEquals(0, disabled.value(0, 0), 0);
+    }
+
 }

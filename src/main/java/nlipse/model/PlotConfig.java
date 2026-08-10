@@ -29,7 +29,7 @@ public record PlotConfig(
         }
         if (!Double.isFinite(distanceMin) || !Double.isFinite(distanceMax)
                 || distanceMin > distanceMax) {
-            throw new IllegalArgumentException("Distance range must be finite and ordered");
+            throw new IllegalArgumentException("Field level range must be finite and ordered");
         }
         if (curveCount < 1 || curveCount > 200) {
             throw new IllegalArgumentException("Curve count must be between 1 and 200");

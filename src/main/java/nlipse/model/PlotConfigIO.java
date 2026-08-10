@@ -64,7 +64,7 @@ public final class PlotConfigIO {
         try {
             curveType = CurveType.valueOf(required(values, "curveType"));
         } catch (final IllegalArgumentException invalid) {
-            throw new IllegalArgumentException("curveType must be one of LIPSE, CASSIN, HYPERB");
+            throw new IllegalArgumentException("curveType must be one of " + CurveType.validNames());
         }
         final int focusCount = intValue(values, "focus.count");
         if (focusCount < 1 || focusCount > 1_000) {

@@ -34,6 +34,11 @@ public final class DistanceFields {
             case LIPSE -> new SumField(xs, ys, weights);
             case CASSIN -> new CassiniField(xs, ys, weights);
             case HYPERB -> new HyperbolaField(xs, ys, weights);
+            case NEAREST -> new EnvelopeField(xs, ys, weights, true);
+            case FARTHEST -> new EnvelopeField(xs, ys, weights, false);
+            case QUADRATIC -> new QuadraticField(xs, ys, weights);
+            case RANGE -> new RangeField(xs, ys, weights);
+            case POTENTIAL -> new PotentialField(xs, ys, weights);
         };
     }
 
@@ -50,6 +55,13 @@ public final class DistanceFields {
 
         protected final double distance(final int index, final double x, final double y) {
             return Math.hypot(x - xs[index], y - ys[index]);
+        }
+
+        /** Non-negative weighted distance for magnitude-only families; NaN means disabled. */
+        protected final double activeMagnitudeDistance(final int index,
+                final double x, final double y) {
+            final double magnitude = Math.abs(weights[index]);
+            return magnitude == 0 ? Double.NaN : distance(index, x, y) * magnitude;
         }
     }
 
@@ -237,6 +249,134 @@ public final class DistanceFields {
                 }
             }
             return scale * 2 * sum / ((double) distances.length * (distances.length - 1));
+        }
+    }
+
+    private static final class EnvelopeField extends FocusField {
+        private final boolean nearest;
+
+        EnvelopeField(final double[] xs, final double[] ys, final double[] weights,
+                final boolean nearest) {
+            super(xs, ys, weights);
+            this.nearest = nearest;
+        }
+
+        @Override
+        public double value(final double x, final double y) {
+            double result = nearest ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY;
+            boolean active = false;
+            for (int i = 0; i < xs.length; i++) {
+                final double candidate = activeMagnitudeDistance(i, x, y);
+                if (Double.isNaN(candidate)) {
+                    continue;
+                }
+                result = nearest ? Math.min(result, candidate) : Math.max(result, candidate);
+                active = true;
+            }
+            return active ? result : 0;
+        }
+    }
+
+    private static final class QuadraticField extends FocusField {
+        QuadraticField(final double[] xs, final double[] ys, final double[] weights) {
+            super(xs, ys, weights);
+        }
+
+        @Override
+        public double value(final double x, final double y) {
+            double norm = 0;
+            for (int i = 0; i < xs.length; i++) {
+                final double candidate = activeMagnitudeDistance(i, x, y);
+                if (!Double.isNaN(candidate)) {
+                    norm = Math.hypot(norm, candidate);
+                }
+            }
+            return norm;
+        }
+    }
+
+    private static final class RangeField extends FocusField {
+        RangeField(final double[] xs, final double[] ys, final double[] weights) {
+            super(xs, ys, weights);
+        }
+
+        @Override
+        public double value(final double x, final double y) {
+            double minimum = Double.POSITIVE_INFINITY;
+            double maximum = Double.NEGATIVE_INFINITY;
+            int activeCount = 0;
+            for (int i = 0; i < xs.length; i++) {
+                final double candidate = activeMagnitudeDistance(i, x, y);
+                if (Double.isNaN(candidate)) {
+                    continue;
+                }
+                minimum = Math.min(minimum, candidate);
+                maximum = Math.max(maximum, candidate);
+                activeCount++;
+            }
+            return activeCount < 2 ? 0 : maximum - minimum;
+        }
+    }
+
+    private static final class PotentialField extends FocusField {
+        private final double weightScale;
+
+        PotentialField(final double[] xs, final double[] ys, final double[] weights) {
+            super(xs, ys, weights);
+            double maximum = 0;
+            for (final double weight : weights) {
+                maximum = Math.max(maximum, Math.abs(weight));
+            }
+            weightScale = maximum;
+        }
+
+        @Override
+        public double value(final double x, final double y) {
+            if (weightScale == 0) {
+                return 0;
+            }
+            double normalizedSum = 0;
+            double compensation = 0;
+            boolean positiveInfinity = false;
+            boolean negativeInfinity = false;
+            for (int i = 0; i < xs.length; i++) {
+                final double weight = weights[i];
+                if (weight == 0) {
+                    continue;
+                }
+                final double focalDistance = distance(i, x, y);
+                if (focalDistance == 0) {
+                    positiveInfinity |= weight > 0;
+                    negativeInfinity |= weight < 0;
+                    continue;
+                }
+                if (Double.isInfinite(focalDistance)) {
+                    continue;
+                }
+                final double term = (weight / weightScale) / focalDistance;
+                if (Double.isInfinite(term)) {
+                    positiveInfinity |= term > 0;
+                    negativeInfinity |= term < 0;
+                    continue;
+                }
+                final double next = normalizedSum + term;
+                if (Math.abs(normalizedSum) >= Math.abs(term)) {
+                    compensation += (normalizedSum - next) + term;
+                } else {
+                    compensation += (term - next) + normalizedSum;
+                }
+                normalizedSum = next;
+            }
+            if (positiveInfinity && negativeInfinity) {
+                return Double.NaN;
+            }
+            if (positiveInfinity) {
+                return Double.POSITIVE_INFINITY;
+            }
+            if (negativeInfinity) {
+                return Double.NEGATIVE_INFINITY;
+            }
+            return weightScale * (normalizedSum + compensation);
         }
     }
 }

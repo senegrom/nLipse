@@ -123,6 +123,7 @@ public final class PlotController implements AutoCloseable {
                 return;
             }
             model.setCurveType(type);
+            view.setCurveDescription(type);
             suppressControls = true;
             view.getLogSpacing().setSelected(type.defaultLogSpacing());
             suppressControls = false;
@@ -685,10 +686,10 @@ public final class PlotController implements AutoCloseable {
 
     private void updateDistanceLabels() {
         view.getDistanceMinLabel().setText(String.format(Locale.ROOT,
-                "Dmin: %.5g   (field min: %s)", model.getDistanceMin(),
+                "Level min: %.5g   (field min: %s)", model.getDistanceMin(),
                 formatFieldValue(sampledMin)));
         view.getDistanceMaxLabel().setText(String.format(Locale.ROOT,
-                "Dmax: %.5g   (field max: %s)", model.getDistanceMax(),
+                "Level max: %.5g   (field max: %s)", model.getDistanceMax(),
                 formatFieldValue(sampledMax)));
     }
 
