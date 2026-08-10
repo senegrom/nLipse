@@ -14,7 +14,7 @@ import nlipse.model.Focus;
 class WorldFieldCacheTest {
     private static final double EPSILON = 1e-12;
     private static final FieldIdentity IDENTITY = new FieldIdentity(CurveType.LIPSE,
-            List.of(new Focus(0, 0, 1)));
+            CurveType.LIPSE.defaultParameter(), List.of(new Focus(0, 0, 1)));
 
     @Test
     void integerPixelPanSamplesOnlyNewlyExposedStrips() {

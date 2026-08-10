@@ -7,6 +7,7 @@ import nlipse.model.Focus;
 /** Cache key for data that changes the sampled scalar field. */
 record FieldKey(
         CurveType curveType,
+        double familyParameter,
         List<Focus> foci,
         Viewport viewport,
         int width,
@@ -14,6 +15,7 @@ record FieldKey(
         int sampleStep) {
 
     FieldKey {
+        familyParameter = curveType.normalizeParameter(familyParameter);
         foci = List.copyOf(foci);
     }
 
@@ -21,6 +23,7 @@ record FieldKey(
         final var snapshot = request.snapshot();
         return new FieldKey(
                 snapshot.curveType(),
+                snapshot.familyParameter(),
                 snapshot.foci(),
                 snapshot.viewport(),
                 request.width(),
@@ -29,10 +32,11 @@ record FieldKey(
     }
 
     FieldIdentity identity() {
-        return new FieldIdentity(curveType, foci);
+        return new FieldIdentity(curveType, familyParameter, foci);
     }
 
     FieldKey withSampleStep(final int newSampleStep) {
-        return new FieldKey(curveType, foci, viewport, width, height, newSampleStep);
+        return new FieldKey(curveType, familyParameter, foci,
+                viewport, width, height, newSampleStep);
     }
 }

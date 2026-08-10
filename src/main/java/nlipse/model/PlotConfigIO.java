@@ -1,8 +1,7 @@
 package nlipse.model;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -26,6 +25,7 @@ public final class PlotConfigIO {
         final Properties values = new Properties();
         values.setProperty("format", Integer.toString(FORMAT_VERSION));
         values.setProperty("curveType", snapshot.curveType().name());
+        values.setProperty("familyParameter", Double.toString(snapshot.familyParameter()));
         values.setProperty("focus.count", Integer.toString(snapshot.foci().size()));
         for (int index = 0; index < snapshot.foci().size(); index++) {
             final Focus focus = snapshot.foci().get(index);
@@ -44,16 +44,16 @@ public final class PlotConfigIO {
         values.setProperty("showExtrema", Boolean.toString(snapshot.showExtrema()));
         values.setProperty("antiAlias", Boolean.toString(snapshot.antiAlias()));
         values.setProperty("logSpacing", Boolean.toString(snapshot.logSpacing()));
-        try (OutputStream out = Files.newOutputStream(file)) {
-            values.store(out, "nLipse plot setup");
+        try (var writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
+            values.store(writer, "nLipse plot setup");
         }
     }
 
     /** Load and fully validate a setup; throws with a readable message on any defect. */
     public static PlotConfig load(final Path file) throws IOException {
         final Properties values = new Properties();
-        try (InputStream in = Files.newInputStream(file)) {
-            values.load(in);
+        try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            values.load(reader);
         }
         final int format = intValue(values, "format");
         if (format != FORMAT_VERSION) {
@@ -64,7 +64,7 @@ public final class PlotConfigIO {
         try {
             curveType = CurveType.valueOf(required(values, "curveType"));
         } catch (final IllegalArgumentException invalid) {
-            throw new IllegalArgumentException("curveType must be one of LIPSE, CASSIN, HYPERB");
+            throw new IllegalArgumentException("curveType must be one of " + CurveType.validNames());
         }
         final int focusCount = intValue(values, "focus.count");
         if (focusCount < 1 || focusCount > 1_000) {
@@ -79,6 +79,7 @@ public final class PlotConfigIO {
         }
         return new PlotConfig(
                 curveType,
+                parameterValue(values, curveType),
                 foci,
                 doubleValue(values, "distanceMin"),
                 doubleValue(values, "distanceMax"),
@@ -92,6 +93,18 @@ public final class PlotConfigIO {
                 booleanValue(values, "showExtrema"),
                 booleanValue(values, "antiAlias"),
                 booleanValue(values, "logSpacing"));
+    }
+
+    private static double parameterValue(final Properties values, final CurveType curveType) {
+        final String raw = values.getProperty("familyParameter");
+        if (raw == null || raw.isBlank()) {
+            return curveType.defaultParameter();
+        }
+        try {
+            return curveType.parseParameter(raw);
+        } catch (final IllegalArgumentException invalid) {
+            throw new IllegalArgumentException("'familyParameter': " + invalid.getMessage());
+        }
     }
 
     private static String required(final Properties values, final String key) {

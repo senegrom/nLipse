@@ -7,6 +7,7 @@ import nlipse.render.Viewport;
 /** Immutable model snapshot safe to pass to a background renderer. */
 public record PlotSnapshot(
         CurveType curveType,
+        double familyParameter,
         List<Focus> foci,
         double distanceMin,
         double distanceMax,
@@ -22,6 +23,7 @@ public record PlotSnapshot(
         Objects.requireNonNull(curveType, "curveType");
         Objects.requireNonNull(foci, "foci");
         Objects.requireNonNull(viewport, "viewport");
+        familyParameter = curveType.normalizeParameter(familyParameter);
         if (foci.isEmpty()) {
             throw new IllegalArgumentException("At least one focus is required");
         }
@@ -30,7 +32,7 @@ public record PlotSnapshot(
         }
         if (!Double.isFinite(distanceMin) || !Double.isFinite(distanceMax)
                 || distanceMin > distanceMax) {
-            throw new IllegalArgumentException("Distance range must be finite and ordered");
+            throw new IllegalArgumentException("Field level range must be finite and ordered");
         }
         if (curveCount < 1 || curveCount > 200) {
             throw new IllegalArgumentException("Curve count must be between 1 and 200");
@@ -40,4 +42,5 @@ public record PlotSnapshot(
         }
         foci = List.copyOf(foci);
     }
+
 }

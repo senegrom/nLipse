@@ -123,6 +123,7 @@ public final class PlotController implements AutoCloseable {
                 return;
             }
             model.setCurveType(type);
+            view.setCurvePresentation(type, model.getFamilyParameter());
             suppressControls = true;
             view.getLogSpacing().setSelected(type.defaultLogSpacing());
             suppressControls = false;
@@ -134,6 +135,14 @@ public final class PlotController implements AutoCloseable {
 
         view.getDistanceMin().addChangeListener(event -> distanceSliderChanged(true));
         view.getDistanceMax().addChangeListener(event -> distanceSliderChanged(false));
+
+        view.getFamilyParameter().addActionListener(event -> applyFamilyParameter());
+        view.getFamilyParameter().addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusLost(final FocusEvent event) {
+                applyFamilyParameter();
+            }
+        });
 
         view.getCurveCount().addActionListener(event -> applyCurveCount());
         view.getCurveCount().addFocusListener(new FocusAdapter() {
@@ -522,6 +531,29 @@ public final class PlotController implements AutoCloseable {
         requestFullRender();
     }
 
+    private void applyFamilyParameter() {
+        final CurveType type = model.getCurveType();
+        if (!type.usesParameter()) {
+            view.setCurvePresentation(type, model.getFamilyParameter());
+            return;
+        }
+        try {
+            final double parameter = type.parseParameter(view.getFamilyParameter().getText());
+            if (Double.doubleToLongBits(parameter)
+                    == Double.doubleToLongBits(model.getFamilyParameter())) {
+                view.setCurvePresentation(type, parameter);
+                return;
+            }
+            model.setFamilyParameter(parameter);
+            view.setCurvePresentation(type, parameter);
+            refreshCursorField();
+            markRangeAdjustment(RangeAdjustment.AUTO_FIT);
+            requestFullRender();
+        } catch (final IllegalArgumentException exception) {
+            view.setCurvePresentation(type, model.getFamilyParameter());
+        }
+    }
+
     private void applyCurveCount() {
         try {
             final int count = Integer.parseInt(view.getCurveCount().getText().trim());
@@ -685,10 +717,10 @@ public final class PlotController implements AutoCloseable {
 
     private void updateDistanceLabels() {
         view.getDistanceMinLabel().setText(String.format(Locale.ROOT,
-                "Dmin: %.5g   (field min: %s)", model.getDistanceMin(),
+                "Level min: %.5g   (field min: %s)", model.getDistanceMin(),
                 formatFieldValue(sampledMin)));
         view.getDistanceMaxLabel().setText(String.format(Locale.ROOT,
-                "Dmax: %.5g   (field max: %s)", model.getDistanceMax(),
+                "Level max: %.5g   (field max: %s)", model.getDistanceMax(),
                 formatFieldValue(sampledMax)));
     }
 
@@ -730,7 +762,8 @@ public final class PlotController implements AutoCloseable {
 
     private void refreshCursorField() {
         final PlotSnapshot snapshot = model.snapshot();
-        cursorField = DistanceFields.create(snapshot.curveType(), snapshot.foci());
+        cursorField = DistanceFields.create(snapshot.curveType(), snapshot.foci(),
+                snapshot.familyParameter());
     }
 
     private void updateCursorInfo(final int pixelX, final int pixelY) {

@@ -12,7 +12,7 @@ import nlipse.ui.PlotWindow;
 import nlipse.ui.SetupDialog;
 
 public final class Main {
-    public static final String VERSION = "0.7.0";
+    public static final String VERSION = "0.9.0";
 
     private Main() {
     }

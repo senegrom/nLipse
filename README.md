@@ -2,11 +2,27 @@
 
 nLipse is a Java Swing visualiser for implicit curves defined by weighted distances to multiple focus points.
 
-It supports:
+## Curve families
 
-- **n-Ellipse:** weighted sum of focal distances.
-- **Cassini family:** product of focal distances raised to their weights.
-- **n-Hyperbola:** average pairwise absolute difference between weighted focal distances.
+For a point `(x, y)`, let `dᵢ` be its Euclidean distance from focus `i`, `wᵢ` that focus's weight, and `zᵢ = |wᵢ|dᵢ` for magnitude-based families. A zero weight disables a focus wherever `zᵢ` is used.
+
+- **n-Ellipse:** `Σ wᵢdᵢ`, the signed weighted sum of focal distances.
+- **Cassini family:** `∏ dᵢ ^ wᵢ`, accumulated in the logarithmic domain; negative weights form distance ratios.
+- **n-Hyperbola:** the mean pairwise absolute difference between the signed values `wᵢdᵢ`.
+- **Nearest-focus envelope:** `min zᵢ`, producing multiplicatively weighted Voronoi-style level sets.
+- **Farthest-focus envelope:** `max zᵢ`.
+- **Quadratic n-Ellipse:** `√Σzᵢ²`, the root-sum-square or L2 aggregate.
+- **Weighted-distance range:** `max zᵢ − min zᵢ`, measuring the span of active focal distances.
+- **Inverse-distance potential:** `Σ wᵢ/dᵢ`, with signed source and sink weights and genuine singularities at active foci.
+- **Generalised power mean:** `(mean zᵢᵖ)¹⁄ᵖ`. The parameter `p` may be any real `double`, including `0`, `+∞`, and `−∞`; `p=0` is the geometric mean, `p=1` the arithmetic mean, `p=2` the RMS distance, and `p=±∞` uses the exact envelope implementations.
+- **Median weighted distance:** `median zᵢ`, with an overflow-safe average of the two central values for an even number of active foci.
+- **Smooth nearest envelope:** `−τ ln(mean exp(−zᵢ/τ))` for finite `τ > 0`.
+- **Smooth farthest envelope:** `τ ln(mean exp(zᵢ/τ))` for finite `τ > 0`.
+- **Gaussian radial-basis field:** `Σ wᵢ exp(−dᵢ²/(2σ²))` for finite `σ > 0`; signed weights create peaks, wells, saddles, and nodal contours.
+
+The magnitude-only envelope, quadratic, range, power-mean, median, and smooth-envelope families ignore weight signs. Weight signs remain meaningful for the n-ellipse, Cassini, n-hyperbola, inverse potential, and Gaussian families. Both the setup dialog and the right-hand control bar show the selected family's formula, geometric interpretation, weight semantics, parameter meaning, and current parameter value.
+
+The parameter box accepts ordinary integer or decimal text. For the power mean it also accepts `inf`, `+inf`, `-inf`, `infinity`, `+∞`, and `−∞`. Press Enter or move focus away from the box to validate the value and refresh the right-hand explanation.
 
 ## Requirements
 
@@ -40,6 +56,7 @@ PowerShell equivalents are available as `scripts/create-aot-cache.ps1` and `scri
 - Use the mouse wheel to zoom around the cursor.
 - Use the arrow keys to move the selected focus; hold Shift for fine movement.
 - Edit focus coordinates and weights in the table.
+- Edit the family parameter (`p`, `τ`, or `σ`) in the right-hand panel when enabled.
 
 ## Rendering architecture
 
@@ -51,7 +68,7 @@ Contours are extracted in one multi-level marching-squares pass. Ambiguous saddl
 
 CPU-bound sampling uses a renderer-owned daemon pool instead of Java's common pool. The default worker count is capped at 32 and can be overridden with `-Dnlipse.renderThreads=<count>`. The combined cache budget defaults to one-eighth of the maximum heap, bounded between 32 and 256 MiB, and can be overridden with `-Dnlipse.cacheMiB=<MiB>`.
 
-The mathematical evaluators use compensated or scaled arithmetic for extreme finite values. Cassini products are accumulated in the logarithmic domain, and larger n-hyperbola fields use a sorted O(n log n) formulation.
+The mathematical evaluators use compensated or scaled arithmetic for extreme finite values. Cassini products and general power means use logarithmic-domain accumulation where appropriate, smooth envelopes use stable log-sum-exp forms, the quadratic family uses overflow-resistant `hypot` accumulation, inverse potentials and Gaussian fields normalize signed contributions before summation, median selection avoids a full sort for larger focus sets, and larger n-hyperbola fields use a sorted O(n log n) formulation.
 
 ## Continuous integration
 
