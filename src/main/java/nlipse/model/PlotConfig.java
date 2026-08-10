@@ -7,6 +7,7 @@ import nlipse.render.Viewport;
 /** Immutable initial application configuration. */
 public record PlotConfig(
         CurveType curveType,
+        double familyParameter,
         List<Focus> foci,
         double distanceMin,
         double distanceMax,
@@ -21,6 +22,7 @@ public record PlotConfig(
         Objects.requireNonNull(curveType, "curveType");
         Objects.requireNonNull(foci, "foci");
         Objects.requireNonNull(viewport, "viewport");
+        familyParameter = curveType.normalizeParameter(familyParameter);
         if (foci.isEmpty()) {
             throw new IllegalArgumentException("At least one focus is required");
         }
@@ -40,6 +42,7 @@ public record PlotConfig(
     public static PlotConfig defaults() {
         return new PlotConfig(
                 CurveType.LIPSE,
+                CurveType.LIPSE.defaultParameter(),
                 List.of(
                         new Focus(2, 0, 1),
                         new Focus(0, 1, 1),

@@ -51,4 +51,19 @@ class PlotModelTest {
         assertThrows(IllegalArgumentException.class,
                 () -> model.setDistanceRange(Double.NaN, 1));
     }
+
+    @Test
+    void familyParametersAreValidatedAndIncludedInSnapshots() {
+        final PlotModel model = new PlotModel(PlotConfig.defaults());
+        model.setCurveType(CurveType.POWER_MEAN);
+        assertEquals(CurveType.POWER_MEAN.defaultParameter(), model.getFamilyParameter(), 0);
+
+        model.setFamilyParameter(Double.NEGATIVE_INFINITY);
+        assertEquals(Double.NEGATIVE_INFINITY, model.snapshot().familyParameter());
+
+        model.setCurveType(CurveType.GAUSSIAN);
+        assertEquals(CurveType.GAUSSIAN.defaultParameter(), model.getFamilyParameter(), 0);
+        assertThrows(IllegalArgumentException.class, () -> model.setFamilyParameter(0));
+    }
+
 }

@@ -110,7 +110,8 @@ class PlotRendererTest {
         final long sampledBeforePan = renderer.getSampledWorldValues();
         final Viewport pannedViewport = initial.viewport().panPixels(
                 panX, panY, width, height);
-        final PlotSnapshot panned = new PlotSnapshot(initial.curveType(), initial.foci(),
+        final PlotSnapshot panned = new PlotSnapshot(initial.curveType(),
+                initial.familyParameter(), initial.foci(),
                 initial.distanceMin(), initial.distanceMax(), initial.curveCount(), pannedViewport,
                 initial.showBackground(), initial.showExtrema(), initial.antiAlias(),
                 initial.logSpacing(), initial.selectedFocusIndex());
@@ -127,11 +128,32 @@ class PlotRendererTest {
     }
 
     @Test
+    void changedFamilyParameterInvalidatesFieldAndContourCaches() {
+        final PlotRenderer renderer = new PlotRenderer();
+        final List<Focus> foci = List.of(new Focus(-1, 0, 1), new Focus(1, 0, 2));
+        final PlotSnapshot arithmetic = new PlotSnapshot(CurveType.POWER_MEAN, 1, foci,
+                0.1, 4, 8, new Viewport(-2, 2, -2, 2),
+                true, true, true, false, -1);
+        final PlotSnapshot quadratic = new PlotSnapshot(CurveType.POWER_MEAN, 2, foci,
+                0.1, 4, 8, new Viewport(-2, 2, -2, 2),
+                true, true, true, false, -1);
+
+        renderer.render(new RenderRequest(arithmetic, 100, 80, RenderQuality.FULL),
+                CancellationToken.NONE);
+        renderer.render(new RenderRequest(quadratic, 100, 80, RenderQuality.FULL),
+                CancellationToken.NONE);
+
+        assertEquals(2, renderer.getCacheMisses());
+        assertEquals(2, renderer.getContourCacheMisses());
+        assertEquals(0, renderer.getCacheHits());
+    }
+
+    @Test
     void changedGeometryInvalidatesFieldCache() {
         final PlotRenderer renderer = new PlotRenderer();
         renderer.render(new RenderRequest(snapshot(1, 3, 4, true, 0),
                 80, 80, RenderQuality.FULL), CancellationToken.NONE);
-        final PlotSnapshot moved = new PlotSnapshot(CurveType.LIPSE,
+        final PlotSnapshot moved = new PlotSnapshot(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(-0.5, 0, 1), new Focus(1, 0, 1)),
                 1, 3, 4, new Viewport(-2, 2, -2, 2), true, true, true, false, 0);
         renderer.render(new RenderRequest(moved, 80, 80, RenderQuality.FULL), CancellationToken.NONE);
@@ -163,7 +185,7 @@ class PlotRendererTest {
 
     @Test
     void reportsWhenAFieldHasNoFiniteSamples() {
-        final PlotSnapshot invalid = new PlotSnapshot(CurveType.LIPSE,
+        final PlotSnapshot invalid = new PlotSnapshot(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(Double.MAX_VALUE, 0, Double.MAX_VALUE)),
                 0, 1, 4, new Viewport(-1, 1, -1, 1),
                 true, true, true, false, -1);
@@ -187,7 +209,7 @@ class PlotRendererTest {
         for (final CurveType type : CurveType.values()) {
             final double minimum = type == CurveType.POTENTIAL ? -3 : 0.05;
             final double maximum = type == CurveType.POTENTIAL ? 3 : 8;
-            final PlotSnapshot snapshot = new PlotSnapshot(type, foci,
+            final PlotSnapshot snapshot = new PlotSnapshot(type, type.defaultParameter(), foci,
                     minimum, maximum, 9, new Viewport(-2, 2, -2, 2),
                     true, true, true, type.defaultLogSpacing(), -1);
 
@@ -204,7 +226,7 @@ class PlotRendererTest {
 
     private static PlotSnapshot snapshot(final double minimum, final double maximum,
             final int count, final boolean background, final int selectedFocus) {
-        return new PlotSnapshot(CurveType.LIPSE,
+        return new PlotSnapshot(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(-1, 0, 1), new Focus(1, 0, 1)),
                 minimum, maximum, count, new Viewport(-2, 2, -2, 2),
                 background, true, true, false, selectedFocus);

@@ -82,7 +82,8 @@ public final class PlotRenderer implements RenderEngine {
             grid = cachedFull.grid();
             staticLayer = cachedFull.layer();
         } else {
-            final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci());
+            final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci(),
+                    snapshot.familyParameter());
             grid = getGrid(request, field, token);
             staticLayer = getStaticLayer(request, grid, field, token);
         }

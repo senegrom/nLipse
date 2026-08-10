@@ -7,6 +7,7 @@ import nlipse.render.Viewport;
 /** Mutable application state. All UI mutations are expected on Swing's EDT. */
 public final class PlotModel {
     private CurveType curveType;
+    private double familyParameter;
     private final List<Focus> foci;
     private double distanceMin;
     private double distanceMax;
@@ -24,6 +25,7 @@ public final class PlotModel {
             throw new IllegalArgumentException("Configuration is required");
         }
         curveType = config.curveType();
+        familyParameter = config.familyParameter();
         foci = new ArrayList<>(config.foci());
         distanceMin = config.distanceMin();
         distanceMax = config.distanceMax();
@@ -38,8 +40,9 @@ public final class PlotModel {
     }
 
     public synchronized PlotSnapshot snapshot() {
-        return new PlotSnapshot(curveType, foci, distanceMin, distanceMax, curveCount,
-                viewport, showBackground, showExtrema, antiAlias, logSpacing, selectedFocusIndex);
+        return new PlotSnapshot(curveType, familyParameter, foci,
+                distanceMin, distanceMax, curveCount, viewport,
+                showBackground, showExtrema, antiAlias, logSpacing, selectedFocusIndex);
     }
 
     /** Replace the whole state with a loaded setup; the loaded viewport also
@@ -49,6 +52,7 @@ public final class PlotModel {
             throw new IllegalArgumentException("Configuration is required");
         }
         curveType = config.curveType();
+        familyParameter = config.familyParameter();
         foci.clear();
         foci.addAll(config.foci());
         distanceMin = config.distanceMin();
@@ -67,11 +71,21 @@ public final class PlotModel {
         return curveType;
     }
 
+    /** Switching family also restores that family's valid default parameter. */
     public synchronized void setCurveType(final CurveType newCurveType) {
         if (newCurveType == null) {
             throw new IllegalArgumentException("Curve type is required");
         }
         curveType = newCurveType;
+        familyParameter = newCurveType.defaultParameter();
+    }
+
+    public synchronized double getFamilyParameter() {
+        return familyParameter;
+    }
+
+    public synchronized void setFamilyParameter(final double value) {
+        familyParameter = curveType.normalizeParameter(value);
     }
 
     public synchronized int getFocusCount() {

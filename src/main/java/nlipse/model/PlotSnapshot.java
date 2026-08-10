@@ -7,6 +7,7 @@ import nlipse.render.Viewport;
 /** Immutable model snapshot safe to pass to a background renderer. */
 public record PlotSnapshot(
         CurveType curveType,
+        double familyParameter,
         List<Focus> foci,
         double distanceMin,
         double distanceMax,
@@ -22,6 +23,7 @@ public record PlotSnapshot(
         Objects.requireNonNull(curveType, "curveType");
         Objects.requireNonNull(foci, "foci");
         Objects.requireNonNull(viewport, "viewport");
+        familyParameter = curveType.normalizeParameter(familyParameter);
         if (foci.isEmpty()) {
             throw new IllegalArgumentException("At least one focus is required");
         }
@@ -40,4 +42,5 @@ public record PlotSnapshot(
         }
         foci = List.copyOf(foci);
     }
+
 }

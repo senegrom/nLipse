@@ -28,6 +28,11 @@ public final class AotTrainer {
                 magnitudeFamily(CurveType.FARTHEST, 1, 7.5),
                 magnitudeFamily(CurveType.QUADRATIC, 1, 10),
                 magnitudeFamily(CurveType.RANGE, 0.05, 5.5),
+                parameterFamily(CurveType.POWER_MEAN, 0.5, 0.05, 5.5),
+                magnitudeFamily(CurveType.MEDIAN, 0.05, 5.5),
+                parameterFamily(CurveType.SMOOTH_NEAREST, 0.35, 0.05, 5.5),
+                parameterFamily(CurveType.SMOOTH_FARTHEST, 0.75, 0.05, 7.5),
+                parameterFamily(CurveType.GAUSSIAN, 0.9, -1.5, 1.5),
                 potential());
         long checksum = 0;
         for (int iteration = 0; iteration < 2; iteration++) {
@@ -58,12 +63,14 @@ public final class AotTrainer {
             final PlotSnapshot snapshot) {
         long checksum = render(renderer, snapshot);
         final Viewport pannedViewport = snapshot.viewport().panPixels(24, -12, 720, 540);
-        final PlotSnapshot panned = new PlotSnapshot(snapshot.curveType(), snapshot.foci(),
+        final PlotSnapshot panned = new PlotSnapshot(snapshot.curveType(),
+                snapshot.familyParameter(), snapshot.foci(),
                 snapshot.distanceMin(), snapshot.distanceMax(), snapshot.curveCount(),
                 pannedViewport, snapshot.showBackground(), snapshot.showExtrema(),
                 snapshot.antiAlias(), snapshot.logSpacing(), snapshot.selectedFocusIndex());
         checksum ^= Long.rotateLeft(render(renderer, panned), 11);
-        final PlotSnapshot restyled = new PlotSnapshot(snapshot.curveType(), snapshot.foci(),
+        final PlotSnapshot restyled = new PlotSnapshot(snapshot.curveType(),
+                snapshot.familyParameter(), snapshot.foci(),
                 snapshot.distanceMin(), snapshot.distanceMax(), snapshot.curveCount(),
                 snapshot.viewport(), !snapshot.showBackground(), snapshot.showExtrema(),
                 snapshot.antiAlias(), snapshot.logSpacing(), snapshot.selectedFocusIndex());
@@ -85,7 +92,7 @@ public final class AotTrainer {
     }
 
     private static PlotSnapshot ellipse() {
-        return new PlotSnapshot(CurveType.LIPSE,
+        return new PlotSnapshot(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(2, 0, 1), new Focus(0, 1, 1),
                         new Focus(-1, -1.5, 1)),
                 2, 12, 24, new Viewport(-4, 4, -3, 3),
@@ -93,7 +100,7 @@ public final class AotTrainer {
     }
 
     private static PlotSnapshot cassini() {
-        return new PlotSnapshot(CurveType.CASSIN,
+        return new PlotSnapshot(CurveType.CASSIN, CurveType.CASSIN.defaultParameter(),
                 List.of(new Focus(-1.2, 0, 1), new Focus(1.2, 0, 1)),
                 0.05, 12, 24, new Viewport(-3, 3, -2.5, 2.5),
                 true, true, true, true, -1);
@@ -107,14 +114,26 @@ public final class AotTrainer {
                             0.5 + index % 5 * 0.25);
                 })
                 .toList();
-        return new PlotSnapshot(CurveType.HYPERB, foci,
+        return new PlotSnapshot(CurveType.HYPERB, CurveType.HYPERB.defaultParameter(), foci,
                 0.05, 5, 20, new Viewport(-4, 4, -3, 3),
                 false, true, true, false, -1);
     }
 
     private static PlotSnapshot magnitudeFamily(final CurveType type,
             final double minimum, final double maximum) {
-        return new PlotSnapshot(type,
+        return new PlotSnapshot(type, type.defaultParameter(),
+                List.of(
+                        new Focus(-1.7, -0.2, 1),
+                        new Focus(1.5, 0.1, 0.65),
+                        new Focus(0.2, 1.8, -1.25),
+                        new Focus(0, -1.5, 0)),
+                minimum, maximum, 22, new Viewport(-4, 4, -3, 3),
+                true, true, true, false, -1);
+    }
+
+    private static PlotSnapshot parameterFamily(final CurveType type, final double parameter,
+            final double minimum, final double maximum) {
+        return new PlotSnapshot(type, parameter,
                 List.of(
                         new Focus(-1.7, -0.2, 1),
                         new Focus(1.5, 0.1, 0.65),
@@ -125,7 +144,7 @@ public final class AotTrainer {
     }
 
     private static PlotSnapshot potential() {
-        return new PlotSnapshot(CurveType.POTENTIAL,
+        return new PlotSnapshot(CurveType.POTENTIAL, CurveType.POTENTIAL.defaultParameter(),
                 List.of(
                         new Focus(-1.2, 0, 1),
                         new Focus(1.2, 0, -1),

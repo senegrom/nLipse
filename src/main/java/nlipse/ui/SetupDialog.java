@@ -8,6 +8,8 @@ import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.BorderFactory;
@@ -37,6 +39,8 @@ public final class SetupDialog extends JDialog {
 
     private final JComboBox<CurveType> curveType = new JComboBox<>(CurveType.values());
     private final JLabel curveDescription = new JLabel();
+    private final JLabel familyParameterLabel = new JLabel("Parameter:");
+    private final JTextField familyParameter = new JTextField(9);
     private final DefaultTableModel focusModel = new DefaultTableModel(
             new String[]{"X", "Y", "Weight"}, 0) {
         private static final long serialVersionUID = 1L;
@@ -79,7 +83,9 @@ public final class SetupDialog extends JDialog {
 
     private void initialise(final PlotConfig initial) {
         curveType.setSelectedItem(initial.curveType());
-        updateCurveDescription(initial.curveType());
+        familyParameter.setText(initial.curveType().usesParameter()
+                ? initial.curveType().formatParameter(initial.familyParameter()) : "not used");
+        updateCurvePresentation(initial.curveType(), initial.familyParameter());
         for (final Focus focus : initial.foci()) {
             focusModel.addRow(new Object[]{format(focus.x()), format(focus.y()),
                     format(focus.weight())});
@@ -115,13 +121,26 @@ public final class SetupDialog extends JDialog {
             final CurveType selected = (CurveType) curveType.getSelectedItem();
             if (selected != null) {
                 logSpacing.setSelected(selected.defaultLogSpacing());
-                updateCurveDescription(selected);
+                familyParameter.setText(selected.usesParameter()
+                        ? selected.formatParameter(selected.defaultParameter()) : "not used");
+                updateCurvePresentation(selected, selected.defaultParameter());
             }
         });
         form.add(labelledRow("Curve family:", curveType));
         curveDescription.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
         curveDescription.setAlignmentX(Component.LEFT_ALIGNMENT);
         form.add(curveDescription);
+        final JPanel parameterRow = rowPanel();
+        parameterRow.add(familyParameterLabel);
+        parameterRow.add(familyParameter);
+        form.add(parameterRow);
+        familyParameter.addActionListener(event -> refreshParameterExplanation());
+        familyParameter.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusLost(final FocusEvent event) {
+                refreshParameterExplanation();
+            }
+        });
         form.add(Box.createVerticalStrut(7));
 
         final JPanel focusPanel = new JPanel(new BorderLayout(5, 5));
@@ -191,9 +210,28 @@ public final class SetupDialog extends JDialog {
     }
 
 
-    private void updateCurveDescription(final CurveType selected) {
-        curveDescription.setText(selected.htmlDescription(330));
+    private void updateCurvePresentation(final CurveType selected, final double parameter) {
+        final boolean enabled = selected.usesParameter();
+        curveDescription.setText(selected.htmlDescription(360, parameter));
         curveType.setToolTipText(selected.description());
+        familyParameterLabel.setText(enabled ? selected.parameterLabel() + ":" : "Parameter:");
+        familyParameter.setEnabled(enabled);
+        familyParameter.setEditable(enabled);
+        familyParameter.setToolTipText(enabled ? selected.parameterDescription() : null);
+    }
+
+    private void refreshParameterExplanation() {
+        final CurveType selected = (CurveType) curveType.getSelectedItem();
+        if (selected == null || !selected.usesParameter()) {
+            return;
+        }
+        try {
+            final double parameter = selected.parseParameter(familyParameter.getText());
+            familyParameter.setText(selected.formatParameter(parameter));
+            updateCurvePresentation(selected, parameter);
+        } catch (final IllegalArgumentException ignored) {
+            // Keep the user's text so Open plot can report the precise validation error.
+        }
     }
 
     private void accept() {
@@ -215,6 +253,8 @@ public final class SetupDialog extends JDialog {
             if (foci.isEmpty()) {
                 throw new IllegalArgumentException("At least one focus point is required");
             }
+            final double parsedFamilyParameter = selectedType.parseParameter(
+                    familyParameter.getText());
             final double parsedDistanceMin = parseFinite(distanceMin.getText(), "Minimum level");
             final double parsedDistanceMax = parseFinite(distanceMax.getText(), "Maximum level");
             final int parsedCount = parseInteger(curveCount.getText(), "Curve count", 1, 200);
@@ -223,7 +263,8 @@ public final class SetupDialog extends JDialog {
                     parseFinite(xMax.getText(), "X max"),
                     parseFinite(yMin.getText(), "Y min"),
                     parseFinite(yMax.getText(), "Y max"));
-            result = new PlotConfig(selectedType, foci, parsedDistanceMin, parsedDistanceMax,
+            result = new PlotConfig(selectedType, parsedFamilyParameter, foci,
+                    parsedDistanceMin, parsedDistanceMax,
                     parsedCount, viewport, showBackground.isSelected(), showExtrema.isSelected(),
                     antiAlias.isSelected(), logSpacing.isSelected());
             dispose();

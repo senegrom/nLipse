@@ -106,6 +106,7 @@ class AsyncRenderServiceTest {
 
     private static RenderRequest request() {
         final PlotSnapshot snapshot = new PlotSnapshot(CurveType.LIPSE,
+                CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(0, 0, 1)), 0, 1, 1,
                 new Viewport(-1, 1, -1, 1), false, false, true, false, -1);
         return new RenderRequest(snapshot, 2, 2, RenderQuality.PREVIEW);

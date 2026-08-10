@@ -18,7 +18,7 @@ class PlotConfigIOTest {
     @Test
     void setupSurvivesASaveLoadRoundTripExactly() throws Exception {
         final PlotConfig original = new PlotConfig(
-                CurveType.CASSIN,
+                CurveType.CASSIN, CurveType.CASSIN.defaultParameter(),
                 List.of(new Focus(-1.25, 0.5, 1), new Focus(1.75, -2.125, 0.375)),
                 0.0625, 17.5, 42,
                 new Viewport(-4.5, 3.25, -2.75, 5.5),
@@ -58,7 +58,7 @@ class PlotConfigIOTest {
         final PlotModel model = new PlotModel(PlotConfig.defaults());
         model.setSelectedFocusIndex(1);
         final PlotConfig loaded = new PlotConfig(
-                CurveType.HYPERB,
+                CurveType.HYPERB, CurveType.HYPERB.defaultParameter(),
                 List.of(new Focus(9, 9, 2)),
                 1, 2, 3,
                 new Viewport(-1, 1, -1, 1),
@@ -66,8 +66,9 @@ class PlotConfigIOTest {
 
         model.apply(loaded);
 
-        assertEquals(loaded, new PlotConfig(model.getCurveType(), model.getFociCopy(),
-                model.getDistanceMin(), model.getDistanceMax(), model.getCurveCount(),
+        assertEquals(loaded, new PlotConfig(model.getCurveType(), model.getFamilyParameter(),
+                model.getFociCopy(), model.getDistanceMin(), model.getDistanceMax(),
+                model.getCurveCount(),
                 model.getViewport(), model.isShowBackground(), model.isShowExtrema(),
                 model.isAntiAlias(), model.isLogSpacing()));
         assertEquals(-1, model.getSelectedFocusIndex());
@@ -77,7 +78,7 @@ class PlotConfigIOTest {
     @Test
     void everyCurveFamilySurvivesPersistence() throws Exception {
         for (final CurveType type : CurveType.values()) {
-            final PlotConfig config = new PlotConfig(type,
+            final PlotConfig config = new PlotConfig(type, type.defaultParameter(),
                     List.of(new Focus(0, 0, 1)),
                     -2, 3, 5, new Viewport(-1, 1, -1, 1),
                     true, true, true, type.defaultLogSpacing());
@@ -102,6 +103,68 @@ class PlotConfigIOTest {
         for (final CurveType type : CurveType.values()) {
             assertTrue(failure.getMessage().contains(type.name()));
         }
+    }
+
+
+    @Test
+    void parameterizedFamilyAndInfinitySurvivePersistence() throws Exception {
+        final PlotConfig config = new PlotConfig(CurveType.POWER_MEAN,
+                Double.POSITIVE_INFINITY,
+                List.of(new Focus(0, 0, 1), new Focus(1, 0, 2)),
+                0, 5, 7, new Viewport(-2, 2, -2, 2),
+                true, false, true, false);
+        final Path file = tempDirectory.resolve("power-mean.properties");
+
+        PlotConfigIO.save(file, new PlotModel(config).snapshot());
+
+        assertEquals(config, PlotConfigIO.load(file));
+        assertTrue(Files.readString(file).contains("familyParameter=Infinity"));
+    }
+
+    @Test
+    void powerParameterAcceptsHumanReadableInfinityInSetupFiles() throws Exception {
+        final PlotConfig source = new PlotConfig(CurveType.POWER_MEAN, 1,
+                List.of(new Focus(0, 0, 1)),
+                0, 2, 5, new Viewport(-1, 1, -1, 1),
+                true, true, true, false);
+        final Path file = tempDirectory.resolve("unicode-infinity.properties");
+        PlotConfigIO.save(file, new PlotModel(source).snapshot());
+        Files.writeString(file, Files.readString(file)
+                .replace("familyParameter=1.0", "familyParameter=−∞"));
+
+        assertEquals(Double.NEGATIVE_INFINITY, PlotConfigIO.load(file).familyParameter());
+    }
+
+    @Test
+    void oldSetupWithoutFamilyParameterUsesTheFamilyDefault() throws Exception {
+        final PlotConfig source = new PlotConfig(CurveType.GAUSSIAN,
+                CurveType.GAUSSIAN.defaultParameter(),
+                List.of(new Focus(0, 0, 1)),
+                -1, 1, 5, new Viewport(-1, 1, -1, 1),
+                true, true, true, false);
+        final Path file = tempDirectory.resolve("old-setup.properties");
+        PlotConfigIO.save(file, new PlotModel(source).snapshot());
+        Files.writeString(file, Files.readString(file)
+                .replaceAll("(?m)^familyParameter=.*\\R", ""));
+
+        assertEquals(CurveType.GAUSSIAN.defaultParameter(),
+                PlotConfigIO.load(file).familyParameter(), 0);
+    }
+
+    @Test
+    void invalidFamilyParameterNamesTheOffendingKey() throws Exception {
+        final PlotConfig source = new PlotConfig(CurveType.GAUSSIAN,
+                CurveType.GAUSSIAN.defaultParameter(), List.of(new Focus(0, 0, 1)),
+                -1, 1, 5, new Viewport(-1, 1, -1, 1),
+                true, true, true, false);
+        final Path file = tempDirectory.resolve("bad-parameter.properties");
+        PlotConfigIO.save(file, new PlotModel(source).snapshot());
+        Files.writeString(file, Files.readString(file)
+                .replace("familyParameter=1.0", "familyParameter=0"));
+
+        final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> PlotConfigIO.load(file));
+        assertTrue(failure.getMessage().contains("familyParameter"));
     }
 
 }
