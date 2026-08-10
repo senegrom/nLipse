@@ -22,7 +22,7 @@ For a point `(x, y)`, let `dᵢ` be its Euclidean distance from focus `i`, `wᵢ
 
 The magnitude-only envelope, quadratic, range, power-mean, median, and smooth-envelope families ignore weight signs. Weight signs remain meaningful for the n-ellipse, Cassini, n-hyperbola, inverse potential, and Gaussian families. Both the setup dialog and the right-hand control bar show the selected family's formula, geometric interpretation, weight semantics, parameter meaning, and current parameter value.
 
-The parameter box accepts ordinary integer or decimal text. For the power mean it also accepts `inf`, `+inf`, `-inf`, `infinity`, `+∞`, and `−∞`.
+The parameter box accepts ordinary integer or decimal text. For the power mean it also accepts `inf`, `+inf`, `-inf`, `infinity`, `+∞`, and `−∞`. Press Enter or move focus away from the box to validate the value and refresh the right-hand explanation.
 
 ## Requirements
 
