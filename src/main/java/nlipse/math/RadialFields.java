@@ -93,9 +93,9 @@ final class RadialFields {
             final double normalized = normalizedSum.value();
             final double resultLogarithm = weightScale * normalized;
             if (finitePoint && (exactNeeded || !Double.isFinite(resultLogarithm)
-                    || positiveTerm && negativeTerm && largestTerm > 0
-                            && Math.abs(normalized) <= Math.ulp(largestTerm)
-                                    * foci.activeCount() * 2)) {
+                    || positiveTerm && negativeTerm
+                            && FieldMath.cancellationUncertain(normalized, largestTerm,
+                                    foci.activeCount(), 0))) {
                 return ExactFieldMath.cassini(foci, x, y);
             }
             return FieldMath.expFromLog(resultLogarithm);
@@ -249,11 +249,9 @@ final class RadialFields {
             }
             final double normalized = normalizedSum.value();
             final double magnitude = magnitudeSum.value();
-            final double roundingBound = Math.ulp(magnitude) * Math.max(8, termCount * 4);
             final boolean illConditioned = positiveTerm && negativeTerm
-                    && (!Double.isFinite(normalized) || !Double.isFinite(magnitude)
-                            || Math.abs(normalized) <= Math.max(roundingBound,
-                                    magnitude * EXACT_CANCELLATION_RATIO));
+                    && FieldMath.cancellationUncertain(normalized, magnitude,
+                            termCount, EXACT_CANCELLATION_RATIO);
             if (finitePoint && illConditioned) {
                 return ExactFieldMath.potential(foci, x, y);
             }
@@ -309,10 +307,8 @@ final class RadialFields {
             }
             final double result = sum.value();
             if (finitePoint && (exactNeeded || positive && negative
-                    && (!Double.isFinite(result)
-                            || largestTerm > 0
-                                    && Math.abs(result) <= Math.ulp(largestTerm)
-                                            * foci.activeCount() * 2))) {
+                    && FieldMath.cancellationUncertain(result, largestTerm,
+                            foci.activeCount(), 0))) {
                 return ExactFieldMath.gaussian(foci, x, y, sigma);
             }
             return result;
