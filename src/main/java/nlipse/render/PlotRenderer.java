@@ -2,6 +2,7 @@ package nlipse.render;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -26,11 +27,17 @@ public final class PlotRenderer implements RenderEngine {
     private static final long MEBIBYTE = 1024L * 1024;
     private static final int PALETTE_SIZE = 256;
     private static final Color BACKGROUND_TARGET = new Color(0, 100, 0);
-    private static final Color AXIS_COLOR = new Color(125, 125, 125);
-    private static final Color FOCUS_COLOR = new Color(35, 90, 210);
-    private static final Color SELECTED_FOCUS_COLOR = new Color(245, 145, 20);
-    private static final Color MIN_COLOR = new Color(210, 45, 45);
-    private static final Color MAX_COLOR = new Color(15, 175, 190);
+    static final Color AXIS_COLOR = new Color(125, 125, 125);
+    static final Color FOCUS_COLOR = new Color(35, 90, 210);
+    static final Color SELECTED_FOCUS_COLOR = new Color(245, 145, 20);
+    static final Color MIN_COLOR = new Color(210, 45, 45);
+    static final Color MAX_COLOR = new Color(15, 175, 190);
+    private static final Color LEGEND_BACKGROUND = new Color(255, 255, 255, 235);
+    private static final int LEGEND_MAX_ROWS = 12;
+    private static final int LEGEND_MARGIN = 8;
+    private static final int LEGEND_PADDING = 7;
+    private static final int LEGEND_SWATCH_WIDTH = 18;
+    private static final int LEGEND_GAP = 6;
     private static final int[] BACKGROUND_PALETTE = createBackgroundPalette();
 
     private final long cacheBudgetBytes;
@@ -103,6 +110,9 @@ public final class PlotRenderer implements RenderEngine {
                     drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
                             extrema.maximumPoint(), MAX_COLOR, 7);
                 });
+            }
+            if (snapshot.showLegend() && grid.getExtrema().isPresent()) {
+                drawLegend(graphics, snapshot, request.width());
             }
             graphics.setColor(Color.BLACK);
             graphics.setStroke(new BasicStroke(1f));
@@ -482,12 +492,74 @@ public final class PlotRenderer implements RenderEngine {
         return uniqueCount == generated.length ? generated : Arrays.copyOf(generated, uniqueCount);
     }
 
-    private static Color curveColor(final int index, final int count) {
+    static Color curveColor(final int index, final int count) {
         if (count <= 1) {
             return Color.BLACK;
         }
         final float hue = (float) (0.66 * (1.0 - index / (double) (count - 1)));
         return Color.getHSBColor(hue, 0.85f, 0.72f);
+    }
+
+    /** Level indices shown in the legend: every level up to the cap, then an
+     *  even subsample that always keeps both endpoints. */
+    static int[] legendLevelIndices(final int levelCount) {
+        final int rows = Math.min(levelCount, LEGEND_MAX_ROWS);
+        if (rows <= 0) {
+            return new int[0];
+        }
+        final int[] indices = new int[rows];
+        if (rows == 1) {
+            return indices;
+        }
+        for (int row = 0; row < rows; row++) {
+            indices[row] = (int) Math.round(row * (levelCount - 1.0) / (rows - 1.0));
+        }
+        return indices;
+    }
+
+    static String formatLevel(final double level) {
+        return String.format(Locale.ROOT, "%.4g", level);
+    }
+
+    private static void drawLegend(final Graphics2D graphics, final PlotSnapshot snapshot,
+            final int width) {
+        final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
+                snapshot.curveCount(), snapshot.logSpacing());
+        final int[] indices = legendLevelIndices(levels.length);
+        if (indices.length == 0) {
+            return;
+        }
+        final FontMetrics metrics = graphics.getFontMetrics();
+        final int rowHeight = metrics.getHeight() + 2;
+        int textWidth = 0;
+        for (final int index : indices) {
+            textWidth = Math.max(textWidth, metrics.stringWidth(formatLevel(levels[index])));
+        }
+        final int boxWidth = LEGEND_PADDING * 2 + LEGEND_SWATCH_WIDTH + LEGEND_GAP + textWidth;
+        final int boxHeight = LEGEND_PADDING * 2 + rowHeight * indices.length - 2;
+        final int left = width - boxWidth - LEGEND_MARGIN;
+        final int top = LEGEND_MARGIN;
+
+        graphics.setColor(LEGEND_BACKGROUND);
+        graphics.fillRoundRect(left, top, boxWidth, boxHeight, 8, 8);
+        graphics.setColor(AXIS_COLOR);
+        graphics.setStroke(new BasicStroke(1f));
+        graphics.drawRoundRect(left, top, boxWidth, boxHeight, 8, 8);
+
+        final int swatchLeft = left + LEGEND_PADDING;
+        final int textLeft = swatchLeft + LEGEND_SWATCH_WIDTH + LEGEND_GAP;
+        graphics.setStroke(new BasicStroke(2.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        // Highest level on top, matching how a colour bar is usually read.
+        for (int row = 0; row < indices.length; row++) {
+            final int levelIndex = indices[indices.length - 1 - row];
+            final int rowTop = top + LEGEND_PADDING + row * rowHeight;
+            final int swatchY = rowTop + rowHeight / 2 - 1;
+            graphics.setColor(curveColor(levelIndex, levels.length));
+            graphics.drawLine(swatchLeft, swatchY, swatchLeft + LEGEND_SWATCH_WIDTH, swatchY);
+            graphics.setColor(Color.BLACK);
+            graphics.drawString(formatLevel(levels[levelIndex]), textLeft,
+                    rowTop + metrics.getAscent());
+        }
     }
 
     public long getCacheHits() {

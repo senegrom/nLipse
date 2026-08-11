@@ -18,6 +18,7 @@ public final class PlotModel {
     private boolean showExtrema;
     private boolean antiAlias;
     private boolean logSpacing;
+    private boolean showLegend;
     private int selectedFocusIndex;
 
     public PlotModel(final PlotConfig config) {
@@ -36,13 +37,15 @@ public final class PlotModel {
         showExtrema = config.showExtrema();
         antiAlias = config.antiAlias();
         logSpacing = config.logSpacing();
+        showLegend = config.showLegend();
         selectedFocusIndex = -1;
     }
 
     public synchronized PlotSnapshot snapshot() {
         return new PlotSnapshot(curveType, familyParameter, foci,
                 distanceMin, distanceMax, curveCount, viewport,
-                showBackground, showExtrema, antiAlias, logSpacing, selectedFocusIndex);
+                showBackground, showExtrema, antiAlias, logSpacing, showLegend,
+                selectedFocusIndex);
     }
 
     /** Replace the whole state with a loaded setup; the loaded viewport also
@@ -64,6 +67,7 @@ public final class PlotModel {
         showExtrema = config.showExtrema();
         antiAlias = config.antiAlias();
         logSpacing = config.logSpacing();
+        showLegend = config.showLegend();
         selectedFocusIndex = -1;
     }
 
@@ -214,5 +218,13 @@ public final class PlotModel {
 
     public synchronized void setLogSpacing(final boolean value) {
         logSpacing = value;
+    }
+
+    public synchronized boolean isShowLegend() {
+        return showLegend;
+    }
+
+    public synchronized void setShowLegend(final boolean value) {
+        showLegend = value;
     }
 }

@@ -17,6 +17,7 @@ public record PlotSnapshot(
         boolean showExtrema,
         boolean antiAlias,
         boolean logSpacing,
+        boolean showLegend,
         int selectedFocusIndex) {
 
     public PlotSnapshot {

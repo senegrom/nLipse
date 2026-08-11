@@ -62,6 +62,7 @@ public final class SetupDialog extends JDialog {
     private final JCheckBox showExtrema = new JCheckBox("Show sampled min/max");
     private final JCheckBox antiAlias = new JCheckBox("Anti-alias lines and markers");
     private final JCheckBox logSpacing = new JCheckBox("Use logarithmic level spacing");
+    private final JCheckBox showLegend = new JCheckBox("Show level legend");
 
     private transient PlotConfig result;
 
@@ -107,6 +108,7 @@ public final class SetupDialog extends JDialog {
         showExtrema.setSelected(initial.showExtrema());
         antiAlias.setSelected(initial.antiAlias());
         logSpacing.setSelected(initial.logSpacing());
+        showLegend.setSelected(initial.showLegend());
     }
 
     private void buildUi() {
@@ -194,6 +196,7 @@ public final class SetupDialog extends JDialog {
         options.add(showExtrema);
         options.add(antiAlias);
         options.add(logSpacing);
+        options.add(showLegend);
         form.add(options);
         root.add(form, BorderLayout.CENTER);
 
@@ -266,7 +269,7 @@ public final class SetupDialog extends JDialog {
             result = new PlotConfig(selectedType, parsedFamilyParameter, foci,
                     parsedDistanceMin, parsedDistanceMax,
                     parsedCount, viewport, showBackground.isSelected(), showExtrema.isSelected(),
-                    antiAlias.isSelected(), logSpacing.isSelected());
+                    antiAlias.isSelected(), logSpacing.isSelected(), showLegend.isSelected());
             dispose();
         } catch (final IllegalArgumentException exception) {
             JOptionPane.showMessageDialog(this, exception.getMessage(), "Invalid input",

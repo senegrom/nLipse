@@ -16,7 +16,8 @@ public record PlotConfig(
         boolean showBackground,
         boolean showExtrema,
         boolean antiAlias,
-        boolean logSpacing) {
+        boolean logSpacing,
+        boolean showLegend) {
 
     public PlotConfig {
         Objects.requireNonNull(curveType, "curveType");
@@ -54,6 +55,7 @@ public record PlotConfig(
                 true,
                 true,
                 true,
-                false);
+                false,
+                true);
     }
 }

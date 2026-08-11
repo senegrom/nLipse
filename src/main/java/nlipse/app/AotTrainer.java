@@ -67,13 +67,15 @@ public final class AotTrainer {
                 snapshot.familyParameter(), snapshot.foci(),
                 snapshot.distanceMin(), snapshot.distanceMax(), snapshot.curveCount(),
                 pannedViewport, snapshot.showBackground(), snapshot.showExtrema(),
-                snapshot.antiAlias(), snapshot.logSpacing(), snapshot.selectedFocusIndex());
+                snapshot.antiAlias(), snapshot.logSpacing(), snapshot.showLegend(),
+                snapshot.selectedFocusIndex());
         checksum ^= Long.rotateLeft(render(renderer, panned), 11);
         final PlotSnapshot restyled = new PlotSnapshot(snapshot.curveType(),
                 snapshot.familyParameter(), snapshot.foci(),
                 snapshot.distanceMin(), snapshot.distanceMax(), snapshot.curveCount(),
                 snapshot.viewport(), !snapshot.showBackground(), snapshot.showExtrema(),
-                snapshot.antiAlias(), snapshot.logSpacing(), snapshot.selectedFocusIndex());
+                snapshot.antiAlias(), snapshot.logSpacing(), snapshot.showLegend(),
+                snapshot.selectedFocusIndex());
         checksum ^= Long.rotateLeft(render(renderer, restyled), 23);
         return checksum;
     }
@@ -96,14 +98,14 @@ public final class AotTrainer {
                 List.of(new Focus(2, 0, 1), new Focus(0, 1, 1),
                         new Focus(-1, -1.5, 1)),
                 2, 12, 24, new Viewport(-4, 4, -3, 3),
-                true, true, true, false, -1);
+                true, true, true, false, true, -1);
     }
 
     private static PlotSnapshot cassini() {
         return new PlotSnapshot(CurveType.CASSIN, CurveType.CASSIN.defaultParameter(),
                 List.of(new Focus(-1.2, 0, 1), new Focus(1.2, 0, 1)),
                 0.05, 12, 24, new Viewport(-3, 3, -2.5, 2.5),
-                true, true, true, true, -1);
+                true, true, true, true, true, -1);
     }
 
     private static PlotSnapshot hyperbola() {
@@ -116,7 +118,7 @@ public final class AotTrainer {
                 .toList();
         return new PlotSnapshot(CurveType.HYPERB, CurveType.HYPERB.defaultParameter(), foci,
                 0.05, 5, 20, new Viewport(-4, 4, -3, 3),
-                false, true, true, false, -1);
+                false, true, true, false, true, -1);
     }
 
     private static PlotSnapshot magnitudeFamily(final CurveType type,
@@ -128,7 +130,7 @@ public final class AotTrainer {
                         new Focus(0.2, 1.8, -1.25),
                         new Focus(0, -1.5, 0)),
                 minimum, maximum, 22, new Viewport(-4, 4, -3, 3),
-                true, true, true, false, -1);
+                true, true, true, false, true, -1);
     }
 
     private static PlotSnapshot parameterFamily(final CurveType type, final double parameter,
@@ -140,7 +142,7 @@ public final class AotTrainer {
                         new Focus(0.2, 1.8, -1.25),
                         new Focus(0, -1.5, 0)),
                 minimum, maximum, 22, new Viewport(-4, 4, -3, 3),
-                true, true, true, false, -1);
+                true, true, true, false, true, -1);
     }
 
     private static PlotSnapshot potential() {
@@ -150,6 +152,6 @@ public final class AotTrainer {
                         new Focus(1.2, 0, -1),
                         new Focus(0, 1.6, 0.65)),
                 -2.5, 2.5, 25, new Viewport(-4, 4, -3, 3),
-                true, true, true, false, -1);
+                true, true, true, false, true, -1);
     }
 }

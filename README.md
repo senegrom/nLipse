@@ -58,6 +58,12 @@ PowerShell equivalents are available as `scripts/create-aot-cache.ps1` and `scri
 - Edit focus coordinates and weights in the table.
 - Edit the family parameter (`p`, `τ`, or `σ`) in the right-hand panel when enabled.
 
+## Legend and export
+
+The optional level legend (Display → "Level legend") lists the drawn contour levels with their colours in the top-right corner, highest level first; when more than twelve levels are drawn it shows an even subsample that always includes both endpoints. Because the legend is part of the rendered image, PNG exports include it.
+
+"Export PNG…" saves the plot exactly as displayed. "Export SVG…" writes a vector version — contour polylines, axes, focus and extrema markers, and the legend — at the current canvas size; the raster heatmap background is intentionally omitted because it has no vector form.
+
 ## Rendering architecture
 
 Rendering runs on a bounded, latest-wins background queue rather than Swing's event-dispatch thread. Interactive edits still use coalesced previews followed by a full-quality render. While middle-dragging, the last completed image is translated immediately; releasing the mouse starts the exact render.

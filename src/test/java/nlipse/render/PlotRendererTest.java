@@ -1,5 +1,6 @@
 package nlipse.render;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -114,7 +115,7 @@ class PlotRendererTest {
                 initial.familyParameter(), initial.foci(),
                 initial.distanceMin(), initial.distanceMax(), initial.curveCount(), pannedViewport,
                 initial.showBackground(), initial.showExtrema(), initial.antiAlias(),
-                initial.logSpacing(), initial.selectedFocusIndex());
+                initial.logSpacing(), initial.showLegend(), initial.selectedFocusIndex());
 
         renderer.render(new RenderRequest(panned, width, height, RenderQuality.FULL),
                 CancellationToken.NONE);
@@ -133,10 +134,10 @@ class PlotRendererTest {
         final List<Focus> foci = List.of(new Focus(-1, 0, 1), new Focus(1, 0, 2));
         final PlotSnapshot arithmetic = new PlotSnapshot(CurveType.POWER_MEAN, 1, foci,
                 0.1, 4, 8, new Viewport(-2, 2, -2, 2),
-                true, true, true, false, -1);
+                true, true, true, false, false, -1);
         final PlotSnapshot quadratic = new PlotSnapshot(CurveType.POWER_MEAN, 2, foci,
                 0.1, 4, 8, new Viewport(-2, 2, -2, 2),
-                true, true, true, false, -1);
+                true, true, true, false, false, -1);
 
         renderer.render(new RenderRequest(arithmetic, 100, 80, RenderQuality.FULL),
                 CancellationToken.NONE);
@@ -155,7 +156,7 @@ class PlotRendererTest {
                 80, 80, RenderQuality.FULL), CancellationToken.NONE);
         final PlotSnapshot moved = new PlotSnapshot(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(-0.5, 0, 1), new Focus(1, 0, 1)),
-                1, 3, 4, new Viewport(-2, 2, -2, 2), true, true, true, false, 0);
+                1, 3, 4, new Viewport(-2, 2, -2, 2), true, true, true, false, false, 0);
         renderer.render(new RenderRequest(moved, 80, 80, RenderQuality.FULL), CancellationToken.NONE);
 
         assertEquals(2, renderer.getCacheMisses());
@@ -188,7 +189,7 @@ class PlotRendererTest {
         final PlotSnapshot invalid = new PlotSnapshot(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(Double.MAX_VALUE, 0, Double.MAX_VALUE)),
                 0, 1, 4, new Viewport(-1, 1, -1, 1),
-                true, true, true, false, -1);
+                true, true, true, false, true, -1);
 
         final RenderResult result = new PlotRenderer().render(
                 new RenderRequest(invalid, 40, 40, RenderQuality.FULL),
@@ -196,6 +197,50 @@ class PlotRendererTest {
 
         assertTrue(result.extrema().isEmpty());
         assertEquals(Color.WHITE.getRGB(), result.image().getRGB(2, 2));
+    }
+
+    @Test
+    void legendOverlayDrawsWithoutInvalidatingTheStaticLayerCache() {
+        final int width = 200;
+        final int height = 140;
+        final PlotRenderer renderer = new PlotRenderer();
+        final PlotSnapshot plain = snapshot(1, 3, 8, true, -1);
+        final PlotSnapshot legended = new PlotSnapshot(plain.curveType(),
+                plain.familyParameter(), plain.foci(),
+                plain.distanceMin(), plain.distanceMax(), plain.curveCount(), plain.viewport(),
+                plain.showBackground(), plain.showExtrema(), plain.antiAlias(),
+                plain.logSpacing(), true, plain.selectedFocusIndex());
+
+        final RenderResult without = renderer.render(
+                new RenderRequest(plain, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+        final RenderResult with = renderer.render(
+                new RenderRequest(legended, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+
+        // The legend box occupies the top-right corner and only that corner.
+        assertNotEquals(without.image().getRGB(width - 20, 20),
+                with.image().getRGB(width - 20, 20));
+        assertEquals(without.image().getRGB(10, height / 2),
+                with.image().getRGB(10, height / 2));
+        // The overlay is drawn per request; grid and static layer stay shared.
+        assertEquals(1, renderer.getCacheMisses());
+        assertEquals(1, renderer.getCacheHits());
+        assertEquals(1, renderer.getLayerCacheMisses());
+        assertEquals(1, renderer.getLayerCacheHits());
+    }
+
+    @Test
+    void legendSubsamplingKeepsBothEndpointsAndTheRowCap() {
+        assertArrayEquals(new int[]{0, 1, 2}, PlotRenderer.legendLevelIndices(3));
+        final int[] subsampled = PlotRenderer.legendLevelIndices(200);
+        assertEquals(12, subsampled.length);
+        assertEquals(0, subsampled[0]);
+        assertEquals(199, subsampled[subsampled.length - 1]);
+        for (int index = 1; index < subsampled.length; index++) {
+            assertTrue(subsampled[index] > subsampled[index - 1]);
+        }
+        assertEquals(0, PlotRenderer.legendLevelIndices(0).length);
     }
 
     @Test
@@ -211,7 +256,7 @@ class PlotRendererTest {
             final double maximum = type == CurveType.POTENTIAL ? 3 : 8;
             final PlotSnapshot snapshot = new PlotSnapshot(type, type.defaultParameter(), foci,
                     minimum, maximum, 9, new Viewport(-2, 2, -2, 2),
-                    true, true, true, type.defaultLogSpacing(), -1);
+                    true, true, true, type.defaultLogSpacing(), false, -1);
 
             final RenderResult result = renderer.render(
                     new RenderRequest(snapshot, 96, 72, RenderQuality.FULL),
@@ -229,6 +274,6 @@ class PlotRendererTest {
         return new PlotSnapshot(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(-1, 0, 1), new Focus(1, 0, 1)),
                 minimum, maximum, count, new Viewport(-2, 2, -2, 2),
-                background, true, true, false, selectedFocus);
+                background, true, true, false, false, selectedFocus);
     }
 }

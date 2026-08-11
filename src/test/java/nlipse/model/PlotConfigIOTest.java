@@ -22,7 +22,7 @@ class PlotConfigIOTest {
                 List.of(new Focus(-1.25, 0.5, 1), new Focus(1.75, -2.125, 0.375)),
                 0.0625, 17.5, 42,
                 new Viewport(-4.5, 3.25, -2.75, 5.5),
-                false, true, false, true);
+                false, true, false, true, false);
         final Path file = tempDirectory.resolve("setup.properties");
 
         PlotConfigIO.save(file, new PlotModel(original).snapshot());
@@ -62,7 +62,7 @@ class PlotConfigIOTest {
                 List.of(new Focus(9, 9, 2)),
                 1, 2, 3,
                 new Viewport(-1, 1, -1, 1),
-                false, false, false, false);
+                false, false, false, false, false);
 
         model.apply(loaded);
 
@@ -70,7 +70,7 @@ class PlotConfigIOTest {
                 model.getFociCopy(), model.getDistanceMin(), model.getDistanceMax(),
                 model.getCurveCount(),
                 model.getViewport(), model.isShowBackground(), model.isShowExtrema(),
-                model.isAntiAlias(), model.isLogSpacing()));
+                model.isAntiAlias(), model.isLogSpacing(), model.isShowLegend()));
         assertEquals(-1, model.getSelectedFocusIndex());
         model.resetViewport();
         assertEquals(loaded.viewport(), model.getViewport());
@@ -81,7 +81,7 @@ class PlotConfigIOTest {
             final PlotConfig config = new PlotConfig(type, type.defaultParameter(),
                     List.of(new Focus(0, 0, 1)),
                     -2, 3, 5, new Viewport(-1, 1, -1, 1),
-                    true, true, true, type.defaultLogSpacing());
+                    true, true, true, type.defaultLogSpacing(), true);
             final Path file = tempDirectory.resolve(type.name() + ".properties");
 
             PlotConfigIO.save(file, new PlotModel(config).snapshot());
@@ -112,7 +112,7 @@ class PlotConfigIOTest {
                 Double.POSITIVE_INFINITY,
                 List.of(new Focus(0, 0, 1), new Focus(1, 0, 2)),
                 0, 5, 7, new Viewport(-2, 2, -2, 2),
-                true, false, true, false);
+                true, false, true, false, true);
         final Path file = tempDirectory.resolve("power-mean.properties");
 
         PlotConfigIO.save(file, new PlotModel(config).snapshot());
@@ -126,7 +126,7 @@ class PlotConfigIOTest {
         final PlotConfig source = new PlotConfig(CurveType.POWER_MEAN, 1,
                 List.of(new Focus(0, 0, 1)),
                 0, 2, 5, new Viewport(-1, 1, -1, 1),
-                true, true, true, false);
+                true, true, true, false, true);
         final Path file = tempDirectory.resolve("unicode-infinity.properties");
         PlotConfigIO.save(file, new PlotModel(source).snapshot());
         Files.writeString(file, Files.readString(file)
@@ -141,7 +141,7 @@ class PlotConfigIOTest {
                 CurveType.GAUSSIAN.defaultParameter(),
                 List.of(new Focus(0, 0, 1)),
                 -1, 1, 5, new Viewport(-1, 1, -1, 1),
-                true, true, true, false);
+                true, true, true, false, true);
         final Path file = tempDirectory.resolve("old-setup.properties");
         PlotConfigIO.save(file, new PlotModel(source).snapshot());
         Files.writeString(file, Files.readString(file)
@@ -152,11 +152,26 @@ class PlotConfigIOTest {
     }
 
     @Test
+    void oldSetupWithoutShowLegendDefaultsToVisible() throws Exception {
+        final PlotConfig source = new PlotConfig(
+                CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
+                List.of(new Focus(0, 0, 1)),
+                0, 2, 5, new Viewport(-1, 1, -1, 1),
+                true, true, true, false, false);
+        final Path file = tempDirectory.resolve("pre-legend.properties");
+        PlotConfigIO.save(file, new PlotModel(source).snapshot());
+        Files.writeString(file, Files.readString(file)
+                .replaceAll("(?m)^showLegend=.*\\R", ""));
+
+        assertTrue(PlotConfigIO.load(file).showLegend());
+    }
+
+    @Test
     void invalidFamilyParameterNamesTheOffendingKey() throws Exception {
         final PlotConfig source = new PlotConfig(CurveType.GAUSSIAN,
                 CurveType.GAUSSIAN.defaultParameter(), List.of(new Focus(0, 0, 1)),
                 -1, 1, 5, new Viewport(-1, 1, -1, 1),
-                true, true, true, false);
+                true, true, true, false, true);
         final Path file = tempDirectory.resolve("bad-parameter.properties");
         PlotConfigIO.save(file, new PlotModel(source).snapshot());
         Files.writeString(file, Files.readString(file)

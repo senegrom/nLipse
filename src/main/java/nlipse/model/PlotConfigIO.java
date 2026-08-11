@@ -44,6 +44,7 @@ public final class PlotConfigIO {
         values.setProperty("showExtrema", Boolean.toString(snapshot.showExtrema()));
         values.setProperty("antiAlias", Boolean.toString(snapshot.antiAlias()));
         values.setProperty("logSpacing", Boolean.toString(snapshot.logSpacing()));
+        values.setProperty("showLegend", Boolean.toString(snapshot.showLegend()));
         try (var writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
             values.store(writer, "nLipse plot setup");
         }
@@ -92,7 +93,18 @@ public final class PlotConfigIO {
                 booleanValue(values, "showBackground"),
                 booleanValue(values, "showExtrema"),
                 booleanValue(values, "antiAlias"),
-                booleanValue(values, "logSpacing"));
+                booleanValue(values, "logSpacing"),
+                optionalBoolean(values, "showLegend", true));
+    }
+
+    /** Keys added after format 1 shipped load with a default so older files stay valid. */
+    private static boolean optionalBoolean(final Properties values, final String key,
+            final boolean fallback) {
+        final String value = values.getProperty(key);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return booleanValue(values, key);
     }
 
     private static double parameterValue(final Properties values, final CurveType curveType) {

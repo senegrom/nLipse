@@ -14,6 +14,8 @@ import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
@@ -44,6 +46,7 @@ import nlipse.render.PlotRenderer;
 import nlipse.render.RenderQuality;
 import nlipse.render.RenderRequest;
 import nlipse.render.RenderResult;
+import nlipse.render.SvgPlotWriter;
 import nlipse.render.Viewport;
 
 /** Coordinates model mutations, view events and latest-wins background rendering. */
@@ -176,9 +179,16 @@ public final class PlotController implements AutoCloseable {
                 requestFullRender();
             }
         });
+        view.getShowLegend().addActionListener(event -> {
+            if (!suppressControls) {
+                model.setShowLegend(view.getShowLegend().isSelected());
+                requestFullRender();
+            }
+        });
         view.getSaveSetup().addActionListener(event -> saveSetup());
         view.getLoadSetup().addActionListener(event -> loadSetup());
         view.getExportImage().addActionListener(event -> exportImage());
+        view.getExportSvg().addActionListener(event -> exportSvg());
 
         view.getAddFocus().addActionListener(event -> {
             final Viewport viewport = model.getViewport();
@@ -443,6 +453,36 @@ public final class PlotController implements AutoCloseable {
             }
         } catch (final IOException failed) {
             JOptionPane.showMessageDialog(view, failed.getMessage(), "Export failed",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void exportSvg() {
+        final PlotCanvas canvas = view.getCanvas();
+        final int width = canvas.getWidth();
+        final int height = canvas.getHeight();
+        if (width < 2 || height < 2) {
+            JOptionPane.showMessageDialog(view, "The plot area is not visible yet.", "Export SVG",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        final JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export plot as SVG");
+        chooser.setSelectedFile(new File("nlipse-plot.svg"));
+        if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File target = chooser.getSelectedFile();
+        if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".svg")) {
+            target = new File(target.getParentFile(), target.getName() + ".svg");
+        }
+        try {
+            final String svg = SvgPlotWriter.write(model.snapshot(), width, height);
+            Files.writeString(target.toPath(), svg, StandardCharsets.UTF_8);
+        } catch (final IOException | RuntimeException failed) {
+            final String message = failed.getMessage() == null
+                    ? failed.getClass().getSimpleName() : failed.getMessage();
+            JOptionPane.showMessageDialog(view, message, "Export failed",
                     JOptionPane.ERROR_MESSAGE);
         }
     }

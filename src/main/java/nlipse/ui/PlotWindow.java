@@ -45,6 +45,7 @@ public final class PlotWindow extends JFrame {
     private final JCheckBox showBackground = new JCheckBox("Background field");
     private final JCheckBox showExtrema = new JCheckBox("Min/max samples");
     private final JCheckBox antiAlias = new JCheckBox("Anti-alias lines and markers");
+    private final JCheckBox showLegend = new JCheckBox("Level legend");
     private final DefaultTableModel focusTableModel = new DefaultTableModel(
             new String[]{"X", "Y", "Weight"}, 0) {
         private static final long serialVersionUID = 1L;
@@ -62,6 +63,7 @@ public final class PlotWindow extends JFrame {
     private final JButton saveSetup = new JButton("Save setup…");
     private final JButton loadSetup = new JButton("Load setup…");
     private final JButton exportImage = new JButton("Export PNG…");
+    private final JButton exportSvg = new JButton("Export SVG…");
     private final JLabel cursorInfo = new JLabel("Move over plot for coordinates");
     private final JLabel renderInfo = new JLabel(" ", SwingConstants.LEFT);
 
@@ -122,6 +124,7 @@ public final class PlotWindow extends JFrame {
         options.add(showBackground);
         options.add(showExtrema);
         options.add(antiAlias);
+        options.add(showLegend);
         side.add(options);
         side.add(Box.createVerticalStrut(8));
 
@@ -134,6 +137,7 @@ public final class PlotWindow extends JFrame {
         session.add(setupRow);
         final JPanel exportRow = rowPanel();
         exportRow.add(exportImage);
+        exportRow.add(exportSvg);
         session.add(exportRow);
         side.add(session);
         side.add(Box.createVerticalStrut(8));
@@ -202,6 +206,7 @@ public final class PlotWindow extends JFrame {
         showBackground.setSelected(snapshot.showBackground());
         showExtrema.setSelected(snapshot.showExtrema());
         antiAlias.setSelected(snapshot.antiAlias());
+        showLegend.setSelected(snapshot.showLegend());
         setFocusRows(snapshot.foci(), snapshot.selectedFocusIndex());
     }
 
@@ -249,6 +254,7 @@ public final class PlotWindow extends JFrame {
     public JCheckBox getShowBackground() { return showBackground; }
     public JCheckBox getShowExtrema() { return showExtrema; }
     public JCheckBox getAntiAlias() { return antiAlias; }
+    public JCheckBox getShowLegend() { return showLegend; }
     public DefaultTableModel getFocusTableModel() { return focusTableModel; }
     public JTable getFocusTable() { return focusTable; }
     public JButton getAddFocus() { return addFocus; }
@@ -258,6 +264,7 @@ public final class PlotWindow extends JFrame {
     public JButton getSaveSetup() { return saveSetup; }
     public JButton getLoadSetup() { return loadSetup; }
     public JButton getExportImage() { return exportImage; }
+    public JButton getExportSvg() { return exportSvg; }
     public JLabel getCursorInfo() { return cursorInfo; }
     public JLabel getRenderInfo() { return renderInfo; }
 }
