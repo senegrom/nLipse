@@ -56,6 +56,25 @@ final class FieldMath {
         return Math.copySign(magnitude, signedFactor);
     }
 
+    /**
+     * Returns whether a mixed-sign sum is too close to its condition scale to
+     * trust the floating-point result without the exceptional evaluator.
+     */
+    static boolean cancellationUncertain(final double result,
+            final double magnitudeScale, final int termCount,
+            final double relativeLimit) {
+        if (!Double.isFinite(result) || !Double.isFinite(magnitudeScale)) {
+            return true;
+        }
+        if (magnitudeScale <= 0) {
+            return false;
+        }
+        final double ulpBound = Math.ulp(magnitudeScale) * Math.max(8, termCount * 4);
+        final double relativeBound = relativeLimit <= 0
+                ? 0 : magnitudeScale * relativeLimit;
+        return Math.abs(result) <= Math.max(ulpBound, relativeBound);
+    }
+
     static final class CompensatedSum {
         private double sum;
         private double compensation;
