@@ -8,7 +8,7 @@ name: JMH benchmark
         required: false
         default: nlipse.math.FieldMathBenchmark.*
       forks:
-        description: Fork count
+        description: Fork count from 1 to 8
         required: false
         default: '2'
 
@@ -18,6 +18,11 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JMH_INCLUDE: ${{ inputs.include }}
+      JMH_FORKS: ${{ inputs.forks }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -29,19 +34,37 @@ jobs:
           java-version: '25'
           cache: maven
 
+      - name: Validate inputs
+        shell: bash
+        run: |
+          case "$JMH_FORKS" in
+            ''|*[!0-9]*) echo "Fork count must be an integer" >&2; exit 2 ;;
+          esac
+          if [ "$JMH_FORKS" -lt 1 ] || [ "$JMH_FORKS" -gt 8 ]; then
+            echo "Fork count must be between 1 and 8" >&2
+            exit 2
+          fi
+          if [ -z "$JMH_INCLUDE" ]; then
+            echo "Benchmark include expression must not be empty" >&2
+            exit 2
+          fi
+          case "$JMH_INCLUDE" in
+            -*) echo "Benchmark include expression must not start with '-'" >&2; exit 2 ;;
+          esac
+
       - name: Build application and benchmark harness
         run: |
-          mvn --batch-mode --no-transfer-progress -DskipTests install
+          mvn --batch-mode --no-transfer-progress -Dmaven.test.skip=true install
           mvn --batch-mode --no-transfer-progress -f benchmarks/pom.xml package
 
       - name: Run benchmark
-        run: >-
-          java -jar benchmarks/target/benchmarks.jar
-          -f '${{ inputs.forks }}'
-          -wi 3 -w 500ms
-          -i 5 -r 750ms
-          -rf json -rff benchmark-results.json
-          '${{ inputs.include }}'
+        run: |
+          java -jar benchmarks/target/benchmarks.jar \
+            -f "$JMH_FORKS" \
+            -wi 3 -w 500ms \
+            -i 5 -r 750ms \
+            -rf json -rff benchmark-results.json \
+            "$JMH_INCLUDE"
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
