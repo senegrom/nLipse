@@ -23,7 +23,7 @@ final class WorldFieldCache {
     private static final int TILES_PER_TASK = 2;
 
     private final long budgetBytes;
-    private final Map<FieldIdentity, List<Lattice>> lattices = new HashMap<>();
+    private final Map<LatticeKey, Lattice> lattices = new HashMap<>();
     private final Map<Long, Lattice> latticesById = new HashMap<>();
     private final Map<Long, Integer> tileCountsByLattice = new HashMap<>();
     private final Map<TileKey, Tile> tiles = new LinkedHashMap<>(64, 0.75f, true);
@@ -50,10 +50,8 @@ final class WorldFieldCache {
         }
         token.throwIfCancelled();
 
-        final double worldStepX = viewport.width() / (pixelWidth - 1.0);
-        final double worldStepY = viewport.height() / (pixelHeight - 1.0);
         final LatticeSelection selection = selectLattice(identity, viewport,
-                worldStepX, worldStepY, pixelWidth, pixelHeight);
+                pixelWidth, pixelHeight);
         final long firstGlobalX = selection.offsetX();
         final long firstGlobalY = selection.offsetY();
         final long lastGlobalX = Math.addExact(firstGlobalX, pixelWidth - 1L);
@@ -137,89 +135,18 @@ final class WorldFieldCache {
     }
 
     private LatticeSelection selectLattice(final FieldIdentity identity,
-            final Viewport viewport, final double worldStepX, final double worldStepY,
-            final int pixelWidth, final int pixelHeight) {
+            final Viewport viewport, final int pixelWidth, final int pixelHeight) {
+        final SamplingLattice requested = viewport.samplingLattice(pixelWidth, pixelHeight);
+        final LatticeKey key = LatticeKey.from(identity, requested);
         synchronized (tiles) {
-            final List<Lattice> candidates = lattices.computeIfAbsent(identity,
-                    ignored -> new ArrayList<>());
-            for (final Lattice lattice : candidates) {
-                if (!sameSpacing(lattice.worldStepX(), worldStepX)
-                        || !sameSpacing(lattice.worldStepY(), worldStepY)) {
-                    continue;
-                }
-                final Long offsetX = alignedOffset(
-                        viewport.xMin() - lattice.anchorX(), lattice.worldStepX());
-                final Long offsetY = alignedOffset(
-                        lattice.anchorY() - viewport.yMax(), lattice.worldStepY());
-                if (offsetX != null && offsetY != null
-                        && axisEndpointsMatch(lattice.anchorX(), lattice.worldStepX(),
-                                viewport.xMin(), worldStepX, offsetX, pixelWidth, false)
-                        && axisEndpointsMatch(lattice.anchorY(), lattice.worldStepY(),
-                                viewport.yMax(), worldStepY, offsetY, pixelHeight, true)) {
-                    return new LatticeSelection(lattice, offsetX, offsetY);
-                }
+            Lattice lattice = lattices.get(key);
+            if (lattice == null) {
+                lattice = new Lattice(++nextLatticeId, key, requested);
+                lattices.put(key, lattice);
+                latticesById.put(lattice.id(), lattice);
             }
-            final Lattice created = new Lattice(++nextLatticeId, identity,
-                    viewport.xMin(), viewport.yMax(), worldStepX, worldStepY);
-            candidates.add(created);
-            latticesById.put(created.id(), created);
-            return new LatticeSelection(created, 0, 0);
+            return new LatticeSelection(lattice, requested.offsetX(), requested.offsetY());
         }
-    }
-
-    private static boolean sameSpacing(final double first, final double second) {
-        if (Double.doubleToLongBits(first) == Double.doubleToLongBits(second)) {
-            return true;
-        }
-        final double tolerance = Math.max(Math.ulp(first), Math.ulp(second)) * 4;
-        return Math.abs(first - second) <= tolerance;
-    }
-
-    private static Long alignedOffset(final double difference, final double spacing) {
-        final double raw = difference / spacing;
-        if (!Double.isFinite(raw) || raw < Long.MIN_VALUE || raw > Long.MAX_VALUE) {
-            return null;
-        }
-        final long rounded = Math.round(raw);
-        // A non-zero sub-pixel shift must not be mistaken for the unchanged lattice.
-        if (rounded == 0 && difference != 0) {
-            return null;
-        }
-        final double reconstructed = rounded * spacing;
-        final double tolerance = Math.max(Math.ulp(difference), Math.ulp(reconstructed)) * 16;
-        return Math.abs(difference - reconstructed) <= tolerance ? rounded : null;
-    }
-
-    private static boolean axisEndpointsMatch(final double cachedAnchor,
-            final double cachedSpacing, final double requestedAnchor,
-            final double requestedSpacing, final long offset, final int sampleCount,
-            final boolean reversed) {
-        final long lastIndex;
-        try {
-            lastIndex = Math.addExact(offset, sampleCount - 1L);
-        } catch (final ArithmeticException overflow) {
-            return false;
-        }
-        final double cachedFirst = reversed
-                ? Math.fma(-offset, cachedSpacing, cachedAnchor)
-                : Math.fma(offset, cachedSpacing, cachedAnchor);
-        final double cachedLast = reversed
-                ? Math.fma(-lastIndex, cachedSpacing, cachedAnchor)
-                : Math.fma(lastIndex, cachedSpacing, cachedAnchor);
-        final double requestedLast = reversed
-                ? Math.fma(-(sampleCount - 1.0), requestedSpacing, requestedAnchor)
-                : Math.fma(sampleCount - 1.0, requestedSpacing, requestedAnchor);
-        return ulpClose(cachedFirst, requestedAnchor, 32)
-                && ulpClose(cachedLast, requestedLast, 32);
-    }
-
-    private static boolean ulpClose(final double first, final double second,
-            final int ulps) {
-        if (Double.doubleToLongBits(first) == Double.doubleToLongBits(second)) {
-            return true;
-        }
-        final double tolerance = Math.max(Math.ulp(first), Math.ulp(second)) * ulps;
-        return Math.abs(first - second) <= tolerance;
     }
 
     private static void sampleTiles(final List<TileRequest> requests, final int from,
@@ -245,8 +172,7 @@ final class WorldFieldCache {
                             continue;
                         }
                         final long globalY = tileOriginY + localY;
-                        final double worldY = Math.fma(-globalY, lattice.worldStepY(),
-                                lattice.anchorY());
+                        final double worldY = lattice.worldY(globalY);
                         for (int localX = request.minimumLocalX();
                                 localX <= request.maximumLocalX(); localX++) {
                             final int valueIndex = localY * TILE_SIZE + localX;
@@ -258,8 +184,7 @@ final class WorldFieldCache {
                                 token.throwIfCancelled();
                             }
                             final long globalX = tileOriginX + localX;
-                            final double worldX = Math.fma(globalX, lattice.worldStepX(),
-                                    lattice.anchorX());
+                            final double worldX = lattice.worldX(globalX);
                             request.tile().values[valueIndex] = field.value(worldX, worldY);
                             request.tile().present.set(valueIndex);
                             sampled++;
@@ -299,13 +224,7 @@ final class WorldFieldCache {
         if (lattice == null) {
             return;
         }
-        final List<Lattice> candidates = lattices.get(lattice.identity());
-        if (candidates != null) {
-            candidates.remove(lattice);
-            if (candidates.isEmpty()) {
-                lattices.remove(lattice.identity());
-            }
-        }
+        lattices.remove(lattice.key(), lattice);
     }
 
     long tileHits() {
@@ -330,8 +249,24 @@ final class WorldFieldCache {
         }
     }
 
-    private record Lattice(long id, FieldIdentity identity, double anchorX, double anchorY,
-            double worldStepX, double worldStepY) {
+    private record Lattice(long id, LatticeKey key, SamplingLattice coordinates) {
+        double worldX(final long globalX) {
+            return coordinates.worldXAtIndex(globalX);
+        }
+
+        double worldY(final long globalY) {
+            return coordinates.worldYAtIndex(globalY);
+        }
+    }
+
+    private record LatticeKey(FieldIdentity identity, long originXBits, long rootXMaxBits,
+            long originYBits, long rootYMinBits, long stepXBits, long stepYBits,
+            int pixelWidth, int pixelHeight) {
+        static LatticeKey from(final FieldIdentity identity, final SamplingLattice lattice) {
+            return new LatticeKey(identity, lattice.originXBits(), lattice.rootXMaxBits(),
+                    lattice.originYBits(), lattice.rootYMinBits(), lattice.stepXBits(),
+                    lattice.stepYBits(), lattice.pixelWidth(), lattice.pixelHeight());
+        }
     }
 
     private record LatticeSelection(Lattice lattice, long offsetX, long offsetY) {

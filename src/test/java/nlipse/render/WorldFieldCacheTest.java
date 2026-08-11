@@ -131,4 +131,53 @@ class WorldFieldCacheTest {
         assertEquals(0, cache.reusedSamples());
     }
 
+    @Test
+    void repeatedIntegerPansReuseByExactIndexRatherThanCoordinateTolerance() {
+        final int width = 129;
+        final int height = 97;
+        final Viewport initial = new Viewport(-2.3, 3.1, -1.7, 2.9);
+        final WorldFieldCache cache = new WorldFieldCache(64L * 1024 * 1024);
+        final AtomicInteger evaluations = new AtomicInteger();
+        final DistanceField field = (x, y) -> {
+            evaluations.incrementAndGet();
+            return x - 2 * y;
+        };
+
+        cache.sample(IDENTITY, field, initial, width, height, CancellationToken.NONE);
+        Viewport current = initial;
+        current = current.panPixels(9, -4, width, height);
+        cache.sample(IDENTITY, field, current, width, height, CancellationToken.NONE);
+        current = current.panPixels(-3, 11, width, height);
+        cache.sample(IDENTITY, field, current, width, height, CancellationToken.NONE);
+        current = current.panPixels(-6, -7, width, height);
+        final int beforeReturn = evaluations.get();
+        cache.sample(IDENTITY, field, current, width, height, CancellationToken.NONE);
+
+        assertEquals(initial, current);
+        assertEquals(0, evaluations.get() - beforeReturn);
+    }
+
+    @Test
+    void equivalentBoundsWithoutLineageDoNotClaimAnExistingLattice() {
+        final int width = 129;
+        final int height = 97;
+        final Viewport initial = new Viewport(-2, 2, -1.5, 1.5);
+        final Viewport panned = initial.panPixels(5, -3, width, height);
+        final Viewport reconstructed = new Viewport(panned.xMin(), panned.xMax(),
+                panned.yMin(), panned.yMax());
+        final WorldFieldCache cache = new WorldFieldCache(64L * 1024 * 1024);
+        final AtomicInteger evaluations = new AtomicInteger();
+        final DistanceField field = (x, y) -> {
+            evaluations.incrementAndGet();
+            return x + y;
+        };
+
+        cache.sample(IDENTITY, field, initial, width, height, CancellationToken.NONE);
+        cache.sample(IDENTITY, field, panned, width, height, CancellationToken.NONE);
+        final int beforeReconstructed = evaluations.get();
+        cache.sample(IDENTITY, field, reconstructed, width, height, CancellationToken.NONE);
+
+        assertEquals(width * height, evaluations.get() - beforeReconstructed);
+    }
+
 }
