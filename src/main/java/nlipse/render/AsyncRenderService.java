@@ -116,10 +116,9 @@ public final class AsyncRenderService implements AutoCloseable {
             final long sequence = ++nextSequence;
             pendingExport = new WorkItem(true, request.withSequence(sequence),
                     onSuccess, onFailure, operation);
-            if (active != null && !active.export) {
-                cancel(active);
-                worker.interrupt();
-            }
+            // Do not discard a display render that is already producing a
+            // useful frame. The export has priority over queued interaction
+            // once the active render finishes.
             monitor.notifyAll();
             return true;
         }
@@ -138,11 +137,14 @@ public final class AsyncRenderService implements AutoCloseable {
 
             // Cancellation interrupts belong to the previous interactive task.
             Thread.interrupted();
-            final Outcome outcome = execute(item);
-
-            synchronized (monitor) {
-                if (active == item) {
-                    active = null;
+            final Outcome outcome;
+            try {
+                outcome = execute(item);
+            } finally {
+                synchronized (monitor) {
+                    if (active == item) {
+                        active = null;
+                    }
                 }
             }
             dispatch(item, outcome);
@@ -186,7 +188,9 @@ public final class AsyncRenderService implements AutoCloseable {
         } catch (final InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return item.cancelled || closed ? null : Outcome.failure(interrupted);
-        } catch (final Exception | AssertionError failure) {
+        } catch (final VirtualMachineError fatal) {
+            throw fatal;
+        } catch (final Throwable failure) {
             return item.cancelled || closed ? null : Outcome.failure(failure);
         }
     }
