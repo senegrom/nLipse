@@ -285,20 +285,31 @@ final class AggregateFields {
 
         @Override
         public double value(final double x, final double y) {
+            final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             final FieldMath.CompensatedSum logarithms = new FieldMath.CompensatedSum();
             boolean hasZero = false;
             boolean hasInfinity = false;
+            boolean exactNeeded = false;
+            double largestLogarithm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
+                final double distance = foci.distance(index, x, y);
+                final double magnitude = foci.magnitudeDistance(index, x, y);
                 final double logarithm = foci.logMagnitudeDistance(index, x, y);
                 if (Double.isNaN(logarithm)) {
                     return Double.NaN;
                 }
+                if (finitePoint && (!Double.isFinite(distance)
+                        || !Double.isFinite(magnitude) && Double.isFinite(logarithm)
+                        || magnitude == 0 && distance != 0)) {
+                    exactNeeded = true;
+                }
                 hasZero |= logarithm == Double.NEGATIVE_INFINITY;
                 hasInfinity |= logarithm == Double.POSITIVE_INFINITY;
                 if (Double.isFinite(logarithm)) {
+                    largestLogarithm = Math.max(largestLogarithm, Math.abs(logarithm));
                     logarithms.add(logarithm);
                 }
             }
@@ -311,7 +322,13 @@ final class AggregateFields {
             if (hasInfinity) {
                 return Double.POSITIVE_INFINITY;
             }
-            return FieldMath.expFromLog(logarithms.value() / foci.activeCount());
+            final double meanLogarithm = logarithms.value() / foci.activeCount();
+            if (finitePoint && (exactNeeded || largestLogarithm > 0
+                    && Math.abs(meanLogarithm) <= Math.ulp(largestLogarithm)
+                            * foci.activeCount() * 2)) {
+                return ExactFieldMath.powerMean(foci, x, y, 0);
+            }
+            return FieldMath.expFromLog(meanLogarithm);
         }
     }
 
@@ -326,19 +343,28 @@ final class AggregateFields {
 
         @Override
         public double value(final double x, final double y) {
+            final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             final double[] logarithms = FieldMath.scratch(foci.size());
             int finiteCount = 0;
             boolean hasZero = false;
             boolean hasInfinity = false;
+            boolean exactNeeded = false;
             double minimum = Double.POSITIVE_INFINITY;
             double maximum = Double.NEGATIVE_INFINITY;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
+                final double distance = foci.distance(index, x, y);
+                final double magnitude = foci.magnitudeDistance(index, x, y);
                 final double logarithm = foci.logMagnitudeDistance(index, x, y);
                 if (Double.isNaN(logarithm)) {
                     return Double.NaN;
+                }
+                if (finitePoint && (!Double.isFinite(distance)
+                        || !Double.isFinite(magnitude) && Double.isFinite(logarithm)
+                        || magnitude == 0 && distance != 0)) {
+                    exactNeeded = true;
                 }
                 if (logarithm == Double.NEGATIVE_INFINITY) {
                     hasZero = true;
@@ -365,18 +391,28 @@ final class AggregateFields {
                     return Double.POSITIVE_INFINITY;
                 }
             }
+            if (finitePoint && exactNeeded) {
+                return ExactFieldMath.powerMean(foci, x, y, power);
+            }
 
+            final double result;
             if (!hasZero && !hasInfinity
                     && Math.abs(power) * (maximum - minimum) <= FieldMath.CENTRED_LIMIT) {
-                return FieldMath.expFromLog(centredLogarithm(logarithms, finiteCount));
+                result = FieldMath.expFromLog(centredLogarithm(logarithms, finiteCount));
+            } else {
+                final double anchor = power > 0 ? maximum : minimum;
+                final FieldMath.CompensatedSum exponentials = new FieldMath.CompensatedSum();
+                for (int index = 0; index < finiteCount; index++) {
+                    exponentials.add(Math.exp(power * (logarithms[index] - anchor)));
+                }
+                final double mean = exponentials.value() / foci.activeCount();
+                result = FieldMath.expFromLog(anchor + Math.log(mean) / power);
             }
-            final double anchor = power > 0 ? maximum : minimum;
-            final FieldMath.CompensatedSum exponentials = new FieldMath.CompensatedSum();
-            for (int index = 0; index < finiteCount; index++) {
-                exponentials.add(Math.exp(power * (logarithms[index] - anchor)));
+            if (finitePoint && (!Double.isFinite(result)
+                    || result == 0 && finiteCount > 0 && !hasZero)) {
+                return ExactFieldMath.powerMean(foci, x, y, power);
             }
-            final double mean = exponentials.value() / foci.activeCount();
-            return FieldMath.expFromLog(anchor + Math.log(mean) / power);
+            return result;
         }
 
         private double centredLogarithm(final double[] logarithms, final int count) {
@@ -536,7 +572,7 @@ final class AggregateFields {
                 maximum = Math.max(maximum, ratio);
             }
             if (allZero) {
-                return ExactFieldMath.arithmeticMagnitudeMean(foci, x, y);
+                return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
             }
             if (!nearest && Double.isInfinite(maximum)) {
                 return limitingEnvelope.value(x, y);
@@ -548,7 +584,7 @@ final class AggregateFields {
                 // Distinct distances can collapse to the same ratio after division by
                 // a huge temperature. Their common large-temperature limit is the
                 // arithmetic mean, not whichever focus happened to be visited first.
-                return ExactFieldMath.arithmeticMagnitudeMean(foci, x, y);
+                return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
             }
 
             final double resultRatio;
@@ -573,7 +609,7 @@ final class AggregateFields {
             }
             final double result = temperature * resultRatio;
             return Double.isFinite(result) ? result
-                    : ExactFieldMath.multiply(temperature, resultRatio);
+                    : ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
         }
 
         private static double stableNonNegativeMean(final double[] values,

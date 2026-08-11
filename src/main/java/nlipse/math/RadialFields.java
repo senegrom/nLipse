@@ -38,20 +38,27 @@ final class RadialFields {
             if (weightScale == 0) {
                 return 1;
             }
-            final double[] logarithms = FieldMath.scratch(foci.size());
+            final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             final FieldMath.CompensatedSum normalizedSum = new FieldMath.CompensatedSum();
             boolean exactNeeded = false;
             boolean zeroFactor = false;
             boolean infiniteFactor = false;
+            boolean positiveTerm = false;
+            boolean negativeTerm = false;
+            double largestTerm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
-                logarithms[index] = 0;
                 if (weight == 0) {
                     continue;
                 }
+                final double distance = foci.distance(index, x, y);
                 final double logarithm = foci.logDistance(index, x, y);
                 if (Double.isNaN(logarithm)) {
                     return Double.NaN;
+                }
+                if (finitePoint && !Double.isFinite(distance)
+                        && Double.isFinite(logarithm)) {
+                    exactNeeded = true;
                 }
                 if (logarithm == Double.NEGATIVE_INFINITY) {
                     zeroFactor |= weight > 0;
@@ -63,13 +70,14 @@ final class RadialFields {
                     zeroFactor |= weight < 0;
                     continue;
                 }
-                logarithms[index] = logarithm;
                 final double normalizedWeight = weight / weightScale;
                 final double term = normalizedWeight * logarithm;
-                if ((term == 0 && logarithm != 0)
-                        || !Double.isFinite(term)) {
+                if ((term == 0 && logarithm != 0) || !Double.isFinite(term)) {
                     exactNeeded = true;
                 } else {
+                    positiveTerm |= term > 0;
+                    negativeTerm |= term < 0;
+                    largestTerm = Math.max(largestTerm, Math.abs(term));
                     normalizedSum.add(term);
                 }
             }
@@ -82,13 +90,13 @@ final class RadialFields {
             if (infiniteFactor) {
                 return Double.POSITIVE_INFINITY;
             }
-            double resultLogarithm = weightScale * normalizedSum.value();
-            if (exactNeeded || !Double.isFinite(resultLogarithm)) {
-                final double[] weights = new double[foci.size()];
-                for (int index = 0; index < weights.length; index++) {
-                    weights[index] = foci.weight(index);
-                }
-                resultLogarithm = ExactFieldMath.weightedLogSum(logarithms, weights);
+            final double normalized = normalizedSum.value();
+            final double resultLogarithm = weightScale * normalized;
+            if (finitePoint && (exactNeeded || !Double.isFinite(resultLogarithm)
+                    || positiveTerm && negativeTerm && largestTerm > 0
+                            && Math.abs(normalized) <= Math.ulp(largestTerm)
+                                    * foci.activeCount() * 2)) {
+                return ExactFieldMath.cassini(foci, x, y);
             }
             return FieldMath.expFromLog(resultLogarithm);
         }
@@ -108,18 +116,23 @@ final class RadialFields {
             if (foci.activeCount() == 0) {
                 return 0;
             }
+            final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
+            boolean exactNeeded = false;
             double result = nearest ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
+                final double distance = foci.distance(index, x, y);
                 final double candidate = foci.magnitudeDistance(index, x, y);
                 if (Double.isNaN(candidate)) {
                     return Double.NaN;
                 }
+                exactNeeded |= finitePoint && (!Double.isFinite(distance)
+                        || candidate == 0 && distance != 0);
                 result = nearest ? Math.min(result, candidate) : Math.max(result, candidate);
             }
-            return result;
+            return exactNeeded ? ExactFieldMath.envelope(foci, x, y, nearest) : result;
         }
     }
 
@@ -132,13 +145,21 @@ final class RadialFields {
 
         @Override
         public double value(final double x, final double y) {
+            final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
+            boolean exactNeeded = false;
             double norm = 0;
             for (int index = 0; index < foci.size(); index++) {
-                if (foci.isActive(index)) {
-                    norm = Math.hypot(norm, foci.magnitudeDistance(index, x, y));
+                if (!foci.isActive(index)) {
+                    continue;
                 }
+                final double distance = foci.distance(index, x, y);
+                final double magnitude = foci.magnitudeDistance(index, x, y);
+                exactNeeded |= finitePoint && (!Double.isFinite(distance)
+                        || magnitude == 0 && distance != 0);
+                norm = Math.hypot(norm, magnitude);
             }
-            return norm;
+            return exactNeeded || finitePoint && !Double.isFinite(norm)
+                    ? ExactFieldMath.quadraticMagnitudeNorm(foci, x, y) : norm;
         }
     }
 
@@ -221,10 +242,12 @@ final class RadialFields {
             if (foci.activeCount() == 0) {
                 return 0;
             }
+            final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             final double[] terms = FieldMath.scratch(foci.size());
             final FieldMath.CompensatedSum sum = new FieldMath.CompensatedSum();
             boolean positive = false;
             boolean negative = false;
+            boolean exactNeeded = false;
             double largestTerm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
@@ -232,15 +255,19 @@ final class RadialFields {
                 if (weight == 0) {
                     continue;
                 }
+                final double ordinaryDistance = foci.distance(index, x, y);
                 final double ratio = foci.distanceRatio(index, x, y, sigma);
                 if (Double.isNaN(ratio)) {
                     return Double.NaN;
                 }
+                exactNeeded |= finitePoint && !Double.isFinite(ordinaryDistance)
+                        && Double.isFinite(foci.logDistance(index, x, y));
                 final double exponent = -0.5 * ratio * ratio;
                 final double kernel = Math.exp(exponent);
                 double term = weight * kernel;
                 if (term == 0 && weight != 0 && Double.isFinite(exponent)) {
                     term = FieldMath.multiplyFromLog(weight, exponent);
+                    exactNeeded |= term == 0;
                 }
                 terms[index] = term;
                 positive |= term > 0;
@@ -249,12 +276,12 @@ final class RadialFields {
                 sum.add(term);
             }
             final double result = sum.value();
-            if (positive && negative
+            if (finitePoint && (exactNeeded || positive && negative
                     && (!Double.isFinite(result)
                             || largestTerm > 0
                                     && Math.abs(result) <= Math.ulp(largestTerm)
-                                            * foci.activeCount() * 2)) {
-                return ExactFieldMath.doubleSum(terms, foci.size());
+                                            * foci.activeCount() * 2))) {
+                return ExactFieldMath.gaussian(foci, x, y, sigma);
             }
             return result;
         }

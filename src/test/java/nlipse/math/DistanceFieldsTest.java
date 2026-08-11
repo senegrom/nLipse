@@ -637,8 +637,40 @@ class DistanceFieldsTest {
 
         assertEquals(1, DistanceFields.create(
                 CurveType.SMOOTH_NEAREST, foci, Double.MAX_VALUE).value(0, 0), 0);
-        assertEquals(1, DistanceFields.create(
+        // The arithmetic mean is exactly the tie between 1 and nextUp(1). At every finite
+        // temperature smooth-max remains strictly above that mean, so ties-to-even does not
+        // apply and the correctly rounded value is the upper neighbour.
+        assertEquals(Math.nextUp(1.0), DistanceFields.create(
                 CurveType.SMOOTH_FARTHEST, foci, Double.MAX_VALUE).value(0, 0), 0);
+    }
+
+    @Test
+    void adaptiveFallbackRaisesPrecisionUntilATinyResidualIsRoundable() {
+        AdaptiveDecimal.resetStatistics();
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE, List.of(
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(maximum, 0, maximum / 2),
+                new Focus(maximum, 0, maximum / 2),
+                new Focus(maximum, 0, -maximum)));
+
+        assertEquals(Double.MIN_VALUE, field.value(0, 0), 0);
+        final AdaptiveDecimal.Statistics statistics = AdaptiveDecimal.statistics();
+        assertEquals(1, statistics.evaluations());
+        assertTrue(statistics.rounds() > 2);
+        assertTrue(statistics.peakPrecision() > 640);
+        assertTrue(statistics.peakPrecision() <= AdaptiveDecimal.MAXIMUM_PRECISION);
+    }
+
+    @Test
+    void exactFocusCoordinatesAreConvertedOnlyOncePerField() {
+        final FocusSet foci = FocusSet.from(List.of(
+                new Focus(Double.MAX_VALUE, Double.MIN_VALUE, -2),
+                new Focus(-1, 3, 0)));
+
+        assertTrue(foci.exactData() == foci.exactData());
+        assertEquals(new java.math.BigDecimal(Double.MAX_VALUE), foci.exactData().x(0));
+        assertEquals(new java.math.BigDecimal(Double.MIN_VALUE), foci.exactData().y(0));
     }
 
 }

@@ -10,6 +10,7 @@ final class FocusSet {
     private final double[] weights;
     private final int activeCount;
     private final double maximumAbsoluteWeight;
+    private volatile ExactFocusData exactData;
 
     private FocusSet(final double[] xs, final double[] ys, final double[] weights,
             final int activeCount, final double maximumAbsoluteWeight) {
@@ -70,6 +71,20 @@ final class FocusSet {
 
     double maximumAbsoluteWeight() {
         return maximumAbsoluteWeight;
+    }
+
+    ExactFocusData exactData() {
+        ExactFocusData result = exactData;
+        if (result == null) {
+            synchronized (this) {
+                result = exactData;
+                if (result == null) {
+                    result = new ExactFocusData(this);
+                    exactData = result;
+                }
+            }
+        }
+        return result;
     }
 
     double distance(final int index, final double x, final double y) {
