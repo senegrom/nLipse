@@ -68,4 +68,49 @@ class ViewportTest {
         final Viewport normal = new Viewport(-1, 1, -1, 1);
         assertEquals(normal, normal.zoomAtPixel(50, 50, 101, 101, Double.MAX_VALUE));
     }
+    @Test
+    void integerPansCarryExactLatticeLineageAndRoundTripBitwise() {
+        final int width = 257;
+        final int height = 193;
+        final Viewport initial = new Viewport(-3.7, 5.2, -2.4, 4.9);
+        final SamplingLattice root = initial.samplingLattice(width, height);
+        final Viewport panned = initial.panPixels(37, -19, width, height);
+        final SamplingLattice shifted = panned.samplingLattice(width, height);
+
+        assertEquals(root.originXBits(), shifted.originXBits());
+        assertEquals(root.originYBits(), shifted.originYBits());
+        assertEquals(root.stepXBits(), shifted.stepXBits());
+        assertEquals(root.stepYBits(), shifted.stepYBits());
+        assertEquals(-37, shifted.offsetX());
+        assertEquals(19, shifted.offsetY());
+
+        final Viewport returned = panned.panPixels(-37, 19, width, height);
+        assertEquals(initial, returned);
+        for (int pixel : new int[] {0, 1, 128, 255, 256}) {
+            assertEquals(Double.doubleToLongBits(initial.worldX(pixel, width)),
+                    Double.doubleToLongBits(returned.worldX(pixel, width)));
+        }
+        for (int pixel : new int[] {0, 1, 96, 191, 192}) {
+            assertEquals(Double.doubleToLongBits(initial.worldY(pixel, height)),
+                    Double.doubleToLongBits(returned.worldY(pixel, height)));
+        }
+    }
+
+    @Test
+    void fractionalPanAndResolutionChangeStartNewLattices() {
+        final Viewport initial = new Viewport(-2, 2, -1.5, 1.5);
+        final SamplingLattice root = initial.samplingLattice(129, 97);
+        final Viewport integerPan = initial.panPixels(4, 3, 129, 97);
+        final Viewport fractionalPan = integerPan.panPixels(0.5, 0, 129, 97);
+        final SamplingLattice fractional = fractionalPan.samplingLattice(129, 97);
+        final SamplingLattice resized = integerPan.samplingLattice(257, 193);
+
+        assertTrue(root.originXBits() != fractional.originXBits());
+        assertEquals(0, fractional.offsetX());
+        assertEquals(0, fractional.offsetY());
+        assertTrue(root.stepXBits() != resized.stepXBits());
+        assertEquals(0, resized.offsetX());
+        assertEquals(0, resized.offsetY());
+    }
+
 }

@@ -15,7 +15,6 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
@@ -31,6 +30,7 @@ import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.TableModelEvent;
+import nlipse.io.AtomicFiles;
 import nlipse.math.DistanceField;
 import nlipse.math.DistanceFields;
 import nlipse.math.ScalarRanges;
@@ -41,6 +41,7 @@ import nlipse.model.PlotConfigIO;
 import nlipse.model.PlotModel;
 import nlipse.model.PlotSnapshot;
 import nlipse.render.AsyncRenderService;
+import nlipse.render.CancellationToken;
 import nlipse.render.FieldExtrema;
 import nlipse.render.PlotRenderer;
 import nlipse.render.RenderQuality;
@@ -191,9 +192,16 @@ public final class PlotController implements AutoCloseable {
         view.getExportSvg().addActionListener(event -> exportSvg());
 
         view.getAddFocus().addActionListener(event -> {
+            if (model.getFocusCount() >= PlotConfig.MAX_FOCI) {
+                JOptionPane.showMessageDialog(view,
+                        "At most " + PlotConfig.MAX_FOCI + " focus points are supported.",
+                        "Focus limit", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
             final Viewport viewport = model.getViewport();
-            model.addFocus(new Focus((viewport.xMin() + viewport.xMax()) * 0.5,
-                    (viewport.yMin() + viewport.yMax()) * 0.5, 1));
+            model.addFocus(new Focus(
+                    ScalarRanges.interpolate(viewport.xMin(), viewport.xMax(), 0.5),
+                    ScalarRanges.interpolate(viewport.yMin(), viewport.yMax(), 0.5), 1));
             refreshCursorField();
             syncTableFromModel();
             markRangeAdjustment(RangeAdjustment.CLAMP);
@@ -285,6 +293,9 @@ public final class PlotController implements AutoCloseable {
                     draggingFocus = hit;
                     selectFocus(hit);
                 } else if (canvas.getWidth() >= 2 && canvas.getHeight() >= 2) {
+                    if (model.getFocusCount() >= PlotConfig.MAX_FOCI) {
+                        return;
+                    }
                     final Viewport viewport = model.getViewport();
                     final int index = model.addFocus(new Focus(
                             viewport.worldX(event.getX(), canvas.getWidth()),
@@ -375,6 +386,7 @@ public final class PlotController implements AutoCloseable {
         view.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(final WindowEvent event) {
+                commitPendingEdits();
                 saveLastSession();
                 close();
             }
@@ -391,6 +403,9 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void saveSetup() {
+        if (!commitPendingEdits()) {
+            return;
+        }
         final JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Save plot setup");
         chooser.setSelectedFile(new File("nlipse-setup.properties"));
@@ -406,6 +421,9 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void loadSetup() {
+        if (!commitPendingEdits()) {
+            return;
+        }
         final JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Load plot setup");
         if (chooser.showOpenDialog(view) != JFileChooser.APPROVE_OPTION) {
@@ -431,7 +449,7 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void exportImage() {
-        final BufferedImage image = view.getCanvas().image();
+        final BufferedImage image = view.getCanvas().snapshotImage();
         if (image == null) {
             JOptionPane.showMessageDialog(view, "Nothing has been rendered yet.", "Export PNG",
                     JOptionPane.INFORMATION_MESSAGE);
@@ -448,9 +466,12 @@ public final class PlotController implements AutoCloseable {
             target = new File(target.getParentFile(), target.getName() + ".png");
         }
         try {
-            if (!ImageIO.write(image, "png", target)) {
-                throw new IOException("no PNG writer is installed");
-            }
+            final Path targetPath = target.toPath();
+            AtomicFiles.replace(targetPath, temporary -> {
+                if (!ImageIO.write(image, "png", temporary.toFile())) {
+                    throw new IOException("no PNG writer is installed");
+                }
+            });
         } catch (final IOException failed) {
             JOptionPane.showMessageDialog(view, failed.getMessage(), "Export failed",
                     JOptionPane.ERROR_MESSAGE);
@@ -458,6 +479,9 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void exportSvg() {
+        if (!commitPendingEdits()) {
+            return;
+        }
         final PlotCanvas canvas = view.getCanvas();
         final int width = canvas.getWidth();
         final int height = canvas.getHeight();
@@ -477,8 +501,12 @@ public final class PlotController implements AutoCloseable {
             target = new File(target.getParentFile(), target.getName() + ".svg");
         }
         try {
-            final String svg = SvgPlotWriter.write(model.snapshot(), width, height);
-            Files.writeString(target.toPath(), svg, StandardCharsets.UTF_8);
+            final RenderResult completed = renderer.render(
+                    new RenderRequest(model.snapshot(), width, height, RenderQuality.FULL),
+                    CancellationToken.NONE);
+            final String svg = SvgPlotWriter.write(completed.renderPackage().orElseThrow(
+                    () -> new IllegalStateException("Renderer did not produce an export package")));
+            AtomicFiles.writeString(target.toPath(), svg, StandardCharsets.UTF_8);
         } catch (final IOException | RuntimeException failed) {
             final String message = failed.getMessage() == null
                     ? failed.getClass().getSimpleName() : failed.getMessage();
@@ -512,7 +540,12 @@ public final class PlotController implements AutoCloseable {
             return;
         }
         final Focus focus = model.getFocus(selected);
-        model.setFocusPosition(selected, focus.x() + dx, focus.y() + dy);
+        final double newX = focus.x() + dx;
+        final double newY = focus.y() + dy;
+        if (!Double.isFinite(newX) || !Double.isFinite(newY)) {
+            return;
+        }
+        model.setFocusPosition(selected, newX, newY);
         refreshCursorField();
         syncFocusRow(selected);
         markRangeAdjustment(RangeAdjustment.CLAMP);
@@ -525,6 +558,9 @@ public final class PlotController implements AutoCloseable {
             return;
         }
         final double scale = Math.pow(ZOOM_STEP, -event.getPreciseWheelRotation());
+        if (!Double.isFinite(scale) || scale <= 0) {
+            return;
+        }
         model.setViewport(model.getViewport().zoomAtPixel(event.getX(), event.getY(),
                 canvas.getWidth(), canvas.getHeight(), scale));
         markRangeAdjustment(RangeAdjustment.CLAMP);
@@ -571,6 +607,16 @@ public final class PlotController implements AutoCloseable {
         requestFullRender();
     }
 
+    private boolean commitPendingEdits() {
+        if (view.getFocusTable().isEditing()
+                && !view.getFocusTable().getCellEditor().stopCellEditing()) {
+            return false;
+        }
+        applyFamilyParameter();
+        applyCurveCount();
+        return true;
+    }
+
     private void applyFamilyParameter() {
         final CurveType type = model.getCurveType();
         if (!type.usesParameter()) {
@@ -597,8 +643,12 @@ public final class PlotController implements AutoCloseable {
     private void applyCurveCount() {
         try {
             final int count = Integer.parseInt(view.getCurveCount().getText().trim());
-            model.setCurveCount(count);
-            requestFullRender();
+            if (count != model.getCurveCount()) {
+                model.setCurveCount(count);
+                requestFullRender();
+            } else {
+                view.getCurveCount().setText(Integer.toString(count));
+            }
         } catch (final IllegalArgumentException exception) {
             view.getCurveCount().setText(Integer.toString(model.getCurveCount()));
         }

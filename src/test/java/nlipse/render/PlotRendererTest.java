@@ -241,6 +241,10 @@ class PlotRendererTest {
             assertTrue(subsampled[index] > subsampled[index - 1]);
         }
         assertEquals(0, PlotRenderer.legendLevelIndices(0).length);
+        assertArrayEquals(new int[]{0, 50, 100, 149, 199},
+                PlotRenderer.legendLevelIndices(200, 5));
+        assertArrayEquals(new int[]{199}, PlotRenderer.legendLevelIndices(200, 1));
+        assertEquals(0, PlotRenderer.legendLevelIndices(10, 0).length);
     }
 
     @Test

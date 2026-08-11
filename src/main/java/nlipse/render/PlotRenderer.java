@@ -84,16 +84,27 @@ public final class PlotRenderer implements RenderEngine {
         final RenderArtifacts cachedFull = request.quality() == RenderQuality.PREVIEW
                 ? fullQualityArtifacts(request) : null;
         final FieldGrid grid;
-        final BufferedImage staticLayer;
+        final ContourGeometry contours;
+        final double[] levels;
+        final BufferedImage cachedLayer;
         if (cachedFull != null) {
             grid = cachedFull.grid();
-            staticLayer = cachedFull.layer();
+            contours = cachedFull.contours();
+            levels = cachedFull.levels();
+            cachedLayer = cachedFull.layer();
         } else {
             final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci(),
                     snapshot.familyParameter());
             grid = getGrid(request, field, token);
-            staticLayer = getStaticLayer(request, grid, field, token);
+            levels = contourLevels(snapshot, grid);
+            contours = getContourGeometry(request, grid, field, levels, token);
+            cachedLayer = null;
         }
+        final RenderPackage completed = new RenderPackage(snapshot,
+                request.width(), request.height(), request.quality(), levels,
+                levelColors(levels.length), grid.getExtrema(), contours);
+        final BufferedImage staticLayer = cachedLayer != null
+                ? cachedLayer : getStaticLayer(request, grid, completed, token);
         token.throwIfCancelled();
 
         final BufferedImage image = copyImage(staticLayer);
@@ -104,15 +115,15 @@ public final class PlotRenderer implements RenderEngine {
                             : RenderingHints.VALUE_ANTIALIAS_OFF);
             drawFoci(graphics, request);
             if (snapshot.showExtrema()) {
-                grid.getExtrema().ifPresent(extrema -> {
+                completed.extrema().ifPresent(extrema -> {
                     drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
                             extrema.minimumPoint(), MIN_COLOR, 7);
                     drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
                             extrema.maximumPoint(), MAX_COLOR, 7);
                 });
             }
-            if (snapshot.showLegend() && grid.getExtrema().isPresent()) {
-                drawLegend(graphics, snapshot, request.width());
+            if (snapshot.showLegend() && completed.levelCount() > 0) {
+                drawLegend(graphics, completed);
             }
             graphics.setColor(Color.BLACK);
             graphics.setStroke(new BasicStroke(1f));
@@ -122,8 +133,22 @@ public final class PlotRenderer implements RenderEngine {
         }
 
         token.throwIfCancelled();
-        return new RenderResult(image, request.sequence(), request.quality(), grid.getExtrema(),
-                System.nanoTime() - started);
+        return new RenderResult(image, request.sequence(), request.quality(), completed.extrema(),
+                System.nanoTime() - started, completed);
+    }
+
+    private static double[] contourLevels(final PlotSnapshot snapshot, final FieldGrid grid) {
+        return grid.getExtrema().isEmpty() ? new double[0]
+                : levels(snapshot.distanceMin(), snapshot.distanceMax(),
+                        snapshot.curveCount(), snapshot.logSpacing());
+    }
+
+    private static Color[] levelColors(final int count) {
+        final Color[] colors = new Color[count];
+        for (int index = 0; index < count; index++) {
+            colors[index] = curveColor(index, count);
+        }
+        return colors;
     }
 
     private RenderArtifacts fullQualityArtifacts(final RenderRequest request) {
@@ -135,6 +160,14 @@ public final class PlotRenderer implements RenderEngine {
         if (grid == null) {
             return null;
         }
+        final double[] levels = contourLevels(request.snapshot(), grid);
+        final ContourGeometry contours;
+        synchronized (contourCache) {
+            contours = contourCache.get(ContourKey.from(fullFieldKey, levels));
+        }
+        if (contours == null) {
+            return null;
+        }
         final LayerKey fullLayerKey = LayerKey.from(request).asFullQuality();
         final BufferedImage layer;
         synchronized (layerCache) {
@@ -144,9 +177,10 @@ public final class PlotRenderer implements RenderEngine {
             return null;
         }
         cacheHits.incrementAndGet();
+        contourCacheHits.incrementAndGet();
         layerCacheHits.incrementAndGet();
         fullQualityPreviewHits.incrementAndGet();
-        return new RenderArtifacts(grid, layer);
+        return new RenderArtifacts(grid, layer, contours, levels);
     }
 
     private FieldGrid getGrid(final RenderRequest request, final DistanceField field,
@@ -205,7 +239,7 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private BufferedImage getStaticLayer(final RenderRequest request, final FieldGrid grid,
-            final DistanceField field, final CancellationToken token) {
+            final RenderPackage completed, final CancellationToken token) {
         final LayerKey key = LayerKey.from(request);
         synchronized (layerCache) {
             final BufferedImage cached = layerCache.get(key);
@@ -216,7 +250,7 @@ public final class PlotRenderer implements RenderEngine {
         }
 
         layerCacheMisses.incrementAndGet();
-        final BufferedImage rendered = renderStaticLayer(request, grid, field, token);
+        final BufferedImage rendered = renderStaticLayer(request, grid, completed, token);
         final long bytes = imageBytes(rendered);
         if (bytes > layerBudgetBytes) {
             return rendered;
@@ -235,7 +269,7 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private BufferedImage renderStaticLayer(final RenderRequest request,
-            final FieldGrid grid, final DistanceField field, final CancellationToken token) {
+            final FieldGrid grid, final RenderPackage completed, final CancellationToken token) {
         final PlotSnapshot snapshot = request.snapshot();
         final BufferedImage image = new BufferedImage(request.width(), request.height(),
                 BufferedImage.TYPE_INT_ARGB);
@@ -252,10 +286,7 @@ public final class PlotRenderer implements RenderEngine {
                 drawBackground(image, graphics, grid, token);
             }
             drawAxes(graphics, snapshot.viewport(), request.width(), request.height());
-            final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
-                    snapshot.curveCount(), snapshot.logSpacing());
-            final ContourGeometry contours = getContourGeometry(request, grid, field, levels, token);
-            drawContours(graphics, request, contours, token);
+            drawContours(graphics, request, completed, token);
         } finally {
             graphics.dispose();
         }
@@ -365,17 +396,73 @@ public final class PlotRenderer implements RenderEngine {
             fillBackgroundPixels(pixels, grid, token);
             return;
         }
-        final BufferedImage sampled = new BufferedImage(grid.getColumns(), grid.getRows(),
-                BufferedImage.TYPE_INT_RGB);
-        final int[] pixels = ((DataBufferInt) sampled.getRaster().getDataBuffer()).getData();
-        fillBackgroundPixels(pixels, grid, token);
-        final Object oldInterpolation = graphics.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
-        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        graphics.drawImage(sampled, 0, 0, grid.getPixelWidth(), grid.getPixelHeight(), null);
-        if (oldInterpolation != null) {
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
+        final int[] sampledPixels = new int[grid.getColumns() * grid.getRows()];
+        fillBackgroundPixels(sampledPixels, grid, token);
+        final int[] targetPixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        fillInterpolatedBackground(targetPixels, image.getWidth(), image.getHeight(),
+                sampledPixels, grid, token);
+    }
+
+
+    private static void fillInterpolatedBackground(final int[] targetPixels,
+            final int width, final int height, final int[] sampledPixels,
+            final FieldGrid grid, final CancellationToken token) {
+        int lowerRow = 0;
+        for (int y = 0; y < height; y++) {
+            if ((y & 15) == 0) {
+                token.throwIfCancelled();
+            }
+            while (lowerRow + 1 < grid.getRows() - 1
+                    && y > grid.getPixelY(lowerRow + 1)) {
+                lowerRow++;
+            }
+            final int upperRow = Math.min(lowerRow + 1, grid.getRows() - 1);
+            final int y0 = grid.getPixelY(lowerRow);
+            final int y1 = grid.getPixelY(upperRow);
+            final double vertical = y1 == y0 ? 0 : (y - y0) / (double) (y1 - y0);
+            int lowerColumn = 0;
+            final int targetOffset = y * width;
+            for (int x = 0; x < width; x++) {
+                while (lowerColumn + 1 < grid.getColumns() - 1
+                        && x > grid.getPixelX(lowerColumn + 1)) {
+                    lowerColumn++;
+                }
+                final int upperColumn = Math.min(lowerColumn + 1, grid.getColumns() - 1);
+                final int x0 = grid.getPixelX(lowerColumn);
+                final int x1 = grid.getPixelX(upperColumn);
+                final double horizontal = x1 == x0 ? 0 : (x - x0) / (double) (x1 - x0);
+                final int topOffset = lowerRow * grid.getColumns();
+                final int bottomOffset = upperRow * grid.getColumns();
+                targetPixels[targetOffset + x] = interpolateColor(
+                        sampledPixels[topOffset + lowerColumn],
+                        sampledPixels[topOffset + upperColumn],
+                        sampledPixels[bottomOffset + lowerColumn],
+                        sampledPixels[bottomOffset + upperColumn],
+                        horizontal, vertical);
+            }
         }
+    }
+
+    private static int interpolateColor(final int topLeft, final int topRight,
+            final int bottomLeft, final int bottomRight,
+            final double horizontal, final double vertical) {
+        final int red = bilinearChannel(topLeft >>> 16, topRight >>> 16,
+                bottomLeft >>> 16, bottomRight >>> 16, horizontal, vertical);
+        final int green = bilinearChannel(topLeft >>> 8, topRight >>> 8,
+                bottomLeft >>> 8, bottomRight >>> 8, horizontal, vertical);
+        final int blue = bilinearChannel(topLeft, topRight, bottomLeft, bottomRight,
+                horizontal, vertical);
+        return 0xFF000000 | red << 16 | green << 8 | blue;
+    }
+
+    private static int bilinearChannel(final int topLeft, final int topRight,
+            final int bottomLeft, final int bottomRight,
+            final double horizontal, final double vertical) {
+        final double top = (topLeft & 0xFF) * (1 - horizontal)
+                + (topRight & 0xFF) * horizontal;
+        final double bottom = (bottomLeft & 0xFF) * (1 - horizontal)
+                + (bottomRight & 0xFF) * horizontal;
+        return Math.clamp((int) Math.round(top * (1 - vertical) + bottom * vertical), 0, 255);
     }
 
     private static void fillBackgroundPixels(final int[] pixels, final FieldGrid grid,
@@ -433,13 +520,13 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private static void drawContours(final Graphics2D graphics, final RenderRequest request,
-            final ContourGeometry contours, final CancellationToken token) {
+            final RenderPackage completed, final CancellationToken token) {
         graphics.setStroke(new BasicStroke(request.quality() == RenderQuality.FULL ? 1.25f : 1f,
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        for (int index = 0; index < contours.levelCount(); index++) {
+        for (int index = 0; index < completed.levelCount(); index++) {
             token.throwIfCancelled();
-            graphics.setColor(curveColor(index, contours.levelCount()));
-            graphics.draw(contours.path(index, request.snapshot().viewport(),
+            graphics.setColor(completed.levelColor(index));
+            graphics.draw(completed.contours().path(index, request.snapshot().viewport(),
                     request.width(), request.height(), token));
         }
     }
@@ -503,12 +590,17 @@ public final class PlotRenderer implements RenderEngine {
     /** Level indices shown in the legend: every level up to the cap, then an
      *  even subsample that always keeps both endpoints. */
     static int[] legendLevelIndices(final int levelCount) {
-        final int rows = Math.min(levelCount, LEGEND_MAX_ROWS);
+        return legendLevelIndices(levelCount, LEGEND_MAX_ROWS);
+    }
+
+    static int[] legendLevelIndices(final int levelCount, final int maximumRows) {
+        final int rows = Math.min(levelCount, Math.clamp(maximumRows, 0, LEGEND_MAX_ROWS));
         if (rows <= 0) {
             return new int[0];
         }
         final int[] indices = new int[rows];
         if (rows == 1) {
+            indices[0] = levelCount - 1;
             return indices;
         }
         for (int row = 0; row < rows; row++) {
@@ -521,23 +613,27 @@ public final class PlotRenderer implements RenderEngine {
         return String.format(Locale.ROOT, "%.4g", level);
     }
 
-    private static void drawLegend(final Graphics2D graphics, final PlotSnapshot snapshot,
-            final int width) {
-        final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
-                snapshot.curveCount(), snapshot.logSpacing());
-        final int[] indices = legendLevelIndices(levels.length);
+    private static void drawLegend(final Graphics2D graphics, final RenderPackage completed) {
+        final FontMetrics metrics = graphics.getFontMetrics();
+        final int rowHeight = metrics.getHeight() + 2;
+        final int availableRows = Math.max(0,
+                (completed.height() - 2 * LEGEND_MARGIN - 2 * LEGEND_PADDING + 2) / rowHeight);
+        final int[] indices = legendLevelIndices(completed.levelCount(), availableRows);
         if (indices.length == 0) {
             return;
         }
-        final FontMetrics metrics = graphics.getFontMetrics();
-        final int rowHeight = metrics.getHeight() + 2;
         int textWidth = 0;
         for (final int index : indices) {
-            textWidth = Math.max(textWidth, metrics.stringWidth(formatLevel(levels[index])));
+            textWidth = Math.max(textWidth,
+                    metrics.stringWidth(formatLevel(completed.level(index))));
         }
         final int boxWidth = LEGEND_PADDING * 2 + LEGEND_SWATCH_WIDTH + LEGEND_GAP + textWidth;
         final int boxHeight = LEGEND_PADDING * 2 + rowHeight * indices.length - 2;
-        final int left = width - boxWidth - LEGEND_MARGIN;
+        if (boxWidth > completed.width() - 2 * LEGEND_MARGIN
+                || boxHeight > completed.height() - 2 * LEGEND_MARGIN) {
+            return;
+        }
+        final int left = completed.width() - boxWidth - LEGEND_MARGIN;
         final int top = LEGEND_MARGIN;
 
         graphics.setColor(LEGEND_BACKGROUND);
@@ -554,10 +650,10 @@ public final class PlotRenderer implements RenderEngine {
             final int levelIndex = indices[indices.length - 1 - row];
             final int rowTop = top + LEGEND_PADDING + row * rowHeight;
             final int swatchY = rowTop + rowHeight / 2 - 1;
-            graphics.setColor(curveColor(levelIndex, levels.length));
+            graphics.setColor(completed.levelColor(levelIndex));
             graphics.drawLine(swatchLeft, swatchY, swatchLeft + LEGEND_SWATCH_WIDTH, swatchY);
             graphics.setColor(Color.BLACK);
-            graphics.drawString(formatLevel(levels[levelIndex]), textLeft,
+            graphics.drawString(formatLevel(completed.level(levelIndex)), textLeft,
                     rowTop + metrics.getAscent());
         }
     }
@@ -655,11 +751,15 @@ public final class PlotRenderer implements RenderEngine {
         }
 
         static ContourKey from(final RenderRequest request, final double[] levels) {
+            return from(FieldKey.from(request), levels);
+        }
+
+        static ContourKey from(final FieldKey fieldKey, final double[] levels) {
             final List<Long> bits = new ArrayList<>(levels.length);
             for (final double level : levels) {
                 bits.add(Double.doubleToLongBits(level));
             }
-            return new ContourKey(FieldKey.from(request), bits);
+            return new ContourKey(fieldKey, bits);
         }
     }
 
@@ -686,7 +786,16 @@ public final class PlotRenderer implements RenderEngine {
         }
     }
 
-    private record RenderArtifacts(FieldGrid grid, BufferedImage layer) {
+    private record RenderArtifacts(FieldGrid grid, BufferedImage layer,
+            ContourGeometry contours, double[] levels) {
+        RenderArtifacts {
+            levels = levels.clone();
+        }
+
+        @Override
+        public double[] levels() {
+            return levels.clone();
+        }
     }
 
 }

@@ -30,7 +30,7 @@ class DistanceFieldsTest {
     }
 
     @Test
-    void ellipsePreservesSignedInfinityAndRejectsOppositeInfinities() {
+    void ellipseDistinguishesTrueOverflowFromFiniteCancellation() {
         final Focus farPositive = new Focus(Double.MAX_VALUE, 0, 2);
         final Focus farNegative = new Focus(Double.MAX_VALUE, 0, -2);
 
@@ -38,8 +38,41 @@ class DistanceFieldsTest {
                 DistanceFields.create(CurveType.LIPSE, List.of(farPositive)).value(0, 0));
         assertEquals(Double.NEGATIVE_INFINITY,
                 DistanceFields.create(CurveType.LIPSE, List.of(farNegative)).value(0, 0));
+        assertEquals(0, DistanceFields.create(CurveType.LIPSE,
+                List.of(farPositive, farNegative)).value(0, 0), 0);
         assertTrue(Double.isNaN(DistanceFields.create(CurveType.LIPSE,
-                List.of(farPositive, farNegative)).value(0, 0)));
+                List.of(new Focus(0, 0, 1), new Focus(0, 0, -1)))
+                .value(Double.POSITIVE_INFINITY, 0)));
+    }
+
+    @Test
+    void ellipseRecoversFiniteResidualWhenBothProductsOverflow() {
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE, List.of(
+                new Focus(0, 0, 2),
+                new Focus(Double.MIN_VALUE, 0, -2)));
+
+        assertEquals(2 * Double.MIN_VALUE, field.value(Double.MAX_VALUE, 0), 0);
+    }
+
+    @Test
+    void exactFallbackDoesNotLoseATinyTermAddedBeforeHugeCancellation() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE, List.of(
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(maximum, 0, maximum / 2),
+                new Focus(maximum, 0, maximum / 2),
+                new Focus(maximum, 0, -maximum)));
+
+        assertEquals(Double.MIN_VALUE, field.value(0, 0), 0);
+    }
+
+    @Test
+    void ellipseCanSubtractAFiniteTermFromAnOverflowingTerm() {
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE, List.of(
+                new Focus(0, 0, 2),
+                new Focus(0, 0, -1)));
+
+        assertEquals(Double.MAX_VALUE, field.value(Double.MAX_VALUE, 0), 0);
     }
 
     @Test
@@ -67,6 +100,16 @@ class DistanceFieldsTest {
                 new Focus(0, 0, 1)));
 
         assertEquals(Math.E, field.value(Math.E, 0), 1e-14);
+    }
+
+
+    @Test
+    void cassiniRetainsTermsThatUnderflowOnlyAfterWeightNormalization() {
+        final DistanceField field = DistanceFields.create(CurveType.CASSIN, List.of(
+                new Focus(1, 0, Double.MAX_VALUE),
+                new Focus(Math.nextUp(1.0), 0, 1)));
+
+        assertEquals(Math.nextUp(1.0), field.value(0, 0), 0);
     }
 
     @Test
@@ -127,6 +170,20 @@ class DistanceFieldsTest {
         final double value = field.value(0, 0);
         assertTrue(Double.isFinite(value));
         assertEquals(4.0 / 3.0, value / coordinate, 1e-12);
+    }
+
+
+    @Test
+    void hyperbolaIgnoresUnusedCapacityInTheSharedScratchBuffer() {
+        final DistanceField larger = DistanceFields.create(CurveType.HYPERB, List.of(
+                new Focus(1, 0, 1), new Focus(2, 0, 1),
+                new Focus(3, 0, 1), new Focus(4, 0, 1)));
+        larger.value(0, 0);
+        final DistanceField smaller = DistanceFields.create(CurveType.HYPERB, List.of(
+                new Focus(1e95, 0, 1e-315),
+                new Focus(0, 0, 1e13)));
+
+        assertEquals(1e13, smaller.value(1, 0), 1e-15);
     }
 
     @Test
@@ -201,6 +258,17 @@ class DistanceFieldsTest {
         assertEquals(0, field.value(2, 0), 0);
     }
 
+
+    @Test
+    void potentialRetainsAWeightThatUnderflowsDuringNormalization() {
+        final DistanceField field = DistanceFields.create(CurveType.POTENTIAL, List.of(
+                new Focus(100, 0, Double.MAX_VALUE),
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(100, 0, -Double.MAX_VALUE)));
+
+        assertEquals(Double.MIN_VALUE, field.value(0, 0), 0);
+    }
+
     @Test
     void potentialPreservesSignedSingularities() {
         final DistanceField positive = DistanceFields.create(CurveType.POTENTIAL,
@@ -270,7 +338,7 @@ class DistanceFieldsTest {
                 new Focus(2, 0, 1), new Focus(Double.MAX_VALUE, 0, 2));
         assertEquals(4, DistanceFields.create(CurveType.POWER_MEAN, withInfinity, -1)
                 .value(0, 0), 1e-12);
-        assertEquals(Double.POSITIVE_INFINITY,
+        assertEquals(Double.MAX_VALUE,
                 DistanceFields.create(CurveType.POWER_MEAN, withInfinity, 1)
                         .value(0, 0));
     }
@@ -352,6 +420,17 @@ class DistanceFieldsTest {
                 .value(0, 0), 0);
     }
 
+
+    @Test
+    void arithmeticPowerMeanCanBeFiniteWhenEveryTermOverflows() {
+        final double coordinate = Double.MAX_VALUE * 0.75;
+        final DistanceField field = DistanceFields.create(CurveType.POWER_MEAN, List.of(
+                new Focus(coordinate, 0, 2),
+                new Focus(coordinate, 0, 2)), 1);
+
+        assertEquals(coordinate * 2, field.value(0, 0), 0);
+    }
+
     @Test
     void powerMeansAreMonotoneInPForPositiveFiniteInputs() {
         final List<Focus> foci = List.of(
@@ -399,6 +478,67 @@ class DistanceFieldsTest {
                 List.of(new Focus(0, 0, 0)), 1).value(0, 0), 0);
     }
 
+
+
+
+    @Test
+    void gaussianRetainsAWeightThatUnderflowsDuringNormalization() {
+        final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN, List.of(
+                new Focus(100, 0, Double.MAX_VALUE),
+                new Focus(0, 0, Double.MIN_VALUE)), 1);
+
+        assertEquals(Double.MIN_VALUE, field.value(0, 0), 0);
+    }
+
+    @Test
+    void gaussianRecoversARepresentableTermLostByWeightNormalization() {
+        final double expected = Math.exp(-0.5 * 38 * 38);
+        final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN, List.of(
+                new Focus(100, 0, Double.MAX_VALUE),
+                new Focus(38, 0, 1)), 1);
+
+        assertEquals(expected, field.value(0, 0), 0);
+    }
+
+    @Test
+    void gaussianPreservesRepresentableSubnormalTails() {
+        final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(0, 0, 1)), 1);
+        final double expected = Math.exp(-0.5 * 38 * 38);
+
+        assertTrue(expected > 0);
+        assertEquals(expected, field.value(38, 0), 0);
+    }
+
+    @Test
+    void exactRadialFallbacksIgnoreUnusedSharedScratchCapacity() {
+        final List<Focus> many = IntStream.range(0, 64)
+                .mapToObj(index -> new Focus(index + 1, index % 3, index + 0.5))
+                .toList();
+        DistanceFields.create(CurveType.POWER_MEAN, many, 0.5).value(0, 0);
+
+        final DistanceField cassini = DistanceFields.create(CurveType.CASSIN, List.of(
+                new Focus(1, 0, Double.MAX_VALUE),
+                new Focus(Math.nextUp(1.0), 0, 1)));
+        assertEquals(Math.nextUp(1.0), cassini.value(0, 0), 0);
+
+        final DistanceField gaussian = DistanceFields.create(CurveType.GAUSSIAN, List.of(
+                new Focus(0, 0, Double.MAX_VALUE),
+                new Focus(0, 0, -Double.MAX_VALUE),
+                new Focus(0, 0, Double.MIN_VALUE)), 1);
+        assertEquals(Double.MIN_VALUE, gaussian.value(0, 0), 0);
+    }
+
+    @Test
+    void gaussianAmplitudeCanRescueAnUnderflowedKernel() {
+        final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(40, 0, Double.MAX_VALUE)), 1);
+        final double expected = Math.exp(Math.log(Double.MAX_VALUE) - 800);
+
+        assertTrue(expected > 0);
+        assertEquals(expected, field.value(0, 0), Math.ulp(expected));
+    }
+
     @Test
     void magnitudeFamiliesPropagateUndefinedCoordinatesInsteadOfTreatingThemAsDisabled() {
         final List<Focus> foci = List.of(new Focus(0, 0, 1));
@@ -408,6 +548,129 @@ class DistanceFieldsTest {
             assertTrue(Double.isNaN(DistanceFields.create(type, foci).value(Double.NaN, 0)),
                     type.name());
         }
+    }
+
+
+    @Test
+    void finiteCoordinateOverflowCanBeRescaledBackIntoRange() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE,
+                List.of(new Focus(-maximum, 0, 0.5)));
+
+        assertEquals(maximum, field.value(maximum, 0), 0);
+    }
+
+    @Test
+    void exactFallbackPreservesMinimumSubnormalDistanceResiduals() {
+        final double maximum = Double.MAX_VALUE;
+        final double minimum = Double.MIN_VALUE;
+        final List<Focus> unsigned = List.of(
+                new Focus(0, 0, 1), new Focus(minimum, 0, 1));
+        final List<Focus> signed = List.of(
+                new Focus(0, 0, 1), new Focus(minimum, 0, -1));
+
+        assertEquals(minimum,
+                DistanceFields.create(CurveType.LIPSE, signed).value(maximum, 0), 0);
+        assertEquals(minimum,
+                DistanceFields.create(CurveType.RANGE, unsigned).value(maximum, 0), 0);
+        assertEquals(minimum,
+                DistanceFields.create(CurveType.HYPERB, unsigned).value(maximum, 0), 0);
+    }
+
+    @Test
+    void cassiniUsesExtendedRangeDistancesInFiniteRatios() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.CASSIN, List.of(
+                new Focus(-maximum, 0, 1), new Focus(0, 0, -1)));
+
+        assertEquals(2, field.value(maximum, 0), 2e-12);
+    }
+
+    @Test
+    void potentialUsesExtendedRangeDistanceRatios() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.POTENTIAL,
+                List.of(new Focus(-maximum, 0, maximum)));
+
+        assertEquals(0.5, field.value(maximum, 0), 0);
+    }
+
+    @Test
+    void gaussianUsesDistanceToWidthRatioBeforeOverflow() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(-maximum, 0, 1)), maximum);
+
+        assertEquals(Math.exp(-2), field.value(maximum, 0), 2e-15);
+    }
+
+    @Test
+    void smoothEnvelopesConvergeToTheArithmeticMeanAtHugeTemperature() {
+        final List<Focus> foci = List.of(new Focus(2, 0, 1), new Focus(10, 0, 1));
+        final double expected = 6;
+
+        assertEquals(expected,
+                DistanceFields.create(CurveType.SMOOTH_NEAREST, foci, 1e200).value(0, 0),
+                1e-12);
+        assertEquals(expected,
+                DistanceFields.create(CurveType.SMOOTH_FARTHEST, foci, 1e200).value(0, 0),
+                1e-12);
+    }
+
+    @Test
+    void smoothEnvelopesUseFiniteExtremaWhenAllDistanceRatiosOverflow() {
+        final List<Focus> foci = List.of(
+                new Focus(10, 0, 1),
+                new Focus(2, 0, 1));
+
+        assertEquals(2, DistanceFields.create(
+                CurveType.SMOOTH_NEAREST, foci, Double.MIN_VALUE).value(0, 0), 0);
+        assertEquals(10, DistanceFields.create(
+                CurveType.SMOOTH_FARTHEST, foci, Double.MIN_VALUE).value(0, 0), 0);
+    }
+
+    @Test
+    void smoothEnvelopesDoNotUseTheFirstValueWhenHugeTemperatureRatiosCollapse() {
+        final List<Focus> foci = List.of(
+                new Focus(Math.nextUp(1.0), 0, 1),
+                new Focus(1, 0, 1));
+
+        assertEquals(1, DistanceFields.create(
+                CurveType.SMOOTH_NEAREST, foci, Double.MAX_VALUE).value(0, 0), 0);
+        // The arithmetic mean is exactly the tie between 1 and nextUp(1). At every finite
+        // temperature smooth-max remains strictly above that mean, so ties-to-even does not
+        // apply and the correctly rounded value is the upper neighbour.
+        assertEquals(Math.nextUp(1.0), DistanceFields.create(
+                CurveType.SMOOTH_FARTHEST, foci, Double.MAX_VALUE).value(0, 0), 0);
+    }
+
+    @Test
+    void adaptiveFallbackRaisesPrecisionUntilATinyResidualIsRoundable() {
+        AdaptiveDecimal.resetStatistics();
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE, List.of(
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(maximum, 0, maximum / 2),
+                new Focus(maximum, 0, maximum / 2),
+                new Focus(maximum, 0, -maximum)));
+
+        assertEquals(Double.MIN_VALUE, field.value(0, 0), 0);
+        final AdaptiveDecimal.Statistics statistics = AdaptiveDecimal.statistics();
+        assertEquals(1, statistics.evaluations());
+        assertTrue(statistics.rounds() > 2);
+        assertTrue(statistics.peakPrecision() > 640);
+        assertTrue(statistics.peakPrecision() <= AdaptiveDecimal.MAXIMUM_PRECISION);
+    }
+
+    @Test
+    void exactFocusCoordinatesAreConvertedOnlyOncePerField() {
+        final FocusSet foci = FocusSet.from(List.of(
+                new Focus(Double.MAX_VALUE, Double.MIN_VALUE, -2),
+                new Focus(-1, 3, 0)));
+
+        assertTrue(foci.exactData() == foci.exactData());
+        assertEquals(new java.math.BigDecimal(Double.MAX_VALUE), foci.exactData().x(0));
+        assertEquals(new java.math.BigDecimal(Double.MIN_VALUE), foci.exactData().y(0));
     }
 
 }

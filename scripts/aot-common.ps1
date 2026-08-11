@@ -29,7 +29,18 @@ function Write-AotMetadata {
   )
 
   $lines = Get-AotMetadataLines -JarPath $JarPath
-  [IO.File]::WriteAllLines($MetadataPath, $lines, [Text.Encoding]::ASCII)
+  $fullPath = [IO.Path]::GetFullPath($MetadataPath)
+  $directory = [IO.Path]::GetDirectoryName($fullPath)
+  $temporary = [IO.Path]::Combine($directory,
+    "." + [IO.Path]::GetFileName($fullPath) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
+  try {
+    [IO.File]::WriteAllLines($temporary, $lines, [Text.Encoding]::ASCII)
+    [IO.File]::Move($temporary, $fullPath, $true)
+  } finally {
+    if ([IO.File]::Exists($temporary)) {
+      [IO.File]::Delete($temporary)
+    }
+  }
 }
 
 function Test-AotMetadata {

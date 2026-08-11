@@ -66,4 +66,21 @@ class PlotModelTest {
         assertThrows(IllegalArgumentException.class, () -> model.setFamilyParameter(0));
     }
 
+
+    @Test
+    void modelEnforcesTheSharedFocusLimit() {
+        final java.util.List<Focus> foci = java.util.stream.IntStream
+                .range(0, PlotConfig.MAX_FOCI)
+                .mapToObj(index -> new Focus(index, 0, 1))
+                .toList();
+        final PlotConfig config = new PlotConfig(CurveType.LIPSE,
+                CurveType.LIPSE.defaultParameter(), foci,
+                0, 1, 1, new nlipse.render.Viewport(-1, 1, -1, 1),
+                true, true, true, false, true);
+        final PlotModel model = new PlotModel(config);
+
+        assertThrows(IllegalStateException.class,
+                () -> model.addFocus(new Focus(0, 0, 1)));
+    }
+
 }

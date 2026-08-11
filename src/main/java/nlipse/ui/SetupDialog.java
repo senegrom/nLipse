@@ -151,7 +151,15 @@ public final class SetupDialog extends JDialog {
         final JPanel focusButtons = rowPanel();
         final JButton add = new JButton("Add");
         final JButton remove = new JButton("Remove selected");
-        add.addActionListener(event -> focusModel.addRow(new Object[]{"0", "0", "1"}));
+        add.addActionListener(event -> {
+            if (focusModel.getRowCount() >= PlotConfig.MAX_FOCI) {
+                JOptionPane.showMessageDialog(this,
+                        "At most " + PlotConfig.MAX_FOCI + " focus points are supported.",
+                        "Focus limit", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            focusModel.addRow(new Object[]{"0", "0", "1"});
+        });
         remove.addActionListener(event -> {
             final int row = focusTable.getSelectedRow();
             if (row >= 0) {
@@ -238,8 +246,8 @@ public final class SetupDialog extends JDialog {
     }
 
     private void accept() {
-        if (focusTable.isEditing()) {
-            focusTable.getCellEditor().stopCellEditing();
+        if (focusTable.isEditing() && !focusTable.getCellEditor().stopCellEditing()) {
+            return;
         }
         try {
             final CurveType selectedType = (CurveType) curveType.getSelectedItem();
@@ -260,7 +268,8 @@ public final class SetupDialog extends JDialog {
                     familyParameter.getText());
             final double parsedDistanceMin = parseFinite(distanceMin.getText(), "Minimum level");
             final double parsedDistanceMax = parseFinite(distanceMax.getText(), "Maximum level");
-            final int parsedCount = parseInteger(curveCount.getText(), "Curve count", 1, 200);
+            final int parsedCount = parseInteger(curveCount.getText(), "Curve count", 1,
+                    PlotConfig.MAX_CURVES);
             final Viewport viewport = new Viewport(
                     parseFinite(xMin.getText(), "X min"),
                     parseFinite(xMax.getText(), "X max"),
