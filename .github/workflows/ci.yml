@@ -39,7 +39,7 @@ jobs:
       - name: Smoke-test JMH harness
         run: >-
           java -jar benchmarks/target/benchmarks.jar
-          -f 1 -wi 0 -i 1 -r 100ms
+          -f 1 -wi 0 -i 1 -r 100ms -foe true
           'nlipse.math.FieldMathBenchmark.ordinaryEllipseBatch'
 
       - name: Check shell launchers
