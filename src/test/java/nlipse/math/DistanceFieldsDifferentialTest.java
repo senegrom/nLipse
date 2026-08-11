@@ -79,7 +79,8 @@ class DistanceFieldsDifferentialTest {
     void inversePotentialRetainsUsefulAccuracyUnderDeliberateCancellation() {
         final Random random = new Random(0x43414e43454c4c45L);
         int completed = 0;
-        while (completed < 256) {
+        int attempts = 0;
+        while (completed < 256 && attempts++ < 10_000) {
             final double firstDistance = positiveFinite(random, -500, 500);
             final double secondDistance = positiveFinite(random, -500, 500);
             final double firstWeight = randomFinite(random, -500, 500, false);
@@ -103,12 +104,14 @@ class DistanceFieldsDifferentialTest {
             if (!Double.isFinite(expected) || expected == 0) {
                 continue;
             }
-            final double tolerance = Math.max(Math.abs(expected) * 1e-8,
-                    1024 * Math.ulp(expected));
+            final double tolerance = cancelledBits >= 24
+                    ? Math.max(8 * Math.ulp(expected), 8 * Double.MIN_VALUE)
+                    : Math.max(Math.abs(expected) * 1e-9, 64 * Math.ulp(expected));
             assertEquals(expected, actual, tolerance,
                     "cancelled bits " + cancelledBits + " sample " + completed);
             completed++;
         }
+        assertEquals(256, completed, "The deterministic cancellation generator stalled");
     }
 
     @Test
@@ -343,7 +346,7 @@ class DistanceFieldsDifferentialTest {
             assertEquals(expected, actual, label);
             return;
         }
-        final double tolerance = Math.max(512 * Math.ulp(expected), 512 * Double.MIN_VALUE);
+        final double tolerance = Math.max(8 * Math.ulp(expected), 8 * Double.MIN_VALUE);
         assertEquals(expected, actual, tolerance, label);
     }
 
