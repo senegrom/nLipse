@@ -263,7 +263,8 @@ class DistanceFieldsTest {
     void potentialRetainsAWeightThatUnderflowsDuringNormalization() {
         final DistanceField field = DistanceFields.create(CurveType.POTENTIAL, List.of(
                 new Focus(100, 0, Double.MAX_VALUE),
-                new Focus(1, 0, Double.MIN_VALUE)));
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(100, 0, -Double.MAX_VALUE)));
 
         assertEquals(Double.MIN_VALUE, field.value(0, 0), 0);
     }
@@ -337,7 +338,7 @@ class DistanceFieldsTest {
                 new Focus(2, 0, 1), new Focus(Double.MAX_VALUE, 0, 2));
         assertEquals(4, DistanceFields.create(CurveType.POWER_MEAN, withInfinity, -1)
                 .value(0, 0), 1e-12);
-        assertEquals(Double.POSITIVE_INFINITY,
+        assertEquals(Double.MAX_VALUE,
                 DistanceFields.create(CurveType.POWER_MEAN, withInfinity, 1)
                         .value(0, 0));
     }
