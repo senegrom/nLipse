@@ -2,13 +2,12 @@ package nlipse.model;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import nlipse.io.AtomicFiles;
 import nlipse.render.Viewport;
 
 /** Saves and loads a complete plot setup as a properties file. */
@@ -52,26 +51,11 @@ public final class PlotConfigIO {
 
     private static void writeAtomically(final Path file, final Properties values)
             throws IOException {
-        final Path absolute = file.toAbsolutePath();
-        final Path parent = absolute.getParent();
-        if (parent == null) {
-            throw new IOException("Setup file has no parent directory: " + file);
-        }
-        final String name = absolute.getFileName().toString();
-        final Path temporary = Files.createTempFile(parent, "." + name + ".", ".tmp");
-        try {
+        AtomicFiles.replace(file, temporary -> {
             try (var writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
                 values.store(writer, "nLipse plot setup");
             }
-            try {
-                Files.move(temporary, absolute, StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-            } catch (final AtomicMoveNotSupportedException unsupported) {
-                Files.move(temporary, absolute, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } finally {
-            Files.deleteIfExists(temporary);
-        }
+        });
     }
 
     /** Load and fully validate a setup; throws with a readable message on any defect. */

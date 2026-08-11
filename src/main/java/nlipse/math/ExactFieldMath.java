@@ -18,32 +18,32 @@ final class ExactFieldMath {
     static double scaledAbsoluteDifference(final double first, final double second,
             final double scale) {
         return exact(first).subtract(exact(second)).abs()
-                .multiply(exact(scale), CONTEXT).doubleValue();
+                .multiply(exact(scale)).doubleValue();
     }
 
     static BigDecimal distance(final FocusSet foci, final int index,
             final double x, final double y) {
         final BigDecimal dx = exact(x).subtract(exact(foci.x(index)));
         final BigDecimal dy = exact(y).subtract(exact(foci.y(index)));
-        return dx.multiply(dx, CONTEXT).add(dy.multiply(dy, CONTEXT), CONTEXT).sqrt(CONTEXT);
+        return dx.multiply(dx).add(dy.multiply(dy)).sqrt(CONTEXT);
     }
 
     static BigDecimal signedDistance(final FocusSet foci, final int index,
             final double x, final double y) {
-        return distance(foci, index, x, y).multiply(exact(foci.weight(index)), CONTEXT);
+        return distance(foci, index, x, y).multiply(exact(foci.weight(index)));
     }
 
     static BigDecimal magnitudeDistance(final FocusSet foci, final int index,
             final double x, final double y) {
         return distance(foci, index, x, y)
-                .multiply(exact(Math.abs(foci.weight(index))), CONTEXT);
+                .multiply(exact(Math.abs(foci.weight(index))));
     }
 
     static double signedDistanceSum(final FocusSet foci, final double x, final double y) {
         BigDecimal sum = BigDecimal.ZERO;
         for (int index = 0; index < foci.size(); index++) {
             if (foci.weight(index) != 0) {
-                sum = sum.add(signedDistance(foci, index, x, y), CONTEXT);
+                sum = sum.add(signedDistance(foci, index, x, y));
             }
         }
         return sum.doubleValue();
@@ -57,7 +57,7 @@ final class ExactFieldMath {
         BigDecimal sum = BigDecimal.ZERO;
         for (int index = 0; index < foci.size(); index++) {
             if (foci.isActive(index)) {
-                sum = sum.add(magnitudeDistance(foci, index, x, y), CONTEXT);
+                sum = sum.add(magnitudeDistance(foci, index, x, y));
             }
         }
         return sum.divide(BigDecimal.valueOf(foci.activeCount()), CONTEXT).doubleValue();
@@ -72,7 +72,7 @@ final class ExactFieldMath {
         for (int index = 0; index < foci.size(); index++) {
             if (foci.isActive(index)) {
                 final BigDecimal value = magnitudeDistance(foci, index, x, y);
-                sumSquares = sumSquares.add(value.multiply(value, CONTEXT), CONTEXT);
+                sumSquares = sumSquares.add(value.multiply(value));
             }
         }
         return sumSquares.divide(BigDecimal.valueOf(foci.activeCount()), CONTEXT)
@@ -91,11 +91,11 @@ final class ExactFieldMath {
         BigDecimal sum = BigDecimal.ZERO;
         for (int index = 0; index < size; index++) {
             for (int previous = 0; previous < index; previous++) {
-                sum = sum.add(values[index].subtract(values[previous]).abs(), CONTEXT);
+                sum = sum.add(values[index].subtract(values[previous]).abs());
             }
         }
         final BigDecimal divisor = BigDecimal.valueOf((long) size * (size - 1));
-        return sum.multiply(TWO, CONTEXT).divide(divisor, CONTEXT).doubleValue();
+        return sum.multiply(TWO).divide(divisor, CONTEXT).doubleValue();
     }
 
     static double range(final FocusSet foci, final double x, final double y) {
@@ -112,7 +112,7 @@ final class ExactFieldMath {
             minimum = minimum == null || value.compareTo(minimum) < 0 ? value : minimum;
             maximum = maximum == null || value.compareTo(maximum) > 0 ? value : maximum;
         }
-        return maximum.subtract(minimum, CONTEXT).doubleValue();
+        return maximum.subtract(minimum).doubleValue();
     }
 
     static double median(final FocusSet foci, final double x, final double y) {
@@ -132,7 +132,7 @@ final class ExactFieldMath {
         if ((count & 1) == 1) {
             return values[upper].doubleValue();
         }
-        return values[upper - 1].add(values[upper], CONTEXT)
+        return values[upper - 1].add(values[upper])
                 .divide(TWO, CONTEXT).doubleValue();
     }
 
@@ -150,7 +150,7 @@ final class ExactFieldMath {
                 positiveInfinity |= weight > 0;
                 negativeInfinity |= weight < 0;
             } else {
-                sum = sum.add(exact(weight).divide(distance, CONTEXT), CONTEXT);
+                sum = sum.add(exact(weight).divide(distance, CONTEXT));
             }
         }
         if (positiveInfinity && negativeInfinity) {
@@ -165,32 +165,41 @@ final class ExactFieldMath {
         return sum.doubleValue();
     }
 
-    static double weightedDoubleSum(final double[] values, final double[] weights) {
+    static double doubleSum(final double[] values, final int length) {
+        requireAtLeast(values, length, "values");
         BigDecimal sum = BigDecimal.ZERO;
-        for (int index = 0; index < values.length; index++) {
-            if (weights[index] != 0 && values[index] != 0) {
-                sum = sum.add(exact(weights[index]).multiply(exact(values[index]), CONTEXT), CONTEXT);
+        for (int index = 0; index < length; index++) {
+            if (values[index] != 0) {
+                sum = sum.add(exact(values[index]));
             }
         }
         return sum.doubleValue();
     }
 
     static double weightedLogSum(final double[] logarithms, final double[] weights) {
+        requireAtLeast(logarithms, weights.length, "logarithms");
         BigDecimal sum = BigDecimal.ZERO;
-        for (int index = 0; index < logarithms.length; index++) {
+        for (int index = 0; index < weights.length; index++) {
             if (weights[index] != 0 && logarithms[index] != 0) {
-                sum = sum.add(exact(weights[index])
-                        .multiply(BigDecimal.valueOf(logarithms[index]), CONTEXT), CONTEXT);
+                sum = sum.add(exact(weights[index]).multiply(exact(logarithms[index])));
             }
         }
         return sum.doubleValue();
     }
 
     static double multiply(final double first, final double second) {
-        return exact(first).multiply(exact(second), CONTEXT).doubleValue();
+        return exact(first).multiply(exact(second)).doubleValue();
     }
 
     private static BigDecimal exact(final double value) {
         return new BigDecimal(value);
+    }
+
+    private static void requireAtLeast(final double[] values, final int minimumLength,
+            final String name) {
+        if (values.length < minimumLength) {
+            throw new IllegalArgumentException(name + " must contain at least "
+                    + minimumLength + " entries");
+        }
     }
 }

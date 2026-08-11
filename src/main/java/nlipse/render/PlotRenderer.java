@@ -112,7 +112,7 @@ public final class PlotRenderer implements RenderEngine {
                 });
             }
             if (snapshot.showLegend() && grid.getExtrema().isPresent()) {
-                drawLegend(graphics, snapshot, request.width());
+                drawLegend(graphics, snapshot, request.width(), request.height());
             }
             graphics.setColor(Color.BLACK);
             graphics.setStroke(new BasicStroke(1f));
@@ -559,12 +559,17 @@ public final class PlotRenderer implements RenderEngine {
     /** Level indices shown in the legend: every level up to the cap, then an
      *  even subsample that always keeps both endpoints. */
     static int[] legendLevelIndices(final int levelCount) {
-        final int rows = Math.min(levelCount, LEGEND_MAX_ROWS);
+        return legendLevelIndices(levelCount, LEGEND_MAX_ROWS);
+    }
+
+    static int[] legendLevelIndices(final int levelCount, final int maximumRows) {
+        final int rows = Math.min(levelCount, Math.clamp(maximumRows, 0, LEGEND_MAX_ROWS));
         if (rows <= 0) {
             return new int[0];
         }
         final int[] indices = new int[rows];
         if (rows == 1) {
+            indices[0] = levelCount - 1;
             return indices;
         }
         for (int row = 0; row < rows; row++) {
@@ -578,21 +583,27 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private static void drawLegend(final Graphics2D graphics, final PlotSnapshot snapshot,
-            final int width) {
+            final int width, final int height) {
         final double[] levels = levels(snapshot.distanceMin(), snapshot.distanceMax(),
                 snapshot.curveCount(), snapshot.logSpacing());
-        final int[] indices = legendLevelIndices(levels.length);
+        final FontMetrics metrics = graphics.getFontMetrics();
+        final int rowHeight = metrics.getHeight() + 2;
+        final int availableRows = Math.max(0,
+                (height - 2 * LEGEND_MARGIN - 2 * LEGEND_PADDING + 2) / rowHeight);
+        final int[] indices = legendLevelIndices(levels.length, availableRows);
         if (indices.length == 0) {
             return;
         }
-        final FontMetrics metrics = graphics.getFontMetrics();
-        final int rowHeight = metrics.getHeight() + 2;
         int textWidth = 0;
         for (final int index : indices) {
             textWidth = Math.max(textWidth, metrics.stringWidth(formatLevel(levels[index])));
         }
         final int boxWidth = LEGEND_PADDING * 2 + LEGEND_SWATCH_WIDTH + LEGEND_GAP + textWidth;
         final int boxHeight = LEGEND_PADDING * 2 + rowHeight * indices.length - 2;
+        if (boxWidth > width - 2 * LEGEND_MARGIN
+                || boxHeight > height - 2 * LEGEND_MARGIN) {
+            return;
+        }
         final int left = width - boxWidth - LEGEND_MARGIN;
         final int top = LEGEND_MARGIN;
 

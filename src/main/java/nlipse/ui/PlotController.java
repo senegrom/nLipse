@@ -15,7 +15,6 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
@@ -31,6 +30,7 @@ import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.TableModelEvent;
+import nlipse.io.AtomicFiles;
 import nlipse.math.DistanceField;
 import nlipse.math.DistanceFields;
 import nlipse.math.ScalarRanges;
@@ -448,7 +448,7 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void exportImage() {
-        final BufferedImage image = view.getCanvas().image();
+        final BufferedImage image = view.getCanvas().snapshotImage();
         if (image == null) {
             JOptionPane.showMessageDialog(view, "Nothing has been rendered yet.", "Export PNG",
                     JOptionPane.INFORMATION_MESSAGE);
@@ -465,9 +465,12 @@ public final class PlotController implements AutoCloseable {
             target = new File(target.getParentFile(), target.getName() + ".png");
         }
         try {
-            if (!ImageIO.write(image, "png", target)) {
-                throw new IOException("no PNG writer is installed");
-            }
+            final Path targetPath = target.toPath();
+            AtomicFiles.replace(targetPath, temporary -> {
+                if (!ImageIO.write(image, "png", temporary.toFile())) {
+                    throw new IOException("no PNG writer is installed");
+                }
+            });
         } catch (final IOException failed) {
             JOptionPane.showMessageDialog(view, failed.getMessage(), "Export failed",
                     JOptionPane.ERROR_MESSAGE);
@@ -475,6 +478,9 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void exportSvg() {
+        if (!commitPendingEdits()) {
+            return;
+        }
         final PlotCanvas canvas = view.getCanvas();
         final int width = canvas.getWidth();
         final int height = canvas.getHeight();
@@ -495,7 +501,7 @@ public final class PlotController implements AutoCloseable {
         }
         try {
             final String svg = SvgPlotWriter.write(model.snapshot(), width, height);
-            Files.writeString(target.toPath(), svg, StandardCharsets.UTF_8);
+            AtomicFiles.writeString(target.toPath(), svg, StandardCharsets.UTF_8);
         } catch (final IOException | RuntimeException failed) {
             final String message = failed.getMessage() == null
                     ? failed.getClass().getSimpleName() : failed.getMessage();
@@ -632,8 +638,12 @@ public final class PlotController implements AutoCloseable {
     private void applyCurveCount() {
         try {
             final int count = Integer.parseInt(view.getCurveCount().getText().trim());
-            model.setCurveCount(count);
-            requestFullRender();
+            if (count != model.getCurveCount()) {
+                model.setCurveCount(count);
+                requestFullRender();
+            } else {
+                view.getCurveCount().setText(Integer.toString(count));
+            }
         } catch (final IllegalArgumentException exception) {
             view.getCurveCount().setText(Integer.toString(model.getCurveCount()));
         }

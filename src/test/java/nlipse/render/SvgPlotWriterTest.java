@@ -36,7 +36,7 @@ class SvgPlotWriterTest {
         // Both axes cross the viewport; every other line belongs to legend swatches.
         assertEquals(2 + document.getElementsByTagName("text").getLength(),
                 document.getElementsByTagName("line").getLength());
-        assertEquals(8, document.getElementsByTagName("text").getLength());
+        assertEquals(7, document.getElementsByTagName("text").getLength());
         assertTrue(svg.contains(">4.000<"));
         assertTrue(svg.contains(">1.500<"));
         assertTrue(svg.contains(SvgPlotWriterTest.color(PlotRenderer.curveColor(0, 8))));
@@ -72,6 +72,20 @@ class SvgPlotWriterTest {
         assertEquals(0, document.getElementsByTagName("path").getLength());
         assertEquals(0, document.getElementsByTagName("text").getLength());
         assertFalse(svg.isBlank());
+    }
+
+
+    @Test
+    void legendRowsAreReducedToFitTheSvgHeight() throws Exception {
+        final PlotSnapshot snapshot = new PlotSnapshot(
+                CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
+                List.of(new Focus(-1, 0, 1), new Focus(1, 0, 1)),
+                1, 4, 12, new Viewport(-2, 2, -2, 2),
+                false, false, true, false, true, -1);
+
+        final Document document = parse(SvgPlotWriter.write(snapshot, 160, 60));
+
+        assertTrue(document.getElementsByTagName("text").getLength() <= 1);
     }
 
     @Test

@@ -62,7 +62,7 @@ public final class SvgPlotWriter {
             });
         }
         if (snapshot.showLegend() && levels.length > 0) {
-            appendLegend(svg, levels, width);
+            appendLegend(svg, levels, width, height);
         }
         svg.append("<rect x=\"0.5\" y=\"0.5\" width=\"").append(width - 1)
                 .append("\" height=\"").append(height - 1)
@@ -153,8 +153,10 @@ public final class SvgPlotWriter {
     }
 
     private static void appendLegend(final StringBuilder svg, final double[] levels,
-            final int width) {
-        final int[] indices = PlotRenderer.legendLevelIndices(levels.length);
+            final int width, final int height) {
+        final int availableRows = Math.max(0,
+                (height - 16 - 2 * 7 + 2) / LEGEND_ROW_HEIGHT);
+        final int[] indices = PlotRenderer.legendLevelIndices(levels.length, availableRows);
         if (indices.length == 0) {
             return;
         }
@@ -169,6 +171,9 @@ public final class SvgPlotWriter {
         final int boxWidth = padding * 2 + swatchWidth + gap
                 + (int) Math.ceil(textCharacters * LEGEND_CHAR_WIDTH);
         final int boxHeight = padding * 2 + LEGEND_ROW_HEIGHT * indices.length - 2;
+        if (boxWidth > width - 16 || boxHeight > height - 16) {
+            return;
+        }
         final int left = width - boxWidth - 8;
         final int top = 8;
         svg.append("<g font-family=\"sans-serif\" font-size=\"").append(LEGEND_FONT_SIZE)
@@ -195,7 +200,8 @@ public final class SvgPlotWriter {
     }
 
     private static String coordinate(final double value) {
-        return String.format(Locale.ROOT, "%.2f", value);
+        final double rounded = Math.rint(value * 1_000) / 1_000;
+        return Double.toString(rounded == 0 ? 0 : rounded);
     }
 
     private static String color(final Color value) {

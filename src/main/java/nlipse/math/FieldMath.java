@@ -4,8 +4,20 @@ package nlipse.math;
 final class FieldMath {
     static final double LOG_MAX_VALUE = Math.log(Double.MAX_VALUE);
     static final double CENTRED_LIMIT = 0.5;
+    private static final ThreadLocal<double[]> SCRATCH =
+            ThreadLocal.withInitial(() -> new double[0]);
 
     private FieldMath() {
+    }
+
+
+    static double[] scratch(final int minimumLength) {
+        double[] values = SCRATCH.get();
+        if (values.length < minimumLength) {
+            values = new double[minimumLength];
+            SCRATCH.set(values);
+        }
+        return values;
     }
 
     static double expFromLog(final double logarithm) {

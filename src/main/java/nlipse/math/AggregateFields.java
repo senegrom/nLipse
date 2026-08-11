@@ -97,6 +97,13 @@ final class AggregateFields {
                     sum.add(term);
                 }
             }
+            if (finitePoint && ((magnitudes && positiveInfinity)
+                    || (!magnitudes
+                            && ((positiveInfinity && (negativeInfinity || negativeFinite))
+                                    || (negativeInfinity
+                                            && (positiveInfinity || positiveFinite)))))) {
+                return exactValue(x, y);
+            }
             if (positiveInfinity && negativeInfinity) {
                 return Double.NaN;
             }
@@ -155,11 +162,9 @@ final class AggregateFields {
 
     private static final class HyperbolaField implements DistanceField {
         private final FocusSet foci;
-        private final ThreadLocal<double[]> buffer;
 
         HyperbolaField(final FocusSet foci) {
             this.foci = foci;
-            buffer = ThreadLocal.withInitial(() -> new double[foci.size()]);
         }
 
         @Override
@@ -169,7 +174,7 @@ final class AggregateFields {
                 return 0;
             }
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
-            final double[] values = buffer.get();
+            final double[] values = FieldMath.scratch(foci.size());
             double scale = 0;
             for (int index = 0; index < size; index++) {
                 final double distance = foci.distance(index, x, y);
@@ -190,14 +195,14 @@ final class AggregateFields {
             }
             if (!Double.isFinite(scale)) {
                 return finitePoint ? ExactFieldMath.hyperbola(foci, x, y)
-                        : pairwiseMean(values, 1);
+                        : pairwiseMean(values, size, 1);
             }
             for (int index = 0; index < size; index++) {
                 values[index] /= scale;
             }
             final double normalized = size < HYPERBOLA_SORT_THRESHOLD
-                    ? pairwiseMean(values, 1)
-                    : sortedPairwiseMean(values);
+                    ? pairwiseMean(values, size, 1)
+                    : sortedPairwiseMean(values, size);
             final double result = scale * normalized;
             if (finitePoint && normalized <= Math.ulp(1.0) * size * 2) {
                 return ExactFieldMath.hyperbola(foci, x, y);
@@ -206,24 +211,24 @@ final class AggregateFields {
                     : ExactFieldMath.hyperbola(foci, x, y);
         }
 
-        private static double pairwiseMean(final double[] values, final double scale) {
+        private static double pairwiseMean(final double[] values, final int size,
+                final double scale) {
             final FieldMath.CompensatedSum sum = new FieldMath.CompensatedSum();
-            for (int index = 0; index < values.length; index++) {
+            for (int index = 0; index < size; index++) {
                 for (int previous = 0; previous < index; previous++) {
                     sum.add(Math.abs(values[index] - values[previous]));
                 }
             }
-            return scale * 2 * sum.value()
-                    / ((double) values.length * (values.length - 1));
+            return scale * 2 * sum.value() / ((double) size * (size - 1));
         }
 
-        private static double sortedPairwiseMean(final double[] values) {
-            Arrays.sort(values);
+        private static double sortedPairwiseMean(final double[] values, final int size) {
+            Arrays.sort(values, 0, size);
             final FieldMath.CompensatedSum sum = new FieldMath.CompensatedSum();
-            for (int index = 0; index < values.length; index++) {
-                sum.add((2.0 * index - values.length + 1) * values[index]);
+            for (int index = 0; index < size; index++) {
+                sum.add((2.0 * index - size + 1) * values[index]);
             }
-            return 2 * sum.value() / ((double) values.length * (values.length - 1));
+            return 2 * sum.value() / ((double) size * (size - 1));
         }
     }
 
@@ -313,17 +318,15 @@ final class AggregateFields {
     private static final class PowerMeanField implements DistanceField {
         private final FocusSet foci;
         private final double power;
-        private final ThreadLocal<double[]> logarithmBuffer;
 
         PowerMeanField(final FocusSet foci, final double power) {
             this.foci = foci;
             this.power = power;
-            logarithmBuffer = ThreadLocal.withInitial(() -> new double[foci.size()]);
         }
 
         @Override
         public double value(final double x, final double y) {
-            final double[] logarithms = logarithmBuffer.get();
+            final double[] logarithms = FieldMath.scratch(foci.size());
             int finiteCount = 0;
             boolean hasZero = false;
             boolean hasInfinity = false;
@@ -392,11 +395,9 @@ final class AggregateFields {
 
     private static final class MedianField implements DistanceField {
         private final FocusSet foci;
-        private final ThreadLocal<double[]> buffer;
 
         MedianField(final FocusSet foci) {
             this.foci = foci;
-            buffer = ThreadLocal.withInitial(() -> new double[foci.size()]);
         }
 
         @Override
@@ -405,7 +406,7 @@ final class AggregateFields {
                 return 0;
             }
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
-            final double[] values = buffer.get();
+            final double[] values = FieldMath.scratch(foci.size());
             int count = 0;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
@@ -491,14 +492,14 @@ final class AggregateFields {
         private final FocusSet foci;
         private final double temperature;
         private final boolean nearest;
-        private final ThreadLocal<double[]> buffer;
+        private final DistanceField limitingEnvelope;
 
         SmoothEnvelopeField(final FocusSet foci, final double temperature,
                 final boolean nearest) {
             this.foci = foci;
             this.temperature = temperature;
             this.nearest = nearest;
-            buffer = ThreadLocal.withInitial(() -> new double[foci.size()]);
+            limitingEnvelope = RadialFields.envelope(foci, nearest);
         }
 
         @Override
@@ -514,7 +515,7 @@ final class AggregateFields {
                 }
             }
 
-            final double[] ratios = buffer.get();
+            final double[] ratios = FieldMath.scratch(foci.size());
             int count = 0;
             double minimum = Double.POSITIVE_INFINITY;
             double maximum = Double.NEGATIVE_INFINITY;
@@ -537,18 +538,17 @@ final class AggregateFields {
             if (allZero) {
                 return ExactFieldMath.arithmeticMagnitudeMean(foci, x, y);
             }
-            if (minimum == maximum) {
-                for (int index = 0; index < foci.size(); index++) {
-                    if (foci.isActive(index)) {
-                        return foci.magnitudeDistance(index, x, y);
-                    }
-                }
-            }
             if (!nearest && Double.isInfinite(maximum)) {
-                return Double.POSITIVE_INFINITY;
+                return limitingEnvelope.value(x, y);
             }
             if (nearest && Double.isInfinite(minimum)) {
-                return Double.POSITIVE_INFINITY;
+                return limitingEnvelope.value(x, y);
+            }
+            if (minimum == maximum) {
+                // Distinct distances can collapse to the same ratio after division by
+                // a huge temperature. Their common large-temperature limit is the
+                // arithmetic mean, not whichever focus happened to be visited first.
+                return ExactFieldMath.arithmeticMagnitudeMean(foci, x, y);
             }
 
             final double resultRatio;

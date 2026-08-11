@@ -27,11 +27,9 @@ final class RadialFields {
 
     private static final class CassiniField implements DistanceField {
         private final FocusSet foci;
-        private final ThreadLocal<double[]> logarithmBuffer;
 
         CassiniField(final FocusSet foci) {
             this.foci = foci;
-            logarithmBuffer = ThreadLocal.withInitial(() -> new double[foci.size()]);
         }
 
         @Override
@@ -40,7 +38,7 @@ final class RadialFields {
             if (weightScale == 0) {
                 return 1;
             }
-            final double[] logarithms = logarithmBuffer.get();
+            final double[] logarithms = FieldMath.scratch(foci.size());
             final FieldMath.CompensatedSum normalizedSum = new FieldMath.CompensatedSum();
             boolean exactNeeded = false;
             boolean zeroFactor = false;
@@ -67,10 +65,13 @@ final class RadialFields {
                 }
                 logarithms[index] = logarithm;
                 final double normalizedWeight = weight / weightScale;
-                if (normalizedWeight == 0 && logarithm != 0) {
+                final double term = normalizedWeight * logarithm;
+                if ((term == 0 && logarithm != 0)
+                        || !Double.isFinite(term)) {
                     exactNeeded = true;
+                } else {
+                    normalizedSum.add(term);
                 }
-                normalizedSum.add(normalizedWeight * logarithm);
             }
             if (zeroFactor && infiniteFactor) {
                 return Double.NaN;
@@ -181,7 +182,7 @@ final class RadialFields {
                 }
                 final double normalizedWeight = weight / scale;
                 final double term = normalizedWeight / distance;
-                if (!Double.isFinite(term)
+                if (!Double.isFinite(term) || normalizedWeight == 0
                         || (term == 0 && normalizedWeight != 0)) {
                     exactNeeded = finitePoint;
                 } else {
@@ -209,30 +210,25 @@ final class RadialFields {
     private static final class GaussianField implements DistanceField {
         private final FocusSet foci;
         private final double sigma;
-        private final ThreadLocal<double[]> kernelBuffer;
 
         GaussianField(final FocusSet foci, final double sigma) {
             this.foci = foci;
             this.sigma = sigma;
-            kernelBuffer = ThreadLocal.withInitial(() -> new double[foci.size()]);
         }
 
         @Override
         public double value(final double x, final double y) {
-            final double scale = foci.maximumAbsoluteWeight();
-            if (scale == 0) {
+            if (foci.activeCount() == 0) {
                 return 0;
             }
-            final double[] kernels = kernelBuffer.get();
-            final double[] weights = new double[foci.size()];
-            final FieldMath.CompensatedSum normalizedSum = new FieldMath.CompensatedSum();
+            final double[] terms = FieldMath.scratch(foci.size());
+            final FieldMath.CompensatedSum sum = new FieldMath.CompensatedSum();
             boolean positive = false;
             boolean negative = false;
-            boolean exactNeeded = false;
+            double largestTerm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
-                weights[index] = weight;
-                kernels[index] = 0;
+                terms[index] = 0;
                 if (weight == 0) {
                     continue;
                 }
@@ -240,24 +236,25 @@ final class RadialFields {
                 if (Double.isNaN(ratio)) {
                     return Double.NaN;
                 }
-                final double kernel = ratio > Math.sqrt(FieldMath.LOG_MAX_VALUE * 2)
-                        ? 0 : Math.exp(-0.5 * ratio * ratio);
-                kernels[index] = kernel;
-                positive |= weight > 0 && kernel != 0;
-                negative |= weight < 0 && kernel != 0;
-                final double normalizedWeight = weight / scale;
-                final double term = normalizedWeight * kernel;
-                if ((normalizedWeight == 0 && kernel != 0)
-                        || (!Double.isFinite(term))) {
-                    exactNeeded = true;
-                } else {
-                    normalizedSum.add(term);
+                final double exponent = -0.5 * ratio * ratio;
+                final double kernel = Math.exp(exponent);
+                double term = weight * kernel;
+                if (term == 0 && weight != 0 && Double.isFinite(exponent)) {
+                    term = FieldMath.multiplyFromLog(weight, exponent);
                 }
+                terms[index] = term;
+                positive |= term > 0;
+                negative |= term < 0;
+                largestTerm = Math.max(largestTerm, Math.abs(term));
+                sum.add(term);
             }
-            final double result = scale * normalizedSum.value();
-            if (exactNeeded || !Double.isFinite(result)
-                    || (result == 0 && positive && negative)) {
-                return ExactFieldMath.weightedDoubleSum(kernels, weights);
+            final double result = sum.value();
+            if (positive && negative
+                    && (!Double.isFinite(result)
+                            || largestTerm > 0
+                                    && Math.abs(result) <= Math.ulp(largestTerm)
+                                            * foci.activeCount() * 2)) {
+                return ExactFieldMath.doubleSum(terms, foci.size());
             }
             return result;
         }
