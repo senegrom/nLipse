@@ -17,7 +17,7 @@ jobs:
   test:
     name: Java 25
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -30,8 +30,17 @@ jobs:
           java-version: '25'
           cache: maven
 
-      - name: Build and test
-        run: mvn --batch-mode --no-transfer-progress verify
+      - name: Build, test and install application
+        run: mvn --batch-mode --no-transfer-progress install
+
+      - name: Build benchmark harness
+        run: mvn --batch-mode --no-transfer-progress -f benchmarks/pom.xml package
+
+      - name: Smoke-test JMH harness
+        run: >-
+          java -jar benchmarks/target/benchmarks.jar
+          -f 1 -wi 0 -i 1 -r 100ms
+          'nlipse.math.FieldMathBenchmark.ordinaryEllipseBatch'
 
       - name: Check shell launchers
         run: sh -n scripts/aot-common.sh scripts/create-aot-cache.sh scripts/run-optimized.sh
