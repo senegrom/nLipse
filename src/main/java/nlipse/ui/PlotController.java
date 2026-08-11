@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.RejectedExecutionException;
 import javax.imageio.ImageIO;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
@@ -277,7 +278,7 @@ public final class PlotController implements AutoCloseable {
                     panStartViewport = model.getViewport();
                     previewTimer.stop();
                     fullTimer.stop();
-                    renderService.cancel();
+                    renderService.cancelInteractive();
                     canvas.beginPanPreview();
                     return;
                 }
@@ -449,9 +450,14 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void exportImage() {
-        final BufferedImage image = view.getCanvas().snapshotImage();
-        if (image == null) {
-            JOptionPane.showMessageDialog(view, "Nothing has been rendered yet.", "Export PNG",
+        if (!commitPendingEdits()) {
+            return;
+        }
+        final PlotCanvas canvas = view.getCanvas();
+        final int width = canvas.getWidth();
+        final int height = canvas.getHeight();
+        if (width < 2 || height < 2) {
+            JOptionPane.showMessageDialog(view, "The plot area is not visible yet.", "Export PNG",
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
@@ -465,17 +471,18 @@ public final class PlotController implements AutoCloseable {
         if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".png")) {
             target = new File(target.getParentFile(), target.getName() + ".png");
         }
-        try {
-            final Path targetPath = target.toPath();
+        final Path targetPath = target.toPath();
+        final PlotSnapshot snapshot = model.snapshot();
+        queueExport("PNG", targetPath, token -> {
+            final RenderResult completed = renderer.render(
+                    new RenderRequest(snapshot, width, height, RenderQuality.FULL), token);
             AtomicFiles.replace(targetPath, temporary -> {
-                if (!ImageIO.write(image, "png", temporary.toFile())) {
+                if (!ImageIO.write(completed.image(), "png", temporary.toFile())) {
                     throw new IOException("no PNG writer is installed");
                 }
             });
-        } catch (final IOException failed) {
-            JOptionPane.showMessageDialog(view, failed.getMessage(), "Export failed",
-                    JOptionPane.ERROR_MESSAGE);
-        }
+            return targetPath;
+        });
     }
 
     private void exportSvg() {
@@ -500,18 +507,52 @@ public final class PlotController implements AutoCloseable {
         if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".svg")) {
             target = new File(target.getParentFile(), target.getName() + ".svg");
         }
-        try {
+        final Path targetPath = target.toPath();
+        final PlotSnapshot snapshot = model.snapshot();
+        queueExport("SVG", targetPath, token -> {
             final RenderResult completed = renderer.render(
-                    new RenderRequest(model.snapshot(), width, height, RenderQuality.FULL),
-                    CancellationToken.NONE);
+                    new RenderRequest(snapshot, width, height, RenderQuality.FULL), token);
             final String svg = SvgPlotWriter.write(completed.renderPackage().orElseThrow(
                     () -> new IllegalStateException("Renderer did not produce an export package")));
-            AtomicFiles.writeString(target.toPath(), svg, StandardCharsets.UTF_8);
-        } catch (final IOException | RuntimeException failed) {
-            final String message = failed.getMessage() == null
-                    ? failed.getClass().getSimpleName() : failed.getMessage();
-            JOptionPane.showMessageDialog(view, message, "Export failed",
-                    JOptionPane.ERROR_MESSAGE);
+            AtomicFiles.writeString(targetPath, svg, StandardCharsets.UTF_8);
+            return targetPath;
+        });
+    }
+
+    private void queueExport(final String format, final Path target,
+            final AsyncRenderService.BackgroundJob<Path> exportJob) {
+        view.getRenderInfo().setText("Exporting " + format + "…");
+        try {
+            renderService.submitExport(exportJob,
+                    written -> {
+                        view.getRenderInfo().setText(
+                                "Exported " + format + " · " + written.getFileName());
+                        resumeInteractiveRendering();
+                    },
+                    failed -> exportFailed(format, target, failed));
+        } catch (final RejectedExecutionException | IllegalStateException failed) {
+            exportFailed(format, target, failed);
+        }
+    }
+
+    private void exportFailed(final String format, final Path target,
+            final Throwable failed) {
+        final String detail = failed.getMessage() == null
+                ? failed.getClass().getSimpleName() : failed.getMessage();
+        view.getRenderInfo().setText(format + " export failed");
+        resumeInteractiveRendering();
+        JOptionPane.showMessageDialog(view,
+                "Could not export " + target.getFileName() + ": " + detail,
+                "Export failed", JOptionPane.ERROR_MESSAGE);
+    }
+
+    /** Submitting an export cancels an undelivered interactive render; once the
+     *  export settles, that render must be replayed or the canvas would keep the
+     *  stale image and busy badge until the next interaction. The replay hits
+     *  the caches the export just warmed, so the common case costs nothing. */
+    private void resumeInteractiveRendering() {
+        if (view.getCanvas().isRendering()) {
+            requestFullRender();
         }
     }
 

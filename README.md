@@ -62,7 +62,7 @@ PowerShell equivalents are available as `scripts/create-aot-cache.ps1` and `scri
 
 The optional level legend (Display → "Level legend") lists the drawn contour levels with their colours in the top-right corner, highest level first; when more than twelve levels are drawn it shows an even subsample that always includes both endpoints. On a small canvas the row count is reduced automatically, and the legend is omitted rather than clipped if even one row cannot fit. Because the legend is part of the rendered image, PNG exports include it.
 
-"Export PNG…" saves the plot exactly as displayed, including an in-progress translated pan preview. "Export SVG…" writes a vector version — contour polylines, axes, focus and extrema markers, and the legend — at the current canvas size; the raster heatmap background is intentionally omitted because it has no vector form. Setup, PNG and SVG writes use a same-directory temporary file and replace the destination only after the complete output has been produced.
+"Export PNG…" renders the current plot at full quality and canvas size on the background renderer, so an in-progress preview or pan never degrades the exported file. "Export SVG…" writes a vector version — contour polylines, axes, focus and extrema markers, and the legend — from the same render package as the raster image; the heatmap background is intentionally omitted because it has no vector form. Exports run as durable background jobs: they are never cancelled by later interactive edits, at most four may wait, and setup, PNG and SVG writes use a same-directory temporary file that replaces the destination only after the complete output has been produced.
 
 ## Rendering architecture
 
