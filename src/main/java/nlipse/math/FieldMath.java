@@ -10,7 +10,10 @@ final class FieldMath {
     private FieldMath() {
     }
 
-
+    /**
+     * Returns a reusable thread-local array. Only indices below
+     * {@code minimumLength} belong to the caller; all contents are undefined.
+     */
     static double[] scratch(final int minimumLength) {
         double[] values = SCRATCH.get();
         if (values.length < minimumLength) {

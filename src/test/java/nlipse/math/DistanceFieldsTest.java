@@ -3,6 +3,8 @@ package nlipse.math;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.math.BigDecimal;
+import java.math.MathContext;
 import java.util.List;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
@@ -258,6 +260,38 @@ class DistanceFieldsTest {
         assertEquals(0, field.value(2, 0), 0);
     }
 
+    @Test
+    void potentialDetectsFiniteButIllConditionedCancellation() {
+        final double firstWeight = -3.841044956269343e35;
+        final double secondWeight = 5.8564212468211325e35;
+        final double firstDistance = 8.460432894611084e18;
+        final double secondDistance = 1.2899577986045925e19;
+        final DistanceField field = DistanceFields.create(CurveType.POTENTIAL, List.of(
+                new Focus(firstDistance, 0, firstWeight),
+                new Focus(secondDistance, 0, secondWeight)));
+        final MathContext context = new MathContext(80);
+        final double expected = new BigDecimal(firstWeight)
+                .divide(new BigDecimal(firstDistance), context)
+                .add(new BigDecimal(secondWeight)
+                        .divide(new BigDecimal(secondDistance), context), context)
+                .doubleValue();
+
+        assertEquals(expected, field.value(0, 0), Math.ulp(expected));
+    }
+
+
+    @Test
+    void potentialIgnoresUnusedThreadLocalScratchEntries() {
+        final List<Focus> manyFoci = java.util.stream.IntStream.range(0, 32)
+                .mapToObj(index -> new Focus(index + 1, index % 3, index + 0.5))
+                .toList();
+        DistanceFields.create(CurveType.HYPERB, manyFoci).value(0, 0);
+
+        final DistanceField potential = DistanceFields.create(CurveType.POTENTIAL, List.of(
+                new Focus(1, 0, 2),
+                new Focus(3, 0, -1)));
+        assertEquals(5.0 / 3.0, potential.value(0, 0), Math.ulp(5.0 / 3.0));
+    }
 
     @Test
     void potentialRetainsAWeightThatUnderflowsDuringNormalization() {

@@ -62,20 +62,36 @@ PowerShell equivalents are available as `scripts/create-aot-cache.ps1` and `scri
 
 The optional level legend (Display → "Level legend") lists the drawn contour levels with their colours in the top-right corner, highest level first; when more than twelve levels are drawn it shows an even subsample that always includes both endpoints. On a small canvas the row count is reduced automatically, and the legend is omitted rather than clipped if even one row cannot fit. Because the legend is part of the rendered image, PNG exports include it.
 
-"Export PNG…" saves the plot exactly as displayed, including an in-progress translated pan preview. "Export SVG…" writes a vector version — contour polylines, axes, focus and extrema markers, and the legend — at the current canvas size; the raster heatmap background is intentionally omitted because it has no vector form. Setup, PNG and SVG writes use a same-directory temporary file and replace the destination only after the complete output has been produced.
+"Export PNG…" and "Export SVG…" capture a fresh full-quality render from the committed controls and focus table at the current canvas size. They run through the bounded background scheduler, so encoding never blocks Swing and later mouse movement cannot cancel an accepted export. A second simultaneous export is rejected instead of building an unbounded queue. PNG contains the complete raster image; SVG writes contour polylines, axes, focus and extrema markers, and the legend, while deliberately omitting the raster heatmap background. Setup, PNG and SVG writes use a same-directory temporary file and replace the destination only after the complete output has been produced.
 
 ## Rendering architecture
 
-Rendering runs on a bounded, latest-wins background queue rather than Swing's event-dispatch thread. Interactive edits still use coalesced previews followed by a full-quality render. While middle-dragging, the last completed image is translated immediately; releasing the mouse starts the exact render.
+Rendering runs on a bounded single-worker scheduler rather than Swing's event-dispatch thread. Interactive edits are latest-wins and use coalesced previews followed by a full-quality render. Durable PNG/SVG exports share the same scheduler but are never superseded by later interaction. While middle-dragging, the last completed image is translated immediately; releasing the mouse starts the exact render.
 
-Full-resolution field samples are cached in memory-bounded 32×32 world-space tiles. An integer-pixel pan keeps the same sampling lattice, so overlapping samples are reused and only newly exposed rows and columns are evaluated. Exact viewport grids remain cached separately for fast redraws and coarse previews can be derived from a cached full grid without evaluating the field again.
+Full-resolution field samples are cached in memory-bounded 32×32 world-space tiles. An integer-pixel pan retains a canonical lattice identity consisting of its origin, sample steps and integer indices, so overlapping samples are reused exactly and only newly exposed rows and columns are evaluated. Fractional pans and zooms create a new lattice. Exact viewport grids remain cached separately for fast redraws and coarse previews can be derived from a cached full grid without evaluating the field again.
 
 Contours are extracted in one multi-level marching-squares pass. Ambiguous saddle cells use the bilinear asymptotic decider, with a centre sample only for an exact numerical tie. Individual cell segments are stitched into continuous world-coordinate polylines and cached independently of background shading, anti-aliasing and focus selection. Marker-free raster layers are cached separately, so selection-only redraws do not resample the field or retrace contours. Coarse previews retain the existing bounded one-level refinement for small hidden loops; a full adaptive quadtree remains deliberately deferred until representative benchmarks justify its added complexity.
 
 CPU-bound sampling uses a renderer-owned daemon pool instead of Java's common pool. The default worker count is capped at 32 and can be overridden with `-Dnlipse.renderThreads=<count>`. The combined cache budget defaults to one-eighth of the maximum heap, bounded between 32 and 256 MiB, and can be overridden with `-Dnlipse.cacheMiB=<MiB>`.
 
-The mathematical evaluators use compensated, scaled, logarithmic-domain or arbitrary-precision fallback arithmetic according to the family. Ordinary pixels stay on primitive `double` paths; the high-precision fallback is entered only after detected overflow, underflow or severe cancellation. Cassini products and general power means use logarithmic-domain accumulation, smooth envelopes retain both their zero- and infinite-temperature limits, the quadratic family uses overflow-resistant `hypot` accumulation, inverse potentials preserve normalized tail terms, Gaussian amplitudes can rescue kernels below the direct `Math.exp` range, median selection avoids a full sort for larger focus sets, and larger n-hyperbola fields use a sorted O(n log n) formulation. Regression tests explicitly cover minimum-subnormal residuals and finite results recovered after overflowing intermediate products.
+The mathematical evaluators use compensated, scaled, logarithmic-domain or adaptive arbitrary-precision fallback arithmetic according to the family. Ordinary pixels stay on primitive `double` paths; the fallback starts at modest precision and increases it only until the correctly rounded `double` result is stable. Exact focus coordinates and weights are cached once per immutable field. Cassini products and general power means use logarithmic-domain accumulation, smooth envelopes retain both their zero- and infinite-temperature limits, the quadratic family uses overflow-resistant `hypot` accumulation, inverse potentials detect numerically ill-conditioned mixed-sign cancellation, Gaussian amplitudes can rescue kernels below the direct `Math.exp` range, median selection avoids a full sort for larger focus sets, and larger n-hyperbola fields use a sorted O(n log n) formulation.
+
+Every completed full render also produces one immutable `RenderPackage` containing the snapshot, dimensions, deduplicated levels, colours, extrema and stitched contour geometry. Raster display, legends and SVG export consume that same package so they cannot combine state from different renders.
+
+## Correctness and performance checks
+
+The JUnit suite includes deterministic exponent-biased differential tests against independent high-precision or direct references. Seeds are fixed so a failure can be reproduced. They cover algebraic fields, inverse-potential cancellation, transcendental families, power-mean ordering and smooth-envelope bounds.
+
+The separate Java 25 JMH harness measures ordinary batched ellipse, potential and Gaussian sampling as well as deliberately exceptional ellipse and potential evaluations:
+
+```bash
+mvn -DskipTests install
+mvn -f benchmarks/pom.xml package
+java -jar benchmarks/target/benchmarks.jar
+```
+
+The manually dispatched **JMH benchmark** GitHub workflow accepts an include regex and a fork count from 1 to 8 and uploads JSON results.
 
 ## Continuous integration
 
-GitHub Actions runs the complete Maven test suite and the JDK 25 AOT-training path on Java 25 for pull requests and every push to `main`.
+GitHub Actions runs the complete Maven test suite, builds and smoke-tests the JMH harness, and verifies the JDK 25 AOT-training path for pull requests and every push to `main`.

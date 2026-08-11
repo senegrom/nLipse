@@ -164,6 +164,9 @@ final class RadialFields {
     }
 
     private static final class PotentialField implements DistanceField {
+        /** Preserve at least about 24 significant bits after mixed-sign cancellation. */
+        private static final double EXACT_CANCELLATION_RATIO = 0x1.0p-24;
+
         private final FocusSet foci;
 
         PotentialField(final FocusSet foci) {
@@ -172,16 +175,19 @@ final class RadialFields {
 
         @Override
         public double value(final double x, final double y) {
-            final double scale = foci.maximumAbsoluteWeight();
-            if (scale == 0) {
+            if (foci.activeCount() == 0) {
                 return 0;
             }
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
-            final FieldMath.CompensatedSum normalizedSum = new FieldMath.CompensatedSum();
+            final double[] terms = FieldMath.scratch(foci.size());
             boolean positiveInfinity = false;
             boolean negativeInfinity = false;
+            boolean positiveTerm = false;
+            boolean negativeTerm = false;
             boolean exactNeeded = false;
+            double scale = 0;
             for (int index = 0; index < foci.size(); index++) {
+                terms[index] = 0;
                 final double weight = foci.weight(index);
                 if (weight == 0) {
                     continue;
@@ -196,19 +202,18 @@ final class RadialFields {
                     continue;
                 }
                 if (!Double.isFinite(distance)) {
-                    if (finitePoint) {
-                        exactNeeded = true;
-                    }
+                    exactNeeded |= finitePoint;
                     continue;
                 }
-                final double normalizedWeight = weight / scale;
-                final double term = normalizedWeight / distance;
-                if (!Double.isFinite(term) || normalizedWeight == 0
-                        || (term == 0 && normalizedWeight != 0)) {
-                    exactNeeded = finitePoint;
-                } else {
-                    normalizedSum.add(term);
+                final double term = weight / distance;
+                if (!Double.isFinite(term) || term == 0) {
+                    exactNeeded |= finitePoint;
+                    continue;
                 }
+                terms[index] = term;
+                scale = Math.max(scale, Math.abs(term));
+                positiveTerm |= term > 0;
+                negativeTerm |= term < 0;
             }
             if (positiveInfinity && negativeInfinity) {
                 return Double.NaN;
@@ -219,12 +224,42 @@ final class RadialFields {
             if (negativeInfinity) {
                 return Double.NEGATIVE_INFINITY;
             }
-            if (exactNeeded) {
+            if (finitePoint && exactNeeded) {
                 return ExactFieldMath.potential(foci, x, y);
             }
-            final double result = scale * normalizedSum.value();
-            return Double.isFinite(result) || !finitePoint ? result
-                    : ExactFieldMath.potential(foci, x, y);
+            if (scale == 0) {
+                return 0;
+            }
+
+            final FieldMath.CompensatedSum normalizedSum = new FieldMath.CompensatedSum();
+            final FieldMath.CompensatedSum magnitudeSum = new FieldMath.CompensatedSum();
+            int termCount = 0;
+            for (int index = 0; index < foci.size(); index++) {
+                final double term = terms[index];
+                if (term == 0) {
+                    continue;
+                }
+                final double normalizedTerm = term / scale;
+                if (normalizedTerm == 0) {
+                    return finitePoint ? ExactFieldMath.potential(foci, x, y) : 0;
+                }
+                normalizedSum.add(normalizedTerm);
+                magnitudeSum.add(Math.abs(normalizedTerm));
+                termCount++;
+            }
+            final double normalized = normalizedSum.value();
+            final double magnitude = magnitudeSum.value();
+            final double roundingBound = Math.ulp(magnitude) * Math.max(8, termCount * 4);
+            final boolean illConditioned = positiveTerm && negativeTerm
+                    && (!Double.isFinite(normalized) || !Double.isFinite(magnitude)
+                            || Math.abs(normalized) <= Math.max(roundingBound,
+                                    magnitude * EXACT_CANCELLATION_RATIO));
+            if (finitePoint && illConditioned) {
+                return ExactFieldMath.potential(foci, x, y);
+            }
+            final double result = scale * normalized;
+            return !finitePoint || Double.isFinite(result) && (result != 0 || normalized == 0)
+                    ? result : ExactFieldMath.potential(foci, x, y);
         }
     }
 
@@ -243,7 +278,6 @@ final class RadialFields {
                 return 0;
             }
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
-            final double[] terms = FieldMath.scratch(foci.size());
             final FieldMath.CompensatedSum sum = new FieldMath.CompensatedSum();
             boolean positive = false;
             boolean negative = false;
@@ -251,7 +285,6 @@ final class RadialFields {
             double largestTerm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
-                terms[index] = 0;
                 if (weight == 0) {
                     continue;
                 }
@@ -269,7 +302,6 @@ final class RadialFields {
                     term = FieldMath.multiplyFromLog(weight, exponent);
                     exactNeeded |= term == 0;
                 }
-                terms[index] = term;
                 positive |= term > 0;
                 negative |= term < 0;
                 largestTerm = Math.max(largestTerm, Math.abs(term));

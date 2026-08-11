@@ -11,14 +11,11 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
-import javax.imageio.ImageIO;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.InputMap;
@@ -30,7 +27,7 @@ import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.TableModelEvent;
-import nlipse.io.AtomicFiles;
+import nlipse.io.PlotExports;
 import nlipse.math.DistanceField;
 import nlipse.math.DistanceFields;
 import nlipse.math.ScalarRanges;
@@ -41,16 +38,14 @@ import nlipse.model.PlotConfigIO;
 import nlipse.model.PlotModel;
 import nlipse.model.PlotSnapshot;
 import nlipse.render.AsyncRenderService;
-import nlipse.render.CancellationToken;
 import nlipse.render.FieldExtrema;
 import nlipse.render.PlotRenderer;
 import nlipse.render.RenderQuality;
 import nlipse.render.RenderRequest;
 import nlipse.render.RenderResult;
-import nlipse.render.SvgPlotWriter;
 import nlipse.render.Viewport;
 
-/** Coordinates model mutations, view events and latest-wins background rendering. */
+/** Coordinates model mutations, view events, rendering and durable background exports. */
 public final class PlotController implements AutoCloseable {
     private static final int SLIDER_TICKS = 1000;
     private static final double ZOOM_STEP = 0.85;
@@ -448,71 +443,98 @@ public final class PlotController implements AutoCloseable {
         requestFullRender();
     }
 
+    @FunctionalInterface
+    private interface ExportWriter {
+        void write(RenderResult result, Path target) throws IOException;
+    }
+
     private void exportImage() {
-        final BufferedImage image = view.getCanvas().snapshotImage();
-        if (image == null) {
-            JOptionPane.showMessageDialog(view, "Nothing has been rendered yet.", "Export PNG",
-                    JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        final JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Export plot as PNG");
-        chooser.setSelectedFile(new File("nlipse-plot.png"));
-        if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-        File target = chooser.getSelectedFile();
-        if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".png")) {
-            target = new File(target.getParentFile(), target.getName() + ".png");
-        }
-        try {
-            final Path targetPath = target.toPath();
-            AtomicFiles.replace(targetPath, temporary -> {
-                if (!ImageIO.write(image, "png", temporary.toFile())) {
-                    throw new IOException("no PNG writer is installed");
-                }
-            });
-        } catch (final IOException failed) {
-            JOptionPane.showMessageDialog(view, failed.getMessage(), "Export failed",
-                    JOptionPane.ERROR_MESSAGE);
-        }
+        exportPlot("PNG", "Export plot as PNG", "nlipse-plot.png", ".png",
+                PlotExports::writePng);
     }
 
     private void exportSvg() {
+        exportPlot("SVG", "Export plot as SVG", "nlipse-plot.svg", ".svg",
+                PlotExports::writeSvg);
+    }
+
+    private void exportPlot(final String format, final String dialogTitle,
+            final String suggestedName, final String extension, final ExportWriter writer) {
         if (!commitPendingEdits()) {
+            return;
+        }
+        if (pendingRangeAdjustment != RangeAdjustment.NONE) {
+            requestFullRender();
+            JOptionPane.showMessageDialog(view,
+                    "The field-level range is still being updated. Retry after the render finishes.",
+                    "Export not ready", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         final PlotCanvas canvas = view.getCanvas();
         final int width = canvas.getWidth();
         final int height = canvas.getHeight();
         if (width < 2 || height < 2) {
-            JOptionPane.showMessageDialog(view, "The plot area is not visible yet.", "Export SVG",
-                    JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(view, "The plot area is not visible yet.",
+                    "Export " + format, JOptionPane.INFORMATION_MESSAGE);
             return;
         }
+
         final JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Export plot as SVG");
-        chooser.setSelectedFile(new File("nlipse-plot.svg"));
+        chooser.setDialogTitle(dialogTitle);
+        chooser.setSelectedFile(new File(suggestedName));
         if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
             return;
         }
-        File target = chooser.getSelectedFile();
-        if (!target.getName().toLowerCase(Locale.ROOT).endsWith(".svg")) {
-            target = new File(target.getParentFile(), target.getName() + ".svg");
-        }
+        final Path target = withExtension(chooser.getSelectedFile().toPath(), extension);
+        final RenderRequest request = new RenderRequest(
+                model.snapshot(), width, height, RenderQuality.FULL);
+        final boolean accepted;
         try {
-            final RenderResult completed = renderer.render(
-                    new RenderRequest(model.snapshot(), width, height, RenderQuality.FULL),
-                    CancellationToken.NONE);
-            final String svg = SvgPlotWriter.write(completed.renderPackage().orElseThrow(
-                    () -> new IllegalStateException("Renderer did not produce an export package")));
-            AtomicFiles.writeString(target.toPath(), svg, StandardCharsets.UTF_8);
-        } catch (final IOException | RuntimeException failed) {
-            final String message = failed.getMessage() == null
-                    ? failed.getClass().getSimpleName() : failed.getMessage();
-            JOptionPane.showMessageDialog(view, message, "Export failed",
-                    JOptionPane.ERROR_MESSAGE);
+            accepted = renderService.submitExport(request,
+                    result -> writer.write(result, target),
+                    result -> exportCompleted(format, target, result),
+                    failure -> exportFailed(format, failure));
+        } catch (final IllegalStateException closed) {
+            exportFailed(format, closed);
+            return;
         }
+        if (!accepted) {
+            JOptionPane.showMessageDialog(view,
+                    "Another export is already active. Let it finish before starting a new one.",
+                    "Export busy", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        view.getRenderInfo().setText("Exporting " + format + "…");
+    }
+
+    private void exportCompleted(final String format, final Path target,
+            final RenderResult result) {
+        final PlotCanvas canvas = view.getCanvas();
+        result.renderPackage().ifPresent(completed -> {
+            if (completed.snapshot().equals(model.snapshot())
+                    && completed.width() == canvas.getWidth()
+                    && completed.height() == canvas.getHeight()) {
+                renderCompleted(result);
+            }
+        });
+        view.getRenderInfo().setText(
+                "Exported " + format + " · " + target.toAbsolutePath());
+    }
+
+    private void exportFailed(final String format, final Throwable failure) {
+        final String message = failure.getMessage() == null
+                ? failure.getClass().getSimpleName() : failure.getMessage();
+        view.getRenderInfo().setText("Export failed");
+        JOptionPane.showMessageDialog(view, message, "Export " + format + " failed",
+                JOptionPane.ERROR_MESSAGE);
+    }
+
+    private static Path withExtension(final Path target, final String extension) {
+        final String fileName = target.getFileName().toString();
+        if (fileName.toLowerCase(Locale.ROOT).endsWith(extension)) {
+            return target;
+        }
+        return target.resolveSibling(fileName + extension);
     }
 
     private void bindNudge(final InputMap inputMap, final ActionMap actionMap,
@@ -703,7 +725,7 @@ public final class PlotController implements AutoCloseable {
         }
         view.getCanvas().setRendering(true);
         final RenderRequest request = new RenderRequest(model.snapshot(), width, height, quality);
-        renderService.submit(request, this::renderCompleted, this::renderFailed);
+        renderService.submitInteractive(request, this::renderCompleted, this::renderFailed);
     }
 
     private void renderCompleted(final RenderResult result) {
