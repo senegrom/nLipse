@@ -410,4 +410,71 @@ class DistanceFieldsTest {
         }
     }
 
+
+    @Test
+    void finiteCoordinateOverflowCanBeRescaledBackIntoRange() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE,
+                List.of(new Focus(-maximum, 0, 0.5)));
+
+        assertEquals(maximum, field.value(maximum, 0), 0);
+    }
+
+    @Test
+    void exactFallbackPreservesMinimumSubnormalDistanceResiduals() {
+        final double maximum = Double.MAX_VALUE;
+        final double minimum = Double.MIN_VALUE;
+        final List<Focus> unsigned = List.of(
+                new Focus(0, 0, 1), new Focus(minimum, 0, 1));
+        final List<Focus> signed = List.of(
+                new Focus(0, 0, 1), new Focus(minimum, 0, -1));
+
+        assertEquals(minimum,
+                DistanceFields.create(CurveType.LIPSE, signed).value(maximum, 0), 0);
+        assertEquals(minimum,
+                DistanceFields.create(CurveType.RANGE, unsigned).value(maximum, 0), 0);
+        assertEquals(minimum,
+                DistanceFields.create(CurveType.HYPERB, unsigned).value(maximum, 0), 0);
+    }
+
+    @Test
+    void cassiniUsesExtendedRangeDistancesInFiniteRatios() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.CASSIN, List.of(
+                new Focus(-maximum, 0, 1), new Focus(0, 0, -1)));
+
+        assertEquals(2, field.value(maximum, 0), 2e-12);
+    }
+
+    @Test
+    void potentialUsesExtendedRangeDistanceRatios() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.POTENTIAL,
+                List.of(new Focus(-maximum, 0, maximum)));
+
+        assertEquals(0.5, field.value(maximum, 0), 0);
+    }
+
+    @Test
+    void gaussianUsesDistanceToWidthRatioBeforeOverflow() {
+        final double maximum = Double.MAX_VALUE;
+        final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(-maximum, 0, 1)), maximum);
+
+        assertEquals(Math.exp(-2), field.value(maximum, 0), 2e-15);
+    }
+
+    @Test
+    void smoothEnvelopesConvergeToTheArithmeticMeanAtHugeTemperature() {
+        final List<Focus> foci = List.of(new Focus(2, 0, 1), new Focus(10, 0, 1));
+        final double expected = 6;
+
+        assertEquals(expected,
+                DistanceFields.create(CurveType.SMOOTH_NEAREST, foci, 1e200).value(0, 0),
+                1e-12);
+        assertEquals(expected,
+                DistanceFields.create(CurveType.SMOOTH_FARTHEST, foci, 1e200).value(0, 0),
+                1e-12);
+    }
+
 }

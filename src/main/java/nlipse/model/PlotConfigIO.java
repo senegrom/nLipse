@@ -2,8 +2,10 @@ package nlipse.model;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -45,8 +47,30 @@ public final class PlotConfigIO {
         values.setProperty("antiAlias", Boolean.toString(snapshot.antiAlias()));
         values.setProperty("logSpacing", Boolean.toString(snapshot.logSpacing()));
         values.setProperty("showLegend", Boolean.toString(snapshot.showLegend()));
-        try (var writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-            values.store(writer, "nLipse plot setup");
+        writeAtomically(file, values);
+    }
+
+    private static void writeAtomically(final Path file, final Properties values)
+            throws IOException {
+        final Path absolute = file.toAbsolutePath();
+        final Path parent = absolute.getParent();
+        if (parent == null) {
+            throw new IOException("Setup file has no parent directory: " + file);
+        }
+        final String name = absolute.getFileName().toString();
+        final Path temporary = Files.createTempFile(parent, "." + name + ".", ".tmp");
+        try {
+            try (var writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+                values.store(writer, "nLipse plot setup");
+            }
+            try {
+                Files.move(temporary, absolute, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (final AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, absolute, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
         }
     }
 
@@ -68,8 +92,9 @@ public final class PlotConfigIO {
             throw new IllegalArgumentException("curveType must be one of " + CurveType.validNames());
         }
         final int focusCount = intValue(values, "focus.count");
-        if (focusCount < 1 || focusCount > 1_000) {
-            throw new IllegalArgumentException("focus.count must be between 1 and 1000");
+        if (focusCount < 1 || focusCount > PlotConfig.MAX_FOCI) {
+            throw new IllegalArgumentException("focus.count must be between 1 and "
+                    + PlotConfig.MAX_FOCI);
         }
         final List<Focus> foci = new ArrayList<>(focusCount);
         for (int index = 0; index < focusCount; index++) {

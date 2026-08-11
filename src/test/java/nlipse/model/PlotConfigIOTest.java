@@ -182,4 +182,20 @@ class PlotConfigIOTest {
         assertTrue(failure.getMessage().contains("familyParameter"));
     }
 
+
+    @Test
+    void saveReplacesTheTargetWithoutLeavingTemporaryFiles() throws Exception {
+        final Path file = tempDirectory.resolve("atomic.properties");
+        final PlotModel model = new PlotModel(PlotConfig.defaults());
+
+        PlotConfigIO.save(file, model.snapshot());
+        model.setFocusPosition(0, 12.5, -8.25);
+        PlotConfigIO.save(file, model.snapshot());
+
+        assertEquals(12.5, PlotConfigIO.load(file).foci().get(0).x(), 0);
+        try (var children = Files.list(tempDirectory)) {
+            assertEquals(List.of(file), children.sorted().toList());
+        }
+    }
+
 }

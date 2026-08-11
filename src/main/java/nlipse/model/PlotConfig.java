@@ -19,13 +19,16 @@ public record PlotConfig(
         boolean logSpacing,
         boolean showLegend) {
 
+    public static final int MAX_FOCI = 1_000;
+    public static final int MAX_CURVES = 200;
+
     public PlotConfig {
         Objects.requireNonNull(curveType, "curveType");
         Objects.requireNonNull(foci, "foci");
         Objects.requireNonNull(viewport, "viewport");
         familyParameter = curveType.normalizeParameter(familyParameter);
-        if (foci.isEmpty()) {
-            throw new IllegalArgumentException("At least one focus is required");
+        if (foci.isEmpty() || foci.size() > MAX_FOCI) {
+            throw new IllegalArgumentException("Focus count must be between 1 and " + MAX_FOCI);
         }
         if (foci.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("Focus list must not contain nulls");
@@ -34,8 +37,8 @@ public record PlotConfig(
                 || distanceMin > distanceMax) {
             throw new IllegalArgumentException("Field level range must be finite and ordered");
         }
-        if (curveCount < 1 || curveCount > 200) {
-            throw new IllegalArgumentException("Curve count must be between 1 and 200");
+        if (curveCount < 1 || curveCount > MAX_CURVES) {
+            throw new IllegalArgumentException("Curve count must be between 1 and " + MAX_CURVES);
         }
         foci = List.copyOf(foci);
     }

@@ -108,6 +108,10 @@ public final class PlotModel {
         if (focus == null) {
             throw new IllegalArgumentException("Focus is required");
         }
+        if (foci.size() >= PlotConfig.MAX_FOCI) {
+            throw new IllegalStateException("At most " + PlotConfig.MAX_FOCI
+                    + " focus points are supported");
+        }
         foci.add(focus);
         selectedFocusIndex = foci.size() - 1;
         return selectedFocusIndex;
@@ -167,8 +171,9 @@ public final class PlotModel {
     }
 
     public synchronized void setCurveCount(final int count) {
-        if (count < 1 || count > 200) {
-            throw new IllegalArgumentException("Curve count must be between 1 and 200");
+        if (count < 1 || count > PlotConfig.MAX_CURVES) {
+            throw new IllegalArgumentException("Curve count must be between 1 and "
+                    + PlotConfig.MAX_CURVES);
         }
         curveCount = count;
     }

@@ -21,7 +21,6 @@ import nlipse.math.DistanceField;
 final class WorldFieldCache {
     private static final int TILE_SIZE = 32;
     private static final int TILES_PER_TASK = 2;
-    private static final double ALIGNMENT_TOLERANCE = 1e-12;
 
     private final long budgetBytes;
     private final Map<FieldIdentity, List<Lattice>> lattices = new HashMap<>();
@@ -53,7 +52,8 @@ final class WorldFieldCache {
 
         final double worldStepX = viewport.width() / (pixelWidth - 1.0);
         final double worldStepY = viewport.height() / (pixelHeight - 1.0);
-        final LatticeSelection selection = selectLattice(identity, viewport, worldStepX, worldStepY);
+        final LatticeSelection selection = selectLattice(identity, viewport,
+                worldStepX, worldStepY, pixelWidth, pixelHeight);
         final long firstGlobalX = selection.offsetX();
         final long firstGlobalY = selection.offsetY();
         final long lastGlobalX = Math.addExact(firstGlobalX, pixelWidth - 1L);
@@ -136,8 +136,9 @@ final class WorldFieldCache {
         }
     }
 
-    private LatticeSelection selectLattice(final FieldIdentity identity, final Viewport viewport,
-            final double worldStepX, final double worldStepY) {
+    private LatticeSelection selectLattice(final FieldIdentity identity,
+            final Viewport viewport, final double worldStepX, final double worldStepY,
+            final int pixelWidth, final int pixelHeight) {
         synchronized (tiles) {
             final List<Lattice> candidates = lattices.computeIfAbsent(identity,
                     ignored -> new ArrayList<>());
@@ -146,9 +147,15 @@ final class WorldFieldCache {
                         || !sameSpacing(lattice.worldStepY(), worldStepY)) {
                     continue;
                 }
-                final Long offsetX = alignedOffset(viewport.xMin() - lattice.anchorX(), worldStepX);
-                final Long offsetY = alignedOffset(lattice.anchorY() - viewport.yMax(), worldStepY);
-                if (offsetX != null && offsetY != null) {
+                final Long offsetX = alignedOffset(
+                        viewport.xMin() - lattice.anchorX(), lattice.worldStepX());
+                final Long offsetY = alignedOffset(
+                        lattice.anchorY() - viewport.yMax(), lattice.worldStepY());
+                if (offsetX != null && offsetY != null
+                        && axisEndpointsMatch(lattice.anchorX(), lattice.worldStepX(),
+                                viewport.xMin(), worldStepX, offsetX, pixelWidth, false)
+                        && axisEndpointsMatch(lattice.anchorY(), lattice.worldStepY(),
+                                viewport.yMax(), worldStepY, offsetY, pixelHeight, true)) {
                     return new LatticeSelection(lattice, offsetX, offsetY);
                 }
             }
@@ -161,9 +168,10 @@ final class WorldFieldCache {
     }
 
     private static boolean sameSpacing(final double first, final double second) {
-        final double scale = Math.max(Math.abs(first), Math.abs(second));
-        final double tolerance = Math.max(Math.ulp(scale) * 16,
-                scale * ALIGNMENT_TOLERANCE);
+        if (Double.doubleToLongBits(first) == Double.doubleToLongBits(second)) {
+            return true;
+        }
+        final double tolerance = Math.max(Math.ulp(first), Math.ulp(second)) * 4;
         return Math.abs(first - second) <= tolerance;
     }
 
@@ -173,10 +181,45 @@ final class WorldFieldCache {
             return null;
         }
         final long rounded = Math.round(raw);
+        // A non-zero sub-pixel shift must not be mistaken for the unchanged lattice.
+        if (rounded == 0 && difference != 0) {
+            return null;
+        }
         final double reconstructed = rounded * spacing;
-        final double tolerance = Math.max(Math.ulp(Math.abs(reconstructed)) * 32,
-                Math.abs(spacing) * ALIGNMENT_TOLERANCE);
+        final double tolerance = Math.max(Math.ulp(difference), Math.ulp(reconstructed)) * 16;
         return Math.abs(difference - reconstructed) <= tolerance ? rounded : null;
+    }
+
+    private static boolean axisEndpointsMatch(final double cachedAnchor,
+            final double cachedSpacing, final double requestedAnchor,
+            final double requestedSpacing, final long offset, final int sampleCount,
+            final boolean reversed) {
+        final long lastIndex;
+        try {
+            lastIndex = Math.addExact(offset, sampleCount - 1L);
+        } catch (final ArithmeticException overflow) {
+            return false;
+        }
+        final double cachedFirst = reversed
+                ? Math.fma(-offset, cachedSpacing, cachedAnchor)
+                : Math.fma(offset, cachedSpacing, cachedAnchor);
+        final double cachedLast = reversed
+                ? Math.fma(-lastIndex, cachedSpacing, cachedAnchor)
+                : Math.fma(lastIndex, cachedSpacing, cachedAnchor);
+        final double requestedLast = reversed
+                ? Math.fma(-(sampleCount - 1.0), requestedSpacing, requestedAnchor)
+                : Math.fma(sampleCount - 1.0, requestedSpacing, requestedAnchor);
+        return ulpClose(cachedFirst, requestedAnchor, 32)
+                && ulpClose(cachedLast, requestedLast, 32);
+    }
+
+    private static boolean ulpClose(final double first, final double second,
+            final int ulps) {
+        if (Double.doubleToLongBits(first) == Double.doubleToLongBits(second)) {
+            return true;
+        }
+        final double tolerance = Math.max(Math.ulp(first), Math.ulp(second)) * ulps;
+        return Math.abs(first - second) <= tolerance;
     }
 
     private static void sampleTiles(final List<TileRequest> requests, final int from,

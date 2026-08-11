@@ -365,17 +365,73 @@ public final class PlotRenderer implements RenderEngine {
             fillBackgroundPixels(pixels, grid, token);
             return;
         }
-        final BufferedImage sampled = new BufferedImage(grid.getColumns(), grid.getRows(),
-                BufferedImage.TYPE_INT_RGB);
-        final int[] pixels = ((DataBufferInt) sampled.getRaster().getDataBuffer()).getData();
-        fillBackgroundPixels(pixels, grid, token);
-        final Object oldInterpolation = graphics.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
-        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        graphics.drawImage(sampled, 0, 0, grid.getPixelWidth(), grid.getPixelHeight(), null);
-        if (oldInterpolation != null) {
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, oldInterpolation);
+        final int[] sampledPixels = new int[grid.getColumns() * grid.getRows()];
+        fillBackgroundPixels(sampledPixels, grid, token);
+        final int[] targetPixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        fillInterpolatedBackground(targetPixels, image.getWidth(), image.getHeight(),
+                sampledPixels, grid, token);
+    }
+
+
+    private static void fillInterpolatedBackground(final int[] targetPixels,
+            final int width, final int height, final int[] sampledPixels,
+            final FieldGrid grid, final CancellationToken token) {
+        int lowerRow = 0;
+        for (int y = 0; y < height; y++) {
+            if ((y & 15) == 0) {
+                token.throwIfCancelled();
+            }
+            while (lowerRow + 1 < grid.getRows() - 1
+                    && y > grid.getPixelY(lowerRow + 1)) {
+                lowerRow++;
+            }
+            final int upperRow = Math.min(lowerRow + 1, grid.getRows() - 1);
+            final int y0 = grid.getPixelY(lowerRow);
+            final int y1 = grid.getPixelY(upperRow);
+            final double vertical = y1 == y0 ? 0 : (y - y0) / (double) (y1 - y0);
+            int lowerColumn = 0;
+            final int targetOffset = y * width;
+            for (int x = 0; x < width; x++) {
+                while (lowerColumn + 1 < grid.getColumns() - 1
+                        && x > grid.getPixelX(lowerColumn + 1)) {
+                    lowerColumn++;
+                }
+                final int upperColumn = Math.min(lowerColumn + 1, grid.getColumns() - 1);
+                final int x0 = grid.getPixelX(lowerColumn);
+                final int x1 = grid.getPixelX(upperColumn);
+                final double horizontal = x1 == x0 ? 0 : (x - x0) / (double) (x1 - x0);
+                final int topOffset = lowerRow * grid.getColumns();
+                final int bottomOffset = upperRow * grid.getColumns();
+                targetPixels[targetOffset + x] = interpolateColor(
+                        sampledPixels[topOffset + lowerColumn],
+                        sampledPixels[topOffset + upperColumn],
+                        sampledPixels[bottomOffset + lowerColumn],
+                        sampledPixels[bottomOffset + upperColumn],
+                        horizontal, vertical);
+            }
         }
+    }
+
+    private static int interpolateColor(final int topLeft, final int topRight,
+            final int bottomLeft, final int bottomRight,
+            final double horizontal, final double vertical) {
+        final int red = bilinearChannel(topLeft >>> 16, topRight >>> 16,
+                bottomLeft >>> 16, bottomRight >>> 16, horizontal, vertical);
+        final int green = bilinearChannel(topLeft >>> 8, topRight >>> 8,
+                bottomLeft >>> 8, bottomRight >>> 8, horizontal, vertical);
+        final int blue = bilinearChannel(topLeft, topRight, bottomLeft, bottomRight,
+                horizontal, vertical);
+        return 0xFF000000 | red << 16 | green << 8 | blue;
+    }
+
+    private static int bilinearChannel(final int topLeft, final int topRight,
+            final int bottomLeft, final int bottomRight,
+            final double horizontal, final double vertical) {
+        final double top = (topLeft & 0xFF) * (1 - horizontal)
+                + (topRight & 0xFF) * horizontal;
+        final double bottom = (bottomLeft & 0xFF) * (1 - horizontal)
+                + (bottomRight & 0xFF) * horizontal;
+        return Math.clamp((int) Math.round(top * (1 - vertical) + bottom * vertical), 0, 255);
     }
 
     private static void fillBackgroundPixels(final int[] pixels, final FieldGrid grid,

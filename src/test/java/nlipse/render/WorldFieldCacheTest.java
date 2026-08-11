@@ -106,4 +106,29 @@ class WorldFieldCacheTest {
         assertEquals(width * height, evaluations.get() - afterFirst);
         assertEquals(0, cache.reusedSamples());
     }
+
+    @Test
+    void nearlyAlignedButBitwiseDifferentLatticeIsNotReused() {
+        final int width = 129;
+        final int height = 97;
+        final Viewport initial = new Viewport(-2, 2, -1.5, 1.5);
+        final double shiftedMinimum = Math.nextUp(initial.xMin());
+        final double shift = shiftedMinimum - initial.xMin();
+        final Viewport shifted = new Viewport(shiftedMinimum,
+                initial.xMax() + shift, initial.yMin(), initial.yMax());
+        final AtomicInteger evaluations = new AtomicInteger();
+        final DistanceField field = (x, y) -> {
+            evaluations.incrementAndGet();
+            return x + y;
+        };
+        final WorldFieldCache cache = new WorldFieldCache(32L * 1024 * 1024);
+
+        cache.sample(IDENTITY, field, initial, width, height, CancellationToken.NONE);
+        final int afterFirst = evaluations.get();
+        cache.sample(IDENTITY, field, shifted, width, height, CancellationToken.NONE);
+
+        assertEquals(width * height, evaluations.get() - afterFirst);
+        assertEquals(0, cache.reusedSamples());
+    }
+
 }

@@ -25,8 +25,9 @@ public record PlotSnapshot(
         Objects.requireNonNull(foci, "foci");
         Objects.requireNonNull(viewport, "viewport");
         familyParameter = curveType.normalizeParameter(familyParameter);
-        if (foci.isEmpty()) {
-            throw new IllegalArgumentException("At least one focus is required");
+        if (foci.isEmpty() || foci.size() > PlotConfig.MAX_FOCI) {
+            throw new IllegalArgumentException("Focus count must be between 1 and "
+                    + PlotConfig.MAX_FOCI);
         }
         if (foci.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("Focus list must not contain nulls");
@@ -35,8 +36,9 @@ public record PlotSnapshot(
                 || distanceMin > distanceMax) {
             throw new IllegalArgumentException("Field level range must be finite and ordered");
         }
-        if (curveCount < 1 || curveCount > 200) {
-            throw new IllegalArgumentException("Curve count must be between 1 and 200");
+        if (curveCount < 1 || curveCount > PlotConfig.MAX_CURVES) {
+            throw new IllegalArgumentException("Curve count must be between 1 and "
+                    + PlotConfig.MAX_CURVES);
         }
         if (selectedFocusIndex < -1 || selectedFocusIndex >= foci.size()) {
             throw new IllegalArgumentException("Selected focus index is out of range");

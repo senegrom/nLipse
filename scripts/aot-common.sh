@@ -46,9 +46,9 @@ aot_current_metadata() {
 }
 
 aot_write_metadata() {
-  aot_metadata_temp="$2.tmp"
+  aot_metadata_temp=$(mktemp "${2}.XXXXXX") || return 1
   if aot_current_metadata "$1" > "$aot_metadata_temp"; then
-    mv "$aot_metadata_temp" "$2"
+    mv -f "$aot_metadata_temp" "$2"
   else
     rm -f "$aot_metadata_temp"
     return 1
