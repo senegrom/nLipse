@@ -24,7 +24,7 @@ class SvgPlotWriterTest {
                 1.5, 4, 8, new Viewport(-2, 2, -2, 2),
                 true, true, true, false, true, 1);
 
-        final String svg = SvgPlotWriter.write(snapshot, 200, 150);
+        final String svg = write(snapshot, 200, 150);
         final Document document = parse(svg);
 
         assertEquals("svg", document.getDocumentElement().getTagName());
@@ -50,7 +50,7 @@ class SvgPlotWriterTest {
                 1.5, 4, 6, new Viewport(-2, 2, -2, 2),
                 true, false, true, false, false, -1);
 
-        final String svg = SvgPlotWriter.write(snapshot, 160, 120);
+        final String svg = write(snapshot, 160, 120);
         final Document document = parse(svg);
 
         assertEquals(0, document.getElementsByTagName("text").getLength());
@@ -66,7 +66,7 @@ class SvgPlotWriterTest {
                 0, 1, 4, new Viewport(-1, 1, -1, 1),
                 true, true, true, false, true, -1);
 
-        final String svg = SvgPlotWriter.write(snapshot, 80, 60);
+        final String svg = write(snapshot, 80, 60);
         final Document document = parse(svg);
 
         assertEquals(0, document.getElementsByTagName("path").getLength());
@@ -83,7 +83,7 @@ class SvgPlotWriterTest {
                 1, 4, 12, new Viewport(-2, 2, -2, 2),
                 false, false, true, false, true, -1);
 
-        final Document document = parse(SvgPlotWriter.write(snapshot, 160, 60));
+        final Document document = parse(write(snapshot, 160, 60));
 
         assertTrue(document.getElementsByTagName("text").getLength() <= 1);
     }
@@ -97,9 +97,17 @@ class SvgPlotWriterTest {
                 true, true, true, false, true, -1);
 
         assertThrows(IllegalArgumentException.class,
-                () -> SvgPlotWriter.write(snapshot, 1, 100));
+                () -> new RenderRequest(snapshot, 1, 100, RenderQuality.FULL));
         assertThrows(IllegalArgumentException.class,
-                () -> SvgPlotWriter.write(null, 100, 100));
+                () -> SvgPlotWriter.write(null));
+    }
+
+
+    private static String write(final PlotSnapshot snapshot, final int width, final int height) {
+        final RenderResult result = new PlotRenderer().render(
+                new RenderRequest(snapshot, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+        return SvgPlotWriter.write(result.renderPackage().orElseThrow());
     }
 
     private static Document parse(final String svg) throws Exception {

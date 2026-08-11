@@ -41,6 +41,7 @@ import nlipse.model.PlotConfigIO;
 import nlipse.model.PlotModel;
 import nlipse.model.PlotSnapshot;
 import nlipse.render.AsyncRenderService;
+import nlipse.render.CancellationToken;
 import nlipse.render.FieldExtrema;
 import nlipse.render.PlotRenderer;
 import nlipse.render.RenderQuality;
@@ -500,7 +501,11 @@ public final class PlotController implements AutoCloseable {
             target = new File(target.getParentFile(), target.getName() + ".svg");
         }
         try {
-            final String svg = SvgPlotWriter.write(model.snapshot(), width, height);
+            final RenderResult completed = renderer.render(
+                    new RenderRequest(model.snapshot(), width, height, RenderQuality.FULL),
+                    CancellationToken.NONE);
+            final String svg = SvgPlotWriter.write(completed.renderPackage().orElseThrow(
+                    () -> new IllegalStateException("Renderer did not produce an export package")));
             AtomicFiles.writeString(target.toPath(), svg, StandardCharsets.UTF_8);
         } catch (final IOException | RuntimeException failed) {
             final String message = failed.getMessage() == null
