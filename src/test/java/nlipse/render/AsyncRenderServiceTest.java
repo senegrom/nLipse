@@ -102,30 +102,41 @@ class AsyncRenderServiceTest {
     }
 
     @Test
-    void acceptedExportPreemptsAnObsoleteInteractiveRender() throws Exception {
+    void acceptedExportWaitsForAUsefulActiveInteractiveRender() throws Exception {
         final CountDownLatch interactiveStarted = new CountDownLatch(1);
+        final CountDownLatch releaseInteractive = new CountDownLatch(1);
+        final CountDownLatch interactiveCompleted = new CountDownLatch(1);
+        final CountDownLatch exportStarted = new CountDownLatch(1);
         final CountDownLatch exportCompleted = new CountDownLatch(1);
         final AtomicBoolean interactiveCancelled = new AtomicBoolean();
         final RenderEngine engine = (request, token) -> {
             if (request.quality() == RenderQuality.PREVIEW) {
                 interactiveStarted.countDown();
-                while (!token.isCancelled()) {
+                while (releaseInteractive.getCount() != 0) {
+                    interactiveCancelled.set(token.isCancelled());
                     Thread.onSpinWait();
                 }
-                interactiveCancelled.set(true);
-                token.throwIfCancelled();
+            } else {
+                exportStarted.countDown();
             }
+            token.throwIfCancelled();
             return result(request);
         };
 
         try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
             service.submitInteractive(request(RenderQuality.PREVIEW),
-                    ignored -> { }, ignored -> { });
+                    ignored -> interactiveCompleted.countDown(), ignored -> { });
             assertTrue(interactiveStarted.await(2, TimeUnit.SECONDS));
             assertTrue(service.submitExport(request(RenderQuality.FULL),
                     ignored -> { }, ignored -> exportCompleted.countDown(), ignored -> { }));
+
+            assertFalse(exportStarted.await(100, TimeUnit.MILLISECONDS));
+            assertFalse(interactiveCancelled.get());
+            releaseInteractive.countDown();
+
+            assertTrue(interactiveCompleted.await(2, TimeUnit.SECONDS));
+            assertTrue(exportStarted.await(2, TimeUnit.SECONDS));
             assertTrue(exportCompleted.await(2, TimeUnit.SECONDS));
-            assertTrue(interactiveCancelled.get());
         }
     }
 
@@ -252,6 +263,32 @@ class AsyncRenderServiceTest {
         }
     }
 
+    @Test
+    void recoverableErrorsAreReportedWithoutKillingTheWorker() throws Exception {
+        final AtomicInteger calls = new AtomicInteger();
+        final CountDownLatch failureDelivered = new CountDownLatch(1);
+        final CountDownLatch successDelivered = new CountDownLatch(1);
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final RenderEngine engine = (request, token) -> {
+            if (calls.getAndIncrement() == 0) {
+                throw new LinkageError("broken renderer dependency");
+            }
+            return result(request);
+        };
+
+        try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
+            service.submitInteractive(request(RenderQuality.PREVIEW), ignored -> { }, throwable -> {
+                failure.set(throwable);
+                failureDelivered.countDown();
+            });
+            assertTrue(failureDelivered.await(2, TimeUnit.SECONDS));
+            assertEquals("broken renderer dependency", failure.get().getMessage());
+
+            service.submitInteractive(request(RenderQuality.PREVIEW),
+                    ignored -> successDelivered.countDown(), ignored -> { });
+            assertTrue(successDelivered.await(2, TimeUnit.SECONDS));
+        }
+    }
 
     @Test
     void exportsRequireFullQualityRequests() {
