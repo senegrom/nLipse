@@ -1,33 +1,35 @@
 package nlipse.render;
 
-import java.util.Objects;
 import nlipse.model.PlotSnapshot;
 
-/** Immutable render input. */
-public record RenderRequest(
-        PlotSnapshot snapshot,
-        int width,
-        int height,
-        RenderQuality quality,
-        long sequence) {
-
-    public RenderRequest(final PlotSnapshot snapshot, final int width, final int height,
-            final RenderQuality quality) {
-        this(snapshot, width, height, quality, 0);
-    }
-
+public record RenderRequest(PlotSnapshot snapshot, int width, int height,
+        RenderQuality quality, long sequence, boolean exactRequired) {
     public RenderRequest {
-        Objects.requireNonNull(snapshot, "snapshot");
-        Objects.requireNonNull(quality, "quality");
-        if (width < 2 || height < 2) {
-            throw new IllegalArgumentException("Render size must be at least 2 by 2");
+        if (snapshot == null || quality == null) {
+            throw new IllegalArgumentException("Snapshot and quality are required");
         }
         if (sequence < 0) {
             throw new IllegalArgumentException("Render sequence must not be negative");
         }
+        RenderDimensions.checkedPixelCount(width, height, 2);
+    }
+
+    public RenderRequest(final PlotSnapshot snapshot, final int width, final int height,
+            final RenderQuality quality) {
+        this(snapshot, width, height, quality, 0, false);
+    }
+
+    public RenderRequest(final PlotSnapshot snapshot, final int width, final int height,
+            final RenderQuality quality, final long sequence) {
+        this(snapshot, width, height, quality, sequence, false);
     }
 
     public RenderRequest withSequence(final long newSequence) {
-        return new RenderRequest(snapshot, width, height, quality, newSequence);
+        return new RenderRequest(snapshot, width, height, quality, newSequence, exactRequired);
+    }
+
+    public RenderRequest requiringExact() {
+        return exactRequired ? this
+                : new RenderRequest(snapshot, width, height, quality, sequence, true);
     }
 }

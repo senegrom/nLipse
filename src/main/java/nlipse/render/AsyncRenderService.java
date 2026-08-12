@@ -114,7 +114,8 @@ public final class AsyncRenderService implements AutoCloseable {
                 return false;
             }
             final long sequence = ++nextSequence;
-            pendingExport = new WorkItem(true, request.withSequence(sequence),
+            pendingExport = new WorkItem(true,
+                    request.requiringExact().withSequence(sequence),
                     onSuccess, onFailure, operation);
             // Do not discard a display render that is already producing a
             // useful frame. The export has priority over queued interaction
@@ -177,6 +178,7 @@ public final class AsyncRenderService implements AutoCloseable {
                 || Thread.currentThread().isInterrupted() || closed;
         try {
             final RenderResult result = engine.render(item.request, token);
+            validateResult(item.request, result);
             token.throwIfCancelled();
             if (item.export) {
                 item.exportOperation.write(result);
@@ -193,6 +195,33 @@ public final class AsyncRenderService implements AutoCloseable {
         } catch (final Throwable failure) {
             return item.cancelled || closed ? null : Outcome.failure(failure);
         }
+    }
+
+    private static void validateResult(final RenderRequest request,
+            final RenderResult result) {
+        if (result == null) {
+            throw new IllegalStateException("Render engine returned no result");
+        }
+        if (result.sequence() != request.sequence()
+                || result.quality() != request.quality()
+                || result.image().getWidth() != request.width()
+                || result.image().getHeight() != request.height()) {
+            throw new IllegalStateException(
+                    "Render engine returned a result for a different request");
+        }
+        if (request.exactRequired() && result.precisionLimited()) {
+            throw new IllegalStateException(
+                    "Exact render exhausted its precision allowance");
+        }
+        result.renderPackage().ifPresent(completed -> {
+            if (!completed.snapshot().equals(request.snapshot())
+                    || completed.width() != request.width()
+                    || completed.height() != request.height()
+                    || completed.quality() != request.quality()) {
+                throw new IllegalStateException(
+                        "Render package does not match its request");
+            }
+        });
     }
 
     private void dispatch(final WorkItem item, final Outcome outcome) {
@@ -246,7 +275,6 @@ public final class AsyncRenderService implements AutoCloseable {
             item.cancelled = true;
         }
     }
-
 
     int pendingTaskCount() {
         synchronized (monitor) {

@@ -300,6 +300,81 @@ class AsyncRenderServiceTest {
     }
 
     @Test
+    void exportCompletionCanImmediatelyQueueTheNextExport() throws Exception {
+        final CountDownLatch secondCompleted = new CountDownLatch(1);
+        final AtomicBoolean secondAccepted = new AtomicBoolean();
+        final RenderEngine engine = (request, token) -> result(request);
+
+        try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
+            assertTrue(service.submitExport(request(RenderQuality.FULL), ignored -> { },
+                    ignored -> secondAccepted.set(service.submitExport(
+                            request(RenderQuality.FULL), ignoredAgain -> { },
+                            ignoredAgain -> secondCompleted.countDown(), ignoredAgain -> { })),
+                    ignored -> { }));
+            assertTrue(secondCompleted.await(2, TimeUnit.SECONDS));
+            assertTrue(secondAccepted.get());
+        }
+    }
+
+    @Test
+    void durableExportsForceExactRendering() throws Exception {
+        final CountDownLatch completed = new CountDownLatch(1);
+        final AtomicBoolean exact = new AtomicBoolean();
+        final RenderEngine engine = (request, token) -> {
+            exact.set(request.exactRequired());
+            return result(request);
+        };
+
+        try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
+            assertTrue(service.submitExport(request(RenderQuality.FULL), ignored -> { },
+                    ignored -> completed.countDown(), ignored -> { }));
+            assertTrue(completed.await(2, TimeUnit.SECONDS));
+            assertTrue(exact.get());
+        }
+    }
+
+    @Test
+    void precisionLimitedExactResultFailsBeforeWriting() throws Exception {
+        final CountDownLatch failed = new CountDownLatch(1);
+        final AtomicBoolean written = new AtomicBoolean();
+        final AtomicReference<Throwable> delivered = new AtomicReference<>();
+        final RenderEngine engine = (request, token) -> new RenderResult(
+                new BufferedImage(request.width(), request.height(),
+                        BufferedImage.TYPE_INT_ARGB),
+                request.sequence(), request.quality(), Optional.empty(), 1, true);
+
+        try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
+            assertTrue(service.submitExport(request(RenderQuality.FULL), ignored ->
+                    written.set(true), ignored -> { }, failure -> {
+                        delivered.set(failure);
+                        failed.countDown();
+                    }));
+            assertTrue(failed.await(2, TimeUnit.SECONDS));
+            assertFalse(written.get());
+            assertTrue(delivered.get().getMessage().contains("precision allowance"));
+        }
+    }
+
+    @Test
+    void mismatchedRenderResultsAreRejected() throws Exception {
+        final CountDownLatch failed = new CountDownLatch(1);
+        final AtomicReference<Throwable> delivered = new AtomicReference<>();
+        final RenderEngine engine = (request, token) -> new RenderResult(
+                new BufferedImage(request.width(), request.height(),
+                        BufferedImage.TYPE_INT_ARGB),
+                request.sequence() + 1, request.quality(), Optional.empty(), 1);
+
+        try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
+            service.submitInteractive(request(RenderQuality.PREVIEW), ignored -> { }, failure -> {
+                delivered.set(failure);
+                failed.countDown();
+            });
+            assertTrue(failed.await(2, TimeUnit.SECONDS));
+            assertTrue(delivered.get().getMessage().contains("different request"));
+        }
+    }
+
+    @Test
     void submissionsAfterCloseAreRejected() {
         final AsyncRenderService service = new AsyncRenderService(
                 (request, token) -> result(request), Runnable::run);

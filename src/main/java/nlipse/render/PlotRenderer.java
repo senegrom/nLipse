@@ -89,31 +89,35 @@ public final class PlotRenderer implements RenderEngine {
         final ContourGeometry contours;
         final double[] levels;
         final BufferedImage cachedLayer;
+        final boolean cacheableArtifacts;
         if (cachedFull != null) {
             grid = cachedFull.grid();
             contours = cachedFull.contours();
             levels = cachedFull.levels();
             cachedLayer = cachedFull.layer();
+            cacheableArtifacts = true;
         } else {
+            final ExactBudget exactBudget = request.exactRequired()
+                    ? ExactBudget.unlimited()
+                    : ExactBudget.limited(exactBudget(request.width(), request.height()));
             final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci(),
-                    snapshot.familyParameter());
-            final long budget = exactBudget(request.width(), request.height());
-            ExactBudget.begin(budget);
+                    snapshot.familyParameter(), exactBudget);
             try {
-                grid = getGrid(request, field, token);
+                grid = getGrid(request, field, exactBudget, token);
                 levels = contourLevels(snapshot, grid);
-                contours = getContourGeometry(request, grid, field, levels, token);
+                contours = getContourGeometry(request, grid, field, levels, exactBudget, token);
             } finally {
-                exactEvaluations.addAndGet(budget - Math.max(0, ExactBudget.remaining()));
-                ExactBudget.end();
+                exactEvaluations.addAndGet(exactBudget.spent());
             }
             cachedLayer = null;
+            cacheableArtifacts = !exactBudget.exhausted();
         }
         final RenderPackage completed = new RenderPackage(snapshot,
                 request.width(), request.height(), request.quality(), levels,
                 levelColors(levels.length), grid.getExtrema(), contours);
         final BufferedImage staticLayer = cachedLayer != null
-                ? cachedLayer : getStaticLayer(request, grid, completed, token);
+                ? cachedLayer : getStaticLayer(request, grid, completed,
+                        cacheableArtifacts, token);
         token.throwIfCancelled();
 
         final BufferedImage image = copyImage(staticLayer);
@@ -143,7 +147,7 @@ public final class PlotRenderer implements RenderEngine {
 
         token.throwIfCancelled();
         return new RenderResult(image, request.sequence(), request.quality(), completed.extrema(),
-                System.nanoTime() - started, completed);
+                System.nanoTime() - started, !cacheableArtifacts, completed);
     }
 
     /** Ill-conditioned samples normally form a curve, so a per-pass allowance that
@@ -200,7 +204,7 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private FieldGrid getGrid(final RenderRequest request, final DistanceField field,
-            final CancellationToken token) {
+            final ExactBudget exactBudget, final CancellationToken token) {
         final FieldKey key = FieldKey.from(request);
         synchronized (gridCache) {
             final FieldGrid cached = gridCache.get(key);
@@ -227,13 +231,20 @@ public final class PlotRenderer implements RenderEngine {
         }
 
         cacheMisses.incrementAndGet();
-        final FieldGrid sampled = key.sampleStep() == 1
-                ? worldFieldCache.sample(key.identity(), field, request.snapshot().viewport(),
-                        request.width(), request.height(), token)
-                : FieldGrid.sample(field, request.snapshot().viewport(),
-                        request.width(), request.height(), key.sampleStep(), token);
+        final FieldGrid sampled;
+        try {
+            sampled = key.sampleStep() == 1
+                    ? worldFieldCache.sample(key.identity(), field, request.snapshot().viewport(),
+                            request.width(), request.height(), token)
+                    : FieldGrid.sample(field, request.snapshot().viewport(),
+                            request.width(), request.height(), key.sampleStep(), token);
+        } finally {
+            if (key.sampleStep() == 1 && exactBudget.exhausted()) {
+                worldFieldCache.invalidate(key.identity());
+            }
+        }
         token.throwIfCancelled();
-        return cacheGrid(key, sampled);
+        return exactBudget.exhausted() ? sampled : cacheGrid(key, sampled);
     }
 
     private FieldGrid cacheGrid(final FieldKey key, final FieldGrid sampled) {
@@ -255,7 +266,8 @@ public final class PlotRenderer implements RenderEngine {
     }
 
     private BufferedImage getStaticLayer(final RenderRequest request, final FieldGrid grid,
-            final RenderPackage completed, final CancellationToken token) {
+            final RenderPackage completed, final boolean cacheable,
+            final CancellationToken token) {
         final LayerKey key = LayerKey.from(request);
         synchronized (layerCache) {
             final BufferedImage cached = layerCache.get(key);
@@ -267,6 +279,9 @@ public final class PlotRenderer implements RenderEngine {
 
         layerCacheMisses.incrementAndGet();
         final BufferedImage rendered = renderStaticLayer(request, grid, completed, token);
+        if (!cacheable) {
+            return rendered;
+        }
         final long bytes = imageBytes(rendered);
         if (bytes > layerBudgetBytes) {
             return rendered;
@@ -312,7 +327,7 @@ public final class PlotRenderer implements RenderEngine {
 
     private ContourGeometry getContourGeometry(final RenderRequest request,
             final FieldGrid grid, final DistanceField field, final double[] levels,
-            final CancellationToken token) {
+            final ExactBudget exactBudget, final CancellationToken token) {
         final ContourKey key = ContourKey.from(request, levels);
         synchronized (contourCache) {
             final ContourGeometry cached = contourCache.get(key);
@@ -327,6 +342,9 @@ public final class PlotRenderer implements RenderEngine {
                 ? ContourGeometry.trace(grid, field, request.snapshot().viewport(),
                         new double[0], token)
                 : ContourGeometry.trace(grid, field, request.snapshot().viewport(), levels, token);
+        if (exactBudget.exhausted()) {
+            return traced;
+        }
         final long bytes = traced.estimatedBytes();
         if (bytes > contourBudgetBytes) {
             return traced;
