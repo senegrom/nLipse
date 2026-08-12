@@ -59,6 +59,7 @@ public final class PlotRenderer implements RenderEngine {
     private final AtomicLong layerCacheHits = new AtomicLong();
     private final AtomicLong layerCacheMisses = new AtomicLong();
     private final AtomicLong fullQualityPreviewHits = new AtomicLong();
+    private final AtomicLong exactEvaluations = new AtomicLong();
     private long cachedGridBytes;
     private long cachedContourBytes;
     private long cachedLayerBytes;
@@ -96,12 +97,14 @@ public final class PlotRenderer implements RenderEngine {
         } else {
             final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci(),
                     snapshot.familyParameter());
-            ExactBudget.begin(exactBudget(request.width(), request.height()));
+            final long budget = exactBudget(request.width(), request.height());
+            ExactBudget.begin(budget);
             try {
                 grid = getGrid(request, field, token);
                 levels = contourLevels(snapshot, grid);
                 contours = getContourGeometry(request, grid, field, levels, token);
             } finally {
+                exactEvaluations.addAndGet(budget - Math.max(0, ExactBudget.remaining()));
                 ExactBudget.end();
             }
             cachedLayer = null;
@@ -748,17 +751,25 @@ public final class PlotRenderer implements RenderEngine {
         }
     }
 
+    /** Exact evaluations spent by this renderer's passes; non-zero means an
+     *  ill-conditioned field, and a budgeted value explains a slower render. */
+    long getExactEvaluations() {
+        return exactEvaluations.get();
+    }
+
     public String cacheSummary() {
+        final long exact = getExactEvaluations();
         return String.format(Locale.ROOT,
                 "tiles %d/%d (%d reused), grid %d/%d (+%d derived), "
-                        + "contour %d/%d, layer %d/%d (+%d full-preview), %.1f/%.1f MiB",
+                        + "contour %d/%d, layer %d/%d (+%d full-preview), %.1f/%.1f MiB%s",
                 getWorldTileHits(), getWorldTileMisses(), getReusedWorldSamples(),
                 getCacheHits(), getCacheMisses(), getDerivedGridHits(),
                 getContourCacheHits(), getContourCacheMisses(),
                 getLayerCacheHits(), getLayerCacheMisses(), getFullQualityPreviewHits(),
                 (getCachedWorldTileBytes() + getCachedGridBytes()
                         + getCachedContourBytes() + getCachedLayerBytes()) / (double) MEBIBYTE,
-                cacheBudgetBytes / (double) MEBIBYTE);
+                cacheBudgetBytes / (double) MEBIBYTE,
+                exact == 0 ? "" : ", " + exact + " exact");
     }
 
     private record ContourKey(FieldKey fieldKey, List<Long> levelBits) {

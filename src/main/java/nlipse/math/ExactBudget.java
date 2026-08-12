@@ -41,6 +41,11 @@ public final class ExactBudget {
         REMAINING.set(limit);
     }
 
+    /** Evaluations still available in the current pass, or -1 outside one. */
+    public static long remaining() {
+        return REMAINING.get();
+    }
+
     /** Restores unlimited exact evaluation. */
     public static void end() {
         declaringThread = null;
