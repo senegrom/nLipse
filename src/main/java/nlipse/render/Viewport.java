@@ -1,6 +1,7 @@
 package nlipse.render;
 
 import java.util.Objects;
+import nlipse.math.ScalarRanges;
 
 /** Immutable mapping between world coordinates and a pixel rectangle. */
 public final class Viewport {
@@ -27,10 +28,6 @@ public final class Viewport {
         }
         if (canonicalXMin >= canonicalXMax || canonicalYMin >= canonicalYMax) {
             throw new IllegalArgumentException("Viewport bounds must have min < max");
-        }
-        if (!Double.isFinite(canonicalXMax - canonicalXMin)
-                || !Double.isFinite(canonicalYMax - canonicalYMin)) {
-            throw new IllegalArgumentException("Viewport spans must be finite");
         }
         this.xMin = canonicalXMin;
         this.xMax = canonicalXMax;
@@ -65,54 +62,117 @@ public final class Viewport {
 
     public double worldX(final double pixelX, final int pixelWidth) {
         requireResolution(pixelWidth);
-        if (lattice != null && lattice.pixelWidth() == pixelWidth) {
-            return lattice.worldX(pixelX);
-        }
-        final double step = width() / (pixelWidth - 1.0);
         if (pixelX == 0) {
             return xMin;
         }
         if (pixelX == pixelWidth - 1.0) {
             return xMax;
         }
-        return Math.fma(pixelX, step, xMin);
+        if (lattice != null && lattice.pixelWidth() == pixelWidth) {
+            final double mapped = lattice.worldX(pixelX);
+            if (Double.isFinite(mapped)) {
+                return mapped;
+            }
+        } else {
+            final double step = SamplingLattice.stepBetween(xMin, xMax, pixelWidth - 1);
+            if (Double.isFinite(step)) {
+                return Math.fma(pixelX, step, xMin);
+            }
+        }
+        return ScalarRanges.interpolate(xMin, xMax, pixelX / (pixelWidth - 1.0));
     }
 
     public double worldY(final double pixelY, final int pixelHeight) {
         requireResolution(pixelHeight);
-        if (lattice != null && lattice.pixelHeight() == pixelHeight) {
-            return lattice.worldY(pixelY);
-        }
-        final double step = -height() / (pixelHeight - 1.0);
         if (pixelY == 0) {
             return yMax;
         }
         if (pixelY == pixelHeight - 1.0) {
             return yMin;
         }
-        return Math.fma(pixelY, step, yMax);
+        if (lattice != null && lattice.pixelHeight() == pixelHeight) {
+            final double mapped = lattice.worldY(pixelY);
+            if (Double.isFinite(mapped)) {
+                return mapped;
+            }
+        } else {
+            final double step = SamplingLattice.stepBetween(yMax, yMin, pixelHeight - 1);
+            if (Double.isFinite(step)) {
+                return Math.fma(pixelY, step, yMax);
+            }
+        }
+        return ScalarRanges.interpolate(yMax, yMin, pixelY / (pixelHeight - 1.0));
     }
 
     public double pixelX(final double worldX, final int pixelWidth) {
         requireResolution(pixelWidth);
+        if (worldX == xMin) {
+            return 0;
+        }
+        if (worldX == xMax) {
+            return pixelWidth - 1.0;
+        }
         final double step = lattice != null && lattice.pixelWidth() == pixelWidth
-                ? lattice.stepX() : width() / (pixelWidth - 1.0);
+                ? lattice.stepX() : SamplingLattice.stepBetween(xMin, xMax, pixelWidth - 1);
         final double origin = lattice != null && lattice.pixelWidth() == pixelWidth
                 ? lattice.originX() : xMin;
         final long offset = lattice != null && lattice.pixelWidth() == pixelWidth
                 ? lattice.offsetX() : 0;
-        return (worldX - origin) / step - offset;
+        double mapped = Double.NaN;
+        if (step != 0 && Double.isFinite(step)) {
+            mapped = (worldX - origin) / step - offset;
+        }
+        if (!Double.isFinite(mapped)) {
+            mapped = ScalarRanges.unboundedFraction(worldX, xMin, xMax)
+                    * (pixelWidth - 1.0);
+        }
+        return preserveOutside(worldX, xMin, xMax, mapped, pixelWidth - 1.0, false);
     }
 
     public double pixelY(final double worldY, final int pixelHeight) {
         requireResolution(pixelHeight);
+        if (worldY == yMax) {
+            return 0;
+        }
+        if (worldY == yMin) {
+            return pixelHeight - 1.0;
+        }
         final double step = lattice != null && lattice.pixelHeight() == pixelHeight
-                ? lattice.stepY() : -height() / (pixelHeight - 1.0);
+                ? lattice.stepY() : SamplingLattice.stepBetween(yMax, yMin, pixelHeight - 1);
         final double origin = lattice != null && lattice.pixelHeight() == pixelHeight
                 ? lattice.originY() : yMax;
         final long offset = lattice != null && lattice.pixelHeight() == pixelHeight
                 ? lattice.offsetY() : 0;
-        return (worldY - origin) / step - offset;
+        double mapped = Double.NaN;
+        if (step != 0 && Double.isFinite(step)) {
+            mapped = (worldY - origin) / step - offset;
+        }
+        if (!Double.isFinite(mapped)) {
+            mapped = (1 - ScalarRanges.unboundedFraction(worldY, yMin, yMax))
+                    * (pixelHeight - 1.0);
+        }
+        return preserveOutside(worldY, yMin, yMax, mapped, pixelHeight - 1.0, true);
+    }
+
+    private static double preserveOutside(final double value,
+            final double minimum, final double maximum, final double mapped,
+            final double lastPixel, final boolean reversed) {
+        if (!reversed) {
+            if (value < minimum && !(mapped < 0)) {
+                return Math.nextDown(0.0);
+            }
+            if (value > maximum && !(mapped > lastPixel)) {
+                return Math.nextUp(lastPixel);
+            }
+        } else {
+            if (value > maximum && !(mapped < 0)) {
+                return Math.nextDown(0.0);
+            }
+            if (value < minimum && !(mapped > lastPixel)) {
+                return Math.nextUp(lastPixel);
+            }
+        }
+        return mapped;
     }
 
     public Viewport panPixels(final double dxPixels, final double dyPixels,
@@ -137,8 +197,10 @@ public final class Viewport {
             }
         }
 
-        final double dxWorld = dxPixels * width() / (pixelWidth - 1.0);
-        final double dyWorld = dyPixels * height() / (pixelHeight - 1.0);
+        final double dxWorld = dxPixels
+                * SamplingLattice.stepBetween(xMin, xMax, pixelWidth - 1);
+        final double dyWorld = dyPixels
+                * SamplingLattice.stepBetween(yMin, yMax, pixelHeight - 1);
         return transformedOrThis(xMin - dxWorld, xMax - dxWorld,
                 yMin + dyWorld, yMax + dyWorld);
     }
@@ -154,10 +216,10 @@ public final class Viewport {
         final double centreX = worldX(pixelX, pixelWidth);
         final double centreY = worldY(pixelY, pixelHeight);
         return transformedOrThis(
-                centreX + (xMin - centreX) * scale,
-                centreX + (xMax - centreX) * scale,
-                centreY + (yMin - centreY) * scale,
-                centreY + (yMax - centreY) * scale);
+                scaledFrom(centreX, xMin, scale),
+                scaledFrom(centreX, xMax, scale),
+                scaledFrom(centreY, yMin, scale),
+                scaledFrom(centreY, yMax, scale));
     }
 
     SamplingLattice samplingLattice(final int pixelWidth, final int pixelHeight) {
@@ -166,10 +228,8 @@ public final class Viewport {
         if (lattice != null && lattice.matches(pixelWidth, pixelHeight)) {
             return lattice;
         }
-        return new SamplingLattice(xMin, xMax, yMax, yMin,
-                width() / (pixelWidth - 1.0),
-                -height() / (pixelHeight - 1.0),
-                0, 0, pixelWidth, pixelHeight);
+        return SamplingLattice.fromViewport(xMin, xMax, yMin, yMax,
+                pixelWidth, pixelHeight);
     }
 
     private Viewport fromLatticeOrThis(final SamplingLattice shifted) {
@@ -191,13 +251,23 @@ public final class Viewport {
         return new Viewport(newXMin, newXMax, newYMin, newYMax);
     }
 
+    private static double scaledFrom(final double anchor, final double endpoint,
+            final double scale) {
+        if (scale < 1) {
+            return ScalarRanges.interpolate(anchor, endpoint, scale);
+        }
+        final double direct = Math.fma(endpoint - anchor, scale, anchor);
+        if (Double.isFinite(direct)) {
+            return direct;
+        }
+        return Math.fma(endpoint, scale, anchor * (1 - scale));
+    }
+
     private static boolean validBounds(final double newXMin, final double newXMax,
             final double newYMin, final double newYMax) {
         return Double.isFinite(newXMin) && Double.isFinite(newXMax)
                 && Double.isFinite(newYMin) && Double.isFinite(newYMax)
-                && newXMin < newXMax && newYMin < newYMax
-                && Double.isFinite(newXMax - newXMin)
-                && Double.isFinite(newYMax - newYMin);
+                && newXMin < newXMax && newYMin < newYMax;
     }
 
     private static Long integralPixelOffset(final double value) {

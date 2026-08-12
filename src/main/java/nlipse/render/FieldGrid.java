@@ -44,9 +44,7 @@ public final class FieldGrid {
         if (field == null || viewport == null || token == null) {
             throw new IllegalArgumentException("Field, viewport and cancellation token are required");
         }
-        if (pixelWidth < 2 || pixelHeight < 2) {
-            throw new IllegalArgumentException("Grid size must be at least 2 by 2");
-        }
+        RenderDimensions.validate(pixelWidth, pixelHeight);
         token.throwIfCancelled();
 
         final int step = Math.max(1, requestedStep);
@@ -177,8 +175,8 @@ public final class FieldGrid {
             throw new IllegalArgumentException(
                     "Viewport, sampled values and cancellation token are required");
         }
-        if (pixelWidth < 2 || pixelHeight < 2
-                || values.length != Math.multiplyExact(pixelWidth, pixelHeight)) {
+        final int pixelCount = RenderDimensions.pixelCount(pixelWidth, pixelHeight);
+        if (values.length != pixelCount) {
             throw new IllegalArgumentException("Full-resolution values must match the grid size");
         }
         final int[] pixelXs = new int[pixelWidth];

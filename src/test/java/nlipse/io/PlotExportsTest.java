@@ -2,12 +2,14 @@ package nlipse.io;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,6 +45,20 @@ class PlotExportsTest {
         assertTrue(xml.startsWith("<?xml"));
         assertTrue(xml.contains("<svg"));
         assertTrue(xml.contains("<polyline") || xml.contains("<path"));
+    }
+
+    @Test
+    void rejectsPrecisionLimitedResultsBeforeCreatingFiles() {
+        final RenderResult limited = new RenderResult(
+                new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB),
+                1, RenderQuality.FULL, Optional.empty(), 1, true);
+        final Path png = directory.resolve("limited.png");
+        final Path svg = directory.resolve("limited.svg");
+
+        assertThrows(java.io.IOException.class, () -> PlotExports.writePng(limited, png));
+        assertThrows(java.io.IOException.class, () -> PlotExports.writeSvg(limited, svg));
+        assertTrue(Files.notExists(png));
+        assertTrue(Files.notExists(svg));
     }
 
     private static PlotSnapshot snapshot() {

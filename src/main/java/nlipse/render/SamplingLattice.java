@@ -14,16 +14,48 @@ record SamplingLattice(
         int pixelHeight) {
 
     SamplingLattice {
-        if (!Double.isFinite(originX) || !Double.isFinite(rootXMax)
-                || !Double.isFinite(originY) || !Double.isFinite(rootYMin)
-                || !Double.isFinite(stepX) || !Double.isFinite(stepY)
-                || originX >= rootXMax || rootYMin >= originY
-                || stepX <= 0 || stepY >= 0) {
-            throw new IllegalArgumentException("Sampling lattice must be finite and oriented");
-        }
         if (pixelWidth < 2 || pixelHeight < 2) {
             throw new IllegalArgumentException("Sampling-lattice resolution must be at least 2x2");
         }
+        stepX = stepX == 0 ? 0 : stepX;
+        stepY = stepY == 0 ? -0.0 : stepY;
+        if (!Double.isFinite(originX) || !Double.isFinite(rootXMax)
+                || !Double.isFinite(originY) || !Double.isFinite(rootYMin)
+                || Double.isNaN(stepX) || Double.isNaN(stepY)
+                || originX >= rootXMax || rootYMin >= originY
+                || stepX < 0 || stepY > 0
+                || Double.isInfinite(stepX) && pixelWidth != 2
+                || Double.isInfinite(stepY) && pixelHeight != 2) {
+            throw new IllegalArgumentException("Sampling lattice must be finite and oriented");
+        }
+    }
+
+    static SamplingLattice fromViewport(final double xMin, final double xMax,
+            final double yMin, final double yMax,
+            final int pixelWidth, final int pixelHeight) {
+        return new SamplingLattice(xMin, xMax, yMax, yMin,
+                stepBetween(xMin, xMax, pixelWidth - 1),
+                stepBetween(yMax, yMin, pixelHeight - 1),
+                0, 0, pixelWidth, pixelHeight);
+    }
+
+    /**
+     * Returns the representable per-interval step without first overflowing the span.
+     * A two-pixel full-range axis has no finite step, so signed infinity is retained as
+     * an endpoint-only sentinel; wider axes divide the endpoints before subtraction.
+     */
+    static double stepBetween(final double start, final double end, final int intervals) {
+        if (intervals < 1 || !Double.isFinite(start) || !Double.isFinite(end) || start == end) {
+            throw new IllegalArgumentException("Finite distinct endpoints and intervals are required");
+        }
+        final double span = end - start;
+        if (Double.isFinite(span)) {
+            return span / intervals;
+        }
+        if (intervals == 1) {
+            return Math.copySign(Double.POSITIVE_INFINITY, span);
+        }
+        return end / intervals - start / intervals;
     }
 
     boolean matches(final int width, final int height) {

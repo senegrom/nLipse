@@ -25,6 +25,13 @@ final class ExactFieldMath {
                 .multiply(AdaptiveDecimal.exact(scale)).doubleValue();
     }
 
+    static double magnitudeDistance(final FocusSet foci, final int index,
+            final double x, final double y) {
+        return AdaptiveDecimal.toDouble(context ->
+                magnitudeDistance(foci.exactData(), index, point(x, y), context)
+                        .round(context));
+    }
+
     static double signedDistanceSum(final FocusSet foci, final double x, final double y) {
         return AdaptiveDecimal.toDouble(WEIGHTED_DISTANCE_SCALE_EXPONENT, context -> {
             final DecimalPoint point = point(x, y);
@@ -46,7 +53,7 @@ final class ExactFieldMath {
         if (foci.activeCount() == 0) {
             return 0;
         }
-        return AdaptiveDecimal.toDouble(WEIGHTED_DISTANCE_SCALE_EXPONENT, context -> {
+        return AdaptiveDecimal.toDouble(context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
@@ -152,7 +159,7 @@ final class ExactFieldMath {
         if (foci.activeCount() == 0) {
             return 0;
         }
-        return AdaptiveDecimal.toDouble(WEIGHTED_DISTANCE_SCALE_EXPONENT, context -> {
+        return AdaptiveDecimal.toDouble(context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             BigDecimal result = null;
@@ -175,7 +182,7 @@ final class ExactFieldMath {
         if (count == 0) {
             return 0;
         }
-        return AdaptiveDecimal.toDouble(WEIGHTED_DISTANCE_SCALE_EXPONENT, context -> {
+        return AdaptiveDecimal.toDouble(context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final BigDecimal[] values = new BigDecimal[count];

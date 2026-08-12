@@ -25,6 +25,9 @@ public final class SvgPlotWriter {
         if (completed == null) {
             throw new IllegalArgumentException("Completed render package is required");
         }
+        if (completed.precisionLimited()) {
+            throw new IllegalArgumentException("Precision-limited geometry cannot be exported");
+        }
         final PlotSnapshot snapshot = completed.snapshot();
         final int width = completed.width();
         final int height = completed.height();

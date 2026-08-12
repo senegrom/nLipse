@@ -282,6 +282,44 @@ class PlotRendererTest {
         assertEquals(CurveType.values().length, renderer.getCacheMisses());
     }
 
+    @Test
+    void rendersMinimumSubnormalViewportAtFullAndPreviewQuality() {
+        final PlotSnapshot tiny = new PlotSnapshot(CurveType.NEAREST,
+                CurveType.NEAREST.defaultParameter(),
+                List.of(new Focus(0, 0, 1)), 0, Double.MIN_VALUE, 2,
+                new Viewport(0, Double.MIN_VALUE, 0, Double.MIN_VALUE),
+                true, true, true, false, false, -1);
+        final PlotRenderer renderer = new PlotRenderer();
+
+        for (final RenderQuality quality : RenderQuality.values()) {
+            final RenderResult result = renderer.render(
+                    new RenderRequest(tiny, 5, 4, quality), CancellationToken.NONE);
+            assertEquals(5, result.image().getWidth());
+            assertEquals(4, result.image().getHeight());
+            assertTrue(result.extrema().isPresent());
+        }
+    }
+
+    @Test
+    void rendersAViewportSpanningTheFullFiniteDoubleRange() {
+        final double maximum = Double.MAX_VALUE;
+        final PlotSnapshot fullRange = new PlotSnapshot(CurveType.NEAREST,
+                CurveType.NEAREST.defaultParameter(),
+                List.of(new Focus(0, 0, 1)), 0, maximum, 3,
+                new Viewport(-maximum, maximum, -maximum, maximum),
+                false, true, true, false, false, -1);
+        final PlotRenderer renderer = new PlotRenderer();
+
+        for (final int size : new int[] {2, 4}) {
+            final RenderResult result = renderer.render(
+                    new RenderRequest(fullRange, size, size, RenderQuality.FULL),
+                    CancellationToken.NONE);
+            assertEquals(size, result.image().getWidth());
+            assertEquals(size, result.image().getHeight());
+            assertEquals(size > 2, result.extrema().isPresent());
+        }
+    }
+
     private static PlotSnapshot snapshot(final double minimum, final double maximum,
             final int count, final boolean background, final int selectedFocus) {
         return new PlotSnapshot(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),

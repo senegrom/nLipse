@@ -11,18 +11,26 @@ public record RenderResult(
         RenderQuality quality,
         Optional<FieldExtrema> extrema,
         long renderNanos,
-        Optional<RenderPackage> renderPackage) {
+        Optional<RenderPackage> renderPackage,
+        boolean precisionLimited) {
 
     public RenderResult(final BufferedImage image, final long sequence,
             final RenderQuality quality, final Optional<FieldExtrema> extrema,
             final long renderNanos) {
-        this(image, sequence, quality, extrema, renderNanos, Optional.empty());
+        this(image, sequence, quality, extrema, renderNanos, Optional.empty(), false);
+    }
+
+    public RenderResult(final BufferedImage image, final long sequence,
+            final RenderQuality quality, final Optional<FieldExtrema> extrema,
+            final long renderNanos, final boolean precisionLimited) {
+        this(image, sequence, quality, extrema, renderNanos, Optional.empty(), precisionLimited);
     }
 
     public RenderResult(final BufferedImage image, final long sequence,
             final RenderQuality quality, final Optional<FieldExtrema> extrema,
             final long renderNanos, final RenderPackage renderPackage) {
-        this(image, sequence, quality, extrema, renderNanos, Optional.of(renderPackage));
+        this(image, sequence, quality, extrema, renderNanos, Optional.of(renderPackage),
+                renderPackage.precisionLimited());
     }
 
     public RenderResult {
@@ -37,7 +45,8 @@ public record RenderResult(
             if (completed.width() != image.getWidth() || completed.height() != image.getHeight()) {
                 throw new IllegalArgumentException("Render package size must match the image");
             }
-            if (completed.quality() != quality || !completed.extrema().equals(extrema)) {
+            if (completed.quality() != quality || !completed.extrema().equals(extrema)
+                    || completed.precisionLimited() != precisionLimited) {
                 throw new IllegalArgumentException("Render package metadata must match the result");
             }
         });

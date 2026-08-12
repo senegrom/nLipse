@@ -108,6 +108,9 @@ public final class AsyncRenderService implements AutoCloseable {
         if (request.quality() != RenderQuality.FULL) {
             throw new IllegalArgumentException("Exports require a full-quality render");
         }
+        if (request.exactness() != RenderExactness.REQUIRE_EXACT) {
+            throw new IllegalArgumentException("Exports require an exact render request");
+        }
         synchronized (monitor) {
             ensureOpen();
             if (hasOutstandingExport()) {
@@ -178,6 +181,9 @@ public final class AsyncRenderService implements AutoCloseable {
         try {
             final RenderResult result = engine.render(item.request, token);
             token.throwIfCancelled();
+            if (item.export && result.precisionLimited()) {
+                throw new PrecisionLimitExceededException();
+            }
             if (item.export) {
                 item.exportOperation.write(result);
                 token.throwIfCancelled();

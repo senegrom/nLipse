@@ -17,6 +17,7 @@ public final class PlotExports {
     public static void writePng(final RenderResult result, final Path target) throws IOException {
         Objects.requireNonNull(result, "result");
         Objects.requireNonNull(target, "target");
+        requireExact(result);
         AtomicFiles.replace(target, temporary -> {
             if (!ImageIO.write(result.image(), "png", temporary.toFile())) {
                 throw new IOException("No PNG writer is installed");
@@ -27,8 +28,15 @@ public final class PlotExports {
     public static void writeSvg(final RenderResult result, final Path target) throws IOException {
         Objects.requireNonNull(result, "result");
         Objects.requireNonNull(target, "target");
+        requireExact(result);
         final RenderPackage completed = result.renderPackage().orElseThrow(
                 () -> new IOException("Renderer did not produce an export package"));
         AtomicFiles.writeString(target, SvgPlotWriter.write(completed), StandardCharsets.UTF_8);
+    }
+
+    private static void requireExact(final RenderResult result) throws IOException {
+        if (result.precisionLimited()) {
+            throw new IOException("Precision-limited renders cannot be exported");
+        }
     }
 }

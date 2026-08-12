@@ -716,35 +716,34 @@ class DistanceFieldsTest {
     }
 
     @Test
-    void anExhaustedBudgetKeepsThePrimitiveResultButNeverAppliesOutsideARender() {
+    void anExhaustedBudgetIsIsolatedFromDirectAndConcurrentFields() {
         final List<Focus> foci = List.of(
                 new Focus(1.1, 0, 1e16),
                 new Focus(2.3, 0, 4_782_608_695_647_391.0));
-        final DistanceField field = DistanceFields.create(CurveType.RANGE, foci);
         final double exact = 0x1.57d3807e081ccp13;
+        final ExactBudget budget = ExactBudget.limited(1);
+        final DistanceField budgeted = DistanceFields.create(CurveType.RANGE, foci,
+                CurveType.RANGE.defaultParameter(), budget);
+        final DistanceField direct = DistanceFields.create(CurveType.RANGE, foci);
 
-        ExactBudget.begin(1);
+        assertEquals(exact, budgeted.value(0, 0), 0);
+        final double afterBudget = budgeted.value(0, 0);
+        assertTrue(afterBudget != exact, "the budget was not consumed");
+        assertEquals(exact, afterBudget, Math.abs(exact) * 1e-3);
+        assertTrue(budget.exhausted());
+
+        // Cursor readouts and unrelated fields remain exact on every thread.
+        assertEquals(exact, direct.value(0, 0), 0);
+        final double[] probed = new double[1];
+        final Thread probe = new Thread(() -> probed[0] = direct.value(0, 0));
+        probe.start();
         try {
-            assertEquals(exact, field.value(0, 0), 0);
-            final double afterBudget = field.value(0, 0);
-            assertTrue(afterBudget != exact, "the budget was not consumed");
-            assertEquals(exact, afterBudget, Math.abs(exact) * 1e-3);
-
-            // A thread outside the render pass stays exact even while the
-            // declaring thread's budget is active and exhausted.
-            final double[] probed = new double[1];
-            final Thread probe = new Thread(() -> probed[0] = field.value(0, 0));
-            probe.start();
             probe.join();
-            assertEquals(exact, probed[0], 0);
         } catch (final InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
             throw new AssertionError(interrupted);
-        } finally {
-            ExactBudget.end();
         }
-
-        // Cursor readouts and direct API use are never budgeted.
-        assertEquals(exact, field.value(0, 0), 0);
+        assertEquals(exact, probed[0], 0);
     }
 
     @Test
@@ -814,6 +813,37 @@ class DistanceFieldsTest {
         assertEquals(expectedFarthest,
                 DistanceFields.create(CurveType.SMOOTH_FARTHEST, foci, maximum).value(0, 0),
                 8 * Math.ulp(expectedFarthest));
+    }
+
+    @Test
+    void combinedSubnormalWeightedNormSurvivesComponentRounding() {
+        final List<Focus> foci = List.of(new Focus(0, 0, Double.MIN_VALUE));
+        final double x = 0.4;
+        final double y = 0.4;
+
+        for (final CurveType type : List.of(CurveType.LIPSE, CurveType.NEAREST,
+                CurveType.FARTHEST, CurveType.QUADRATIC, CurveType.MEDIAN,
+                CurveType.SMOOTH_NEAREST, CurveType.SMOOTH_FARTHEST)) {
+            assertEquals(Double.MIN_VALUE,
+                    DistanceFields.create(type, foci, type.defaultParameter()).value(x, y),
+                    0, type.name());
+        }
+        for (final double power : new double[]{-2, -1, 0, 1, 2, 3.5}) {
+            assertEquals(Double.MIN_VALUE,
+                    DistanceFields.create(CurveType.POWER_MEAN, foci, power).value(x, y),
+                    0, "p=" + power);
+        }
+    }
+
+    @Test
+    void nonCancellingSubnormalFallbackStopsAtLowPrecision() {
+        final FocusSet foci = FocusSet.from(
+                List.of(new Focus(0, 0, Double.MIN_VALUE)));
+        AdaptiveDecimal.resetStatistics();
+
+        assertEquals(Double.MIN_VALUE,
+                ExactFieldMath.magnitudeDistance(foci, 0, 0.4, 0.4), 0);
+        assertTrue(AdaptiveDecimal.statistics().peakPrecision() <= 128);
     }
 
 }

@@ -21,17 +21,18 @@ public final class RenderPackage {
     private final Color[] levelColors;
     private final Optional<FieldExtrema> extrema;
     private final ContourGeometry contours;
+    private final boolean precisionLimited;
 
     RenderPackage(final PlotSnapshot snapshot, final int width, final int height,
             final RenderQuality quality, final double[] levels, final Color[] levelColors,
-            final Optional<FieldExtrema> extrema, final ContourGeometry contours) {
+            final Optional<FieldExtrema> extrema, final ContourGeometry contours,
+            final boolean precisionLimited) {
         this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
         this.quality = Objects.requireNonNull(quality, "quality");
         this.extrema = Objects.requireNonNull(extrema, "extrema");
         this.contours = Objects.requireNonNull(contours, "contours");
-        if (width < 2 || height < 2) {
-            throw new IllegalArgumentException("Render size must be at least 2 by 2");
-        }
+        this.precisionLimited = precisionLimited;
+        RenderDimensions.validate(width, height);
         if (levels == null || levelColors == null || levels.length != levelColors.length) {
             throw new IllegalArgumentException("Contour levels and colours must have equal lengths");
         }
@@ -85,6 +86,10 @@ public final class RenderPackage {
 
     public Optional<FieldExtrema> extrema() {
         return extrema;
+    }
+
+    public boolean precisionLimited() {
+        return precisionLimited;
     }
 
     ContourGeometry contours() {

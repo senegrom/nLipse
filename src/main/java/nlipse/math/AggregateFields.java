@@ -120,7 +120,7 @@ final class AggregateFields {
             if (finitePoint && !magnitudes && positiveFinite && negativeFinite
                     && FieldMath.cancellationUncertain(rawSum, magnitudeSum.value(),
                             finiteTermCount, FieldMath.EXACT_CANCELLATION_RATIO)
-                    && ExactBudget.tryConsume()) {
+                    && foci.tryConsumeExact()) {
                 return exactValue(x, y);
             }
             return Double.isFinite(result) ? result : exactValue(x, y);
@@ -212,7 +212,7 @@ final class AggregateFields {
             final int pairCount = size * (size - 1) / 2;
             if (finitePoint && FieldMath.cancellationUncertain(normalized, 1.0,
                     pairCount, FieldMath.EXACT_CANCELLATION_RATIO)
-                    && ExactBudget.tryConsume()) {
+                    && foci.tryConsumeExact()) {
                 return ExactFieldMath.hyperbola(foci, x, y);
             }
             return Double.isFinite(result) || !finitePoint ? result
@@ -278,7 +278,7 @@ final class AggregateFields {
             if (finitePoint && Double.isFinite(maximum)
                     && FieldMath.cancellationUncertain(result, maximum, 2,
                             FieldMath.EXACT_CANCELLATION_RATIO)
-                    && ExactBudget.tryConsume()) {
+                    && foci.tryConsumeExact()) {
                 return ExactFieldMath.range(foci, x, y);
             }
             return Double.isFinite(result) || !finitePoint ? result
@@ -344,7 +344,7 @@ final class AggregateFields {
                             && FieldMath.cancellationUncertain(logarithmSum,
                                     logarithmMagnitudes.value(), foci.activeCount(),
                                     FieldMath.EXACT_CANCELLATION_RATIO)
-                            && ExactBudget.tryConsume())) {
+                            && foci.tryConsumeExact())) {
                 return ExactFieldMath.powerMean(foci, x, y, 0);
             }
             return FieldMath.expFromLog(meanLogarithm);

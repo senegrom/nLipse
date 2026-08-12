@@ -45,9 +45,7 @@ final class WorldFieldCache {
             throw new IllegalArgumentException(
                     "Field identity, field, viewport and cancellation token are required");
         }
-        if (pixelWidth < 2 || pixelHeight < 2) {
-            throw new IllegalArgumentException("Grid size must be at least 2 by 2");
-        }
+        final int pixelCount = RenderDimensions.pixelCount(pixelWidth, pixelHeight);
         token.throwIfCancelled();
 
         final LatticeSelection selection = selectLattice(identity, viewport,
@@ -103,7 +101,7 @@ final class WorldFieldCache {
             }
             token.throwIfCancelled();
 
-            final double[] values = new double[Math.multiplyExact(pixelWidth, pixelHeight)];
+            final double[] values = new double[pixelCount];
             for (int row = 0; row < pixelHeight; row++) {
                 if ((row & 31) == 0) {
                     token.throwIfCancelled();
@@ -195,6 +193,39 @@ final class WorldFieldCache {
         } finally {
             reusedSamples.addAndGet(reused);
             sampledValues.addAndGet(sampled);
+        }
+    }
+
+    /** Removes all cached samples for one mathematical field identity. */
+    void invalidate(final FieldIdentity identity) {
+        if (identity == null) {
+            return;
+        }
+        synchronized (tiles) {
+            final java.util.HashSet<Long> latticeIds = new java.util.HashSet<>();
+            for (final Lattice lattice : latticesById.values()) {
+                if (lattice.key().identity().equals(identity)) {
+                    latticeIds.add(lattice.id());
+                }
+            }
+            if (latticeIds.isEmpty()) {
+                return;
+            }
+            final Iterator<Map.Entry<TileKey, Tile>> iterator = tiles.entrySet().iterator();
+            while (iterator.hasNext()) {
+                final Map.Entry<TileKey, Tile> entry = iterator.next();
+                if (latticeIds.contains(entry.getKey().latticeId())) {
+                    iterator.remove();
+                    cachedBytes -= Tile.ESTIMATED_BYTES;
+                }
+            }
+            for (final long latticeId : latticeIds) {
+                final Lattice lattice = latticesById.remove(latticeId);
+                tileCountsByLattice.remove(latticeId);
+                if (lattice != null) {
+                    lattices.remove(lattice.key(), lattice);
+                }
+            }
         }
     }
 

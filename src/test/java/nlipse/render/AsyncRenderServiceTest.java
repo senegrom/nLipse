@@ -299,6 +299,41 @@ class AsyncRenderServiceTest {
         }
     }
 
+
+    @Test
+    void exportsRequireExactRequests() {
+        try (AsyncRenderService service = new AsyncRenderService(
+                (request, token) -> result(request), Runnable::run)) {
+            final RenderRequest nonExact = new RenderRequest(snapshot(), 2, 2,
+                    RenderQuality.FULL);
+            assertThrows(IllegalArgumentException.class,
+                    () -> service.submitExport(nonExact,
+                            ignored -> { }, ignored -> { }, ignored -> { }));
+        }
+    }
+
+    @Test
+    void precisionLimitedExportResultsAreRejectedBeforeWriting() throws Exception {
+        final AtomicInteger writes = new AtomicInteger();
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final CountDownLatch delivered = new CountDownLatch(1);
+        final RenderEngine engine = (request, token) -> new RenderResult(
+                new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB),
+                request.sequence(), request.quality(), Optional.empty(), 1, true);
+
+        try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
+            assertTrue(service.submitExport(request(RenderQuality.FULL),
+                    ignored -> writes.incrementAndGet(), ignored -> { }, throwable -> {
+                        failure.set(throwable);
+                        delivered.countDown();
+                    }));
+            assertTrue(delivered.await(2, TimeUnit.SECONDS));
+        }
+
+        assertEquals(0, writes.get());
+        assertTrue(failure.get() instanceof PrecisionLimitExceededException);
+    }
+
     @Test
     void submissionsAfterCloseAreRejected() {
         final AsyncRenderService service = new AsyncRenderService(
@@ -313,12 +348,18 @@ class AsyncRenderServiceTest {
                         ignored -> { }, ignored -> { }, ignored -> { }));
     }
 
-    private static RenderRequest request(final RenderQuality quality) {
-        final PlotSnapshot snapshot = new PlotSnapshot(CurveType.LIPSE,
+    private static PlotSnapshot snapshot() {
+        return new PlotSnapshot(CurveType.LIPSE,
                 CurveType.LIPSE.defaultParameter(),
                 List.of(new Focus(0, 0, 1)), 0, 1, 1,
                 new Viewport(-1, 1, -1, 1), false, false, true, false, false, -1);
-        return new RenderRequest(snapshot, 2, 2, quality);
+    }
+
+    private static RenderRequest request(final RenderQuality quality) {
+        return new RenderRequest(snapshot(), 2, 2, quality,
+                quality == RenderQuality.FULL
+                        ? RenderExactness.REQUIRE_EXACT
+                        : RenderExactness.ALLOW_LIMITED);
     }
 
     private static RenderResult result(final RenderRequest request) {
