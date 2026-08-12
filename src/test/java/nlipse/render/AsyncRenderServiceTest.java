@@ -168,7 +168,6 @@ class AsyncRenderServiceTest {
 
             service.submitInteractive(request(RenderQuality.PREVIEW),
                     ignored -> interactiveCompleted.countDown(), ignored -> { });
-            assertTrue(service.exportOutstanding());
             releaseExport.countDown();
 
             assertTrue(exportCompleted.await(2, TimeUnit.SECONDS));

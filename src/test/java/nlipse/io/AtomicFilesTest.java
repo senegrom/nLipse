@@ -41,6 +41,25 @@ class AtomicFilesTest {
         assertFalse(hasTemporarySibling(target));
     }
 
+    @Test
+    void cleanupFailureDoesNotHideTheWriterFailure() throws Exception {
+        final Path target = temporaryDirectory.resolve("plot.txt");
+        Files.writeString(target, "old", StandardCharsets.UTF_8);
+
+        final IOException failure = assertThrows(IOException.class,
+                () -> AtomicFiles.replace(target, temporary -> {
+                    Files.delete(temporary);
+                    Files.createDirectory(temporary);
+                    Files.writeString(temporary.resolve("child"), "partial",
+                            StandardCharsets.UTF_8);
+                    throw new IOException("primary writer failure");
+                }));
+
+        assertEquals("primary writer failure", failure.getMessage());
+        assertEquals(1, failure.getSuppressed().length);
+        assertEquals("old", Files.readString(target, StandardCharsets.UTF_8));
+    }
+
     private static boolean hasTemporarySibling(final Path target) throws IOException {
         try (Stream<Path> siblings = Files.list(target.toAbsolutePath().getParent())) {
             final String prefix = "." + target.getFileName() + '-';

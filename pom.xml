@@ -6,7 +6,7 @@
 
     <groupId>com.github.senegrom</groupId>
     <artifactId>nlipse</artifactId>
-    <version>0.11.3-SNAPSHOT</version>
+    <version>0.11.4-SNAPSHOT</version>
     <name>nLipse</name>
     <description>Interactive visualiser for weighted multi-focus distance curves.</description>
 
@@ -89,6 +89,9 @@
                         <manifest>
                             <mainClass>nlipse.app.Main</mainClass>
                         </manifest>
+                        <manifestEntries>
+                            <Implementation-Version>${project.version}</Implementation-Version>
+                        </manifestEntries>
                     </archive>
                 </configuration>
             </plugin>

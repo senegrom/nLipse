@@ -193,40 +193,20 @@ public final class PlotModel {
         viewport = defaultViewport;
     }
 
-    public synchronized boolean isShowBackground() {
-        return showBackground;
-    }
-
     public synchronized void setShowBackground(final boolean value) {
         showBackground = value;
-    }
-
-    public synchronized boolean isShowExtrema() {
-        return showExtrema;
     }
 
     public synchronized void setShowExtrema(final boolean value) {
         showExtrema = value;
     }
 
-    public synchronized boolean isAntiAlias() {
-        return antiAlias;
-    }
-
     public synchronized void setAntiAlias(final boolean value) {
         antiAlias = value;
     }
 
-    public synchronized boolean isLogSpacing() {
-        return logSpacing;
-    }
-
     public synchronized void setLogSpacing(final boolean value) {
         logSpacing = value;
-    }
-
-    public synchronized boolean isShowLegend() {
-        return showLegend;
     }
 
     public synchronized void setShowLegend(final boolean value) {

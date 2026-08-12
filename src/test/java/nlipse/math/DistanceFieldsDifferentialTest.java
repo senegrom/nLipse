@@ -52,6 +52,52 @@ class DistanceFieldsDifferentialTest {
         }
     }
 
+
+    @Test
+    void algebraicFamiliesRetainUsefulBitsUnderDeliberateFiniteCancellation() {
+        final Random random = new Random(0x4147475245474154L);
+        int completed = 0;
+        int attempts = 0;
+        while (completed < 128 && attempts++ < 20_000) {
+            final double firstDistance = positiveFinite(random, -220, 220);
+            final double secondDistance = positiveFinite(random, -220, 220);
+            final double firstWeight = positiveFinite(random, -220, 220);
+            final double firstTerm = firstDistance * firstWeight;
+            if (!Double.isFinite(firstTerm) || firstTerm == 0) {
+                continue;
+            }
+            final int cancelledBits = 25 + random.nextInt(24);
+            final double perturbation = Math.copySign(Math.scalb(1.0, -cancelledBits),
+                    random.nextBoolean() ? 1 : -1);
+            final double secondWeight = firstTerm * (1 + perturbation) / secondDistance;
+            if (!Double.isFinite(secondWeight) || secondWeight == 0) {
+                continue;
+            }
+
+            final List<Focus> signed = List.of(
+                    new Focus(firstDistance, 0, firstWeight),
+                    new Focus(secondDistance, 0, -secondWeight));
+            final List<Focus> magnitudes = List.of(
+                    new Focus(firstDistance, 0, firstWeight),
+                    new Focus(secondDistance, 0, secondWeight));
+            final ReferenceValues signedReference = referenceValues(signed, 0, 0);
+            final ReferenceValues magnitudeReference = referenceValues(magnitudes, 0, 0);
+            final String label = "cancelled bits " + cancelledBits + " sample " + completed;
+
+            assertClose(signedReference.signedSum(),
+                    DistanceFields.create(CurveType.LIPSE, signed).value(0, 0),
+                    label + " ellipse");
+            assertClose(magnitudeReference.range(),
+                    DistanceFields.create(CurveType.RANGE, magnitudes).value(0, 0),
+                    label + " range");
+            assertClose(magnitudeReference.hyperbola(),
+                    DistanceFields.create(CurveType.HYPERB, magnitudes).value(0, 0),
+                    label + " hyperbola");
+            completed++;
+        }
+        assertEquals(128, completed, "The deterministic algebraic generator stalled");
+    }
+
     @Test
     void inversePotentialMatchesHighPrecisionReferenceIncludingCancellation() {
         final Random random = new Random(POTENTIAL_SEED);

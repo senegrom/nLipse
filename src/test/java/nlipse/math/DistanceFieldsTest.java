@@ -696,6 +696,25 @@ class DistanceFieldsTest {
         assertTrue(statistics.peakPrecision() <= AdaptiveDecimal.MAXIMUM_PRECISION);
     }
 
+    /** The exact evaluator costs orders of magnitude more than the primitive path,
+     *  so ordinary plotting coordinates must never reach it. */
+    @Test
+    void ordinarySamplingNeverEntersTheAdaptiveEvaluator() {
+        final List<Focus> foci = List.of(
+                new Focus(-1.7, -0.2, 1),
+                new Focus(1.5, 0.1, 0.65),
+                new Focus(0.2, 1.8, -1.25));
+        AdaptiveDecimal.resetStatistics();
+        for (final CurveType type : CurveType.values()) {
+            final DistanceField field = DistanceFields.create(type, foci);
+            for (int step = 0; step < 64; step++) {
+                field.value(-3 + step * 0.09375, -2 + step * 0.0625);
+            }
+        }
+
+        assertEquals(0, AdaptiveDecimal.statistics().evaluations());
+    }
+
     @Test
     void exactFocusCoordinatesAreConvertedOnlyOncePerField() {
         final FocusSet foci = FocusSet.from(List.of(
@@ -705,6 +724,64 @@ class DistanceFieldsTest {
         assertTrue(foci.exactData() == foci.exactData());
         assertEquals(new java.math.BigDecimal(Double.MAX_VALUE), foci.exactData().x(0));
         assertEquals(new java.math.BigDecimal(Double.MIN_VALUE), foci.exactData().y(0));
+    }
+
+    @Test
+    void signedEllipseUsesExactFallbackBeforeFiniteCancellationLosesUsefulBits() {
+        final DistanceField field = DistanceFields.create(CurveType.LIPSE, List.of(
+                new Focus(1.1, 0, 1e16),
+                new Focus(2.3, 0, -4_782_608_695_647_391.0)));
+
+        assertEquals(0x1.57d3807e081ccp13, field.value(0, 0), 0);
+    }
+
+    @Test
+    void rangeAndHyperbolaPreserveNearEqualWeightedDistances() {
+        final List<Focus> foci = List.of(
+                new Focus(1.1, 0, 1e16),
+                new Focus(2.3, 0, 4_782_608_695_647_391.0));
+        final double expected = 0x1.57d3807e081ccp13;
+
+        assertEquals(expected, DistanceFields.create(CurveType.RANGE, foci).value(0, 0), 0);
+        assertEquals(expected, DistanceFields.create(CurveType.HYPERB, foci).value(0, 0), 0);
+    }
+
+    @Test
+    void cassiniRetainsAccuracyWhenLargeWeightedLogarithmsAlmostCancel() {
+        final DistanceField field = DistanceFields.create(CurveType.CASSIN, List.of(
+                new Focus(1.05, 0, 1e16),
+                new Focus(0.7, 0, 1_367_916_782_453_125.0)));
+
+        assertEquals(0x1.261bdfd2f2522p1, field.value(0, 0), 0);
+    }
+
+    @Test
+    void gaussianRetainsAccuracyWhenLargeSignedKernelsAlmostCancel() {
+        final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN, List.of(
+                new Focus(2.3, 0, 1e16),
+                new Focus(2.300023, 0, -1.0002116234460838e16)), 0.5);
+
+        assertEquals(0x1.044b0bd4a3c1ap-2, field.value(0, 0), 0);
+    }
+
+    @Test
+    void smoothEnvelopesRecoverFiniteRatiosAfterWeightedDistanceOverflow() {
+        final double maximum = Double.MAX_VALUE;
+        final double ratio = 1.1;
+        final List<Focus> foci = List.of(
+                new Focus(maximum, 0, ratio),
+                new Focus(0, 0, 1));
+        final double expectedNearest = -maximum
+                * Math.log((Math.exp(-ratio) + 1) / 2);
+        final double expectedFarthest = maximum
+                * Math.log((Math.exp(ratio) + 1) / 2);
+
+        assertEquals(expectedNearest,
+                DistanceFields.create(CurveType.SMOOTH_NEAREST, foci, maximum).value(0, 0),
+                8 * Math.ulp(expectedNearest));
+        assertEquals(expectedFarthest,
+                DistanceFields.create(CurveType.SMOOTH_FARTHEST, foci, maximum).value(0, 0),
+                8 * Math.ulp(expectedFarthest));
     }
 
 }

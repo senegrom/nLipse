@@ -8,7 +8,12 @@ import java.util.concurrent.atomic.LongAdder;
 
 /** Adaptive rare-path decimal evaluation with an explicit binary64 rounding guard. */
 final class AdaptiveDecimal {
-    static final int INITIAL_PRECISION = 80;
+    // Every evaluation needs at least two rounds before the guard can accept a
+    // result, so the first precision is charged twice. Starting near quad
+    // precision keeps the common near-cancellation case cheap; the doubling
+    // loop still escalates to full binary64 dynamic range when a residual
+    // hides far below the largest intermediate.
+    static final int INITIAL_PRECISION = 34;
     static final int MAXIMUM_PRECISION = 4096;
     private static final int GUARD_DIGITS = 24;
     private static final BigDecimal TWO = BigDecimal.valueOf(2);

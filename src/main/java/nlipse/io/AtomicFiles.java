@@ -36,6 +36,7 @@ public final class AtomicFiles {
         final String prefix = fileName.length() >= 3 ? fileName : "nlipse-" + fileName;
         final Path temporary = Files.createTempFile(parent, "." + prefix + '-', ".tmp");
         boolean moved = false;
+        Throwable primaryFailure = null;
         try {
             writer.write(temporary);
             try {
@@ -45,9 +46,20 @@ public final class AtomicFiles {
                 Files.move(temporary, absolute, StandardCopyOption.REPLACE_EXISTING);
             }
             moved = true;
+        } catch (final IOException | RuntimeException | Error failure) {
+            primaryFailure = failure;
+            throw failure;
         } finally {
             if (!moved) {
-                Files.deleteIfExists(temporary);
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (final IOException | RuntimeException cleanupFailure) {
+                    if (primaryFailure != null) {
+                        primaryFailure.addSuppressed(cleanupFailure);
+                    } else {
+                        throw cleanupFailure;
+                    }
+                }
             }
         }
     }

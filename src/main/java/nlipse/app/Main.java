@@ -12,9 +12,20 @@ import nlipse.ui.PlotWindow;
 import nlipse.ui.SetupDialog;
 
 public final class Main {
-    public static final String VERSION = "0.11.3";
+    public static final String VERSION = displayVersion(
+            Main.class.getPackage().getImplementationVersion());
 
     private Main() {
+    }
+
+    static String displayVersion(final String implementationVersion) {
+        if (implementationVersion == null || implementationVersion.isBlank()) {
+            return "development";
+        }
+        return implementationVersion.endsWith("-SNAPSHOT")
+                ? implementationVersion.substring(0,
+                        implementationVersion.length() - "-SNAPSHOT".length())
+                : implementationVersion;
     }
 
     /** The last closed session's setup when one exists and still parses;
