@@ -807,9 +807,10 @@ public final class PlotController implements AutoCloseable {
         return true;
     }
 
-    private static boolean sameDouble(final double first, final double second) {
-        final double scale = Math.max(1, Math.max(Math.abs(first), Math.abs(second)));
-        return Math.abs(first - second) <= 1e-12 * scale;
+    static boolean sameDouble(final double first, final double second) {
+        // Configured levels are exact model state, not noisy measurements. Any
+        // representable change can alter a contour and must be retained.
+        return first == second;
     }
 
     private void markRangeAdjustment(final RangeAdjustment adjustment) {

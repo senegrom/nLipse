@@ -567,9 +567,16 @@ public final class PlotRenderer implements RenderEngine {
         final double logMax = useLog ? Math.log(max) : 0;
         int uniqueCount = 0;
         for (int index = 0; index < safeCount; index++) {
-            final double fraction = index / (double) (safeCount - 1);
-            final double level = useLog ? Math.exp(logMin + (logMax - logMin) * fraction)
-                    : ScalarRanges.interpolate(min, max, fraction);
+            final double level;
+            if (index == 0) {
+                level = min;
+            } else if (index == safeCount - 1) {
+                level = max;
+            } else {
+                final double fraction = index / (double) (safeCount - 1);
+                level = useLog ? Math.exp(logMin + (logMax - logMin) * fraction)
+                        : ScalarRanges.interpolate(min, max, fraction);
+            }
             if (uniqueCount == 0
                     || Double.doubleToLongBits(level)
                             != Double.doubleToLongBits(generated[uniqueCount - 1])) {
@@ -658,71 +665,71 @@ public final class PlotRenderer implements RenderEngine {
         }
     }
 
-    public long getCacheHits() {
+    long getCacheHits() {
         return cacheHits.get();
     }
 
-    public long getCacheMisses() {
+    long getCacheMisses() {
         return cacheMisses.get();
     }
 
-    public long getDerivedGridHits() {
+    long getDerivedGridHits() {
         return derivedGridHits.get();
     }
 
-    public long getContourCacheHits() {
+    long getContourCacheHits() {
         return contourCacheHits.get();
     }
 
-    public long getContourCacheMisses() {
+    long getContourCacheMisses() {
         return contourCacheMisses.get();
     }
 
-    public long getWorldTileHits() {
+    long getWorldTileHits() {
         return worldFieldCache.tileHits();
     }
 
-    public long getWorldTileMisses() {
+    long getWorldTileMisses() {
         return worldFieldCache.tileMisses();
     }
 
-    public long getReusedWorldSamples() {
+    long getReusedWorldSamples() {
         return worldFieldCache.reusedSamples();
     }
 
-    public long getSampledWorldValues() {
+    long getSampledWorldValues() {
         return worldFieldCache.sampledValues();
     }
 
-    public long getLayerCacheHits() {
+    long getLayerCacheHits() {
         return layerCacheHits.get();
     }
 
-    public long getLayerCacheMisses() {
+    long getLayerCacheMisses() {
         return layerCacheMisses.get();
     }
 
-    public long getFullQualityPreviewHits() {
+    long getFullQualityPreviewHits() {
         return fullQualityPreviewHits.get();
     }
 
-    public long getCachedGridBytes() {
+    long getCachedGridBytes() {
         synchronized (gridCache) {
             return cachedGridBytes;
         }
     }
 
-    public long getCachedContourBytes() {
+    long getCachedContourBytes() {
         synchronized (contourCache) {
             return cachedContourBytes;
         }
     }
 
-    public long getCachedWorldTileBytes() {
+    long getCachedWorldTileBytes() {
         return worldFieldCache.cachedBytes();
     }
 
-    public long getCachedLayerBytes() {
+    long getCachedLayerBytes() {
         synchronized (layerCache) {
             return cachedLayerBytes;
         }

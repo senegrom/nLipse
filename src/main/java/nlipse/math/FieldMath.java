@@ -4,6 +4,9 @@ package nlipse.math;
 final class FieldMath {
     static final double LOG_MAX_VALUE = Math.log(Double.MAX_VALUE);
     static final double CENTRED_LIMIT = 0.5;
+    /** Route mixed-sign results with fewer than roughly 24 reliable bits through
+     *  the adaptive exact evaluator. */
+    static final double EXACT_CANCELLATION_RATIO = 0x1.0p-24;
     private static final ThreadLocal<double[]> SCRATCH =
             ThreadLocal.withInitial(() -> new double[0]);
 

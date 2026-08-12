@@ -254,12 +254,6 @@ public final class AsyncRenderService implements AutoCloseable {
         }
     }
 
-    boolean exportOutstanding() {
-        synchronized (monitor) {
-            return hasOutstandingExport();
-        }
-    }
-
     private void ensureOpen() {
         if (closed) {
             throw new IllegalStateException("Render service is closed");

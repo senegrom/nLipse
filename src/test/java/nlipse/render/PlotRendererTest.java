@@ -182,6 +182,15 @@ class PlotRendererTest {
         assertEquals(0, extreme[1]);
         assertEquals(Double.MAX_VALUE, extreme[2]);
         assertEquals(2, PlotRenderer.levels(1, Math.nextUp(1.0), 200, false).length);
+
+        final double logarithmicMinimum = 3.1270742916138413e-84;
+        final double logarithmicMaximum = 1.2345678901234567e123;
+        final double[] logarithmic = PlotRenderer.levels(
+                logarithmicMinimum, logarithmicMaximum, 17, true);
+        assertEquals(Double.doubleToLongBits(logarithmicMinimum),
+                Double.doubleToLongBits(logarithmic[0]));
+        assertEquals(Double.doubleToLongBits(logarithmicMaximum),
+                Double.doubleToLongBits(logarithmic[logarithmic.length - 1]));
     }
 
     @Test

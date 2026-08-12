@@ -149,6 +149,23 @@ final class FocusSet {
         return logDistance(index, x, y) + Math.log(absoluteWeight);
     }
 
+    double magnitudeDistanceRatio(final int index, final double x, final double y,
+            final double positiveScale) {
+        final double absoluteWeight = Math.abs(weights[index]);
+        if (absoluteWeight == 0) {
+            return 0;
+        }
+        final double relativeWeight = absoluteWeight / positiveScale;
+        if (relativeWeight > 0 && Double.isFinite(relativeWeight)
+                && Double.isFinite(x) && Double.isFinite(y)) {
+            return Math.hypot(
+                    scaledAbsoluteDifference(x, xs[index], relativeWeight),
+                    scaledAbsoluteDifference(y, ys[index], relativeWeight));
+        }
+        return FieldMath.expFromLog(
+                logMagnitudeDistance(index, x, y) - Math.log(positiveScale));
+    }
+
     double distanceRatio(final int index, final double x, final double y,
             final double positiveScale) {
         final double reciprocal = 1.0 / positiveScale;

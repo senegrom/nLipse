@@ -71,7 +71,8 @@ final class AggregateFields {
             boolean negativeInfinity = false;
             boolean positiveFinite = false;
             boolean negativeFinite = false;
-            double largestMagnitude = 0;
+            final FieldMath.CompensatedSum magnitudeSum = new FieldMath.CompensatedSum();
+            int finiteTermCount = 0;
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             for (int index = 0; index < foci.size(); index++) {
                 if (foci.weight(index) == 0) {
@@ -93,7 +94,8 @@ final class AggregateFields {
                 } else {
                     positiveFinite |= term > 0;
                     negativeFinite |= term < 0;
-                    largestMagnitude = Math.max(largestMagnitude, Math.abs(term));
+                    magnitudeSum.add(Math.abs(term));
+                    finiteTermCount++;
                     sum.add(term);
                 }
             }
@@ -113,9 +115,11 @@ final class AggregateFields {
             if (negativeInfinity) {
                 return Double.NEGATIVE_INFINITY;
             }
-            final double result = sum.value() / divisor;
-            if (finitePoint && positiveFinite && negativeFinite && largestMagnitude > 0
-                    && Math.abs(result) <= Math.ulp(largestMagnitude) * foci.size() * 2) {
+            final double rawSum = sum.value();
+            final double result = rawSum / divisor;
+            if (finitePoint && !magnitudes && positiveFinite && negativeFinite
+                    && FieldMath.cancellationUncertain(rawSum, magnitudeSum.value(),
+                            finiteTermCount, FieldMath.EXACT_CANCELLATION_RATIO)) {
                 return exactValue(x, y);
             }
             return Double.isFinite(result) ? result : exactValue(x, y);
@@ -204,7 +208,9 @@ final class AggregateFields {
                     ? pairwiseMean(values, size, 1)
                     : sortedPairwiseMean(values, size);
             final double result = scale * normalized;
-            if (finitePoint && normalized <= Math.ulp(1.0) * size * 2) {
+            final int pairCount = size * (size - 1) / 2;
+            if (finitePoint && FieldMath.cancellationUncertain(normalized, 1.0,
+                    pairCount, FieldMath.EXACT_CANCELLATION_RATIO)) {
                 return ExactFieldMath.hyperbola(foci, x, y);
             }
             return Double.isFinite(result) || !finitePoint ? result
@@ -268,7 +274,8 @@ final class AggregateFields {
             }
             final double result = maximum - minimum;
             if (finitePoint && Double.isFinite(maximum)
-                    && result <= Math.ulp(maximum) * 2) {
+                    && FieldMath.cancellationUncertain(result, maximum, 2,
+                            FieldMath.EXACT_CANCELLATION_RATIO)) {
                 return ExactFieldMath.range(foci, x, y);
             }
             return Double.isFinite(result) || !finitePoint ? result
@@ -287,10 +294,13 @@ final class AggregateFields {
         public double value(final double x, final double y) {
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             final FieldMath.CompensatedSum logarithms = new FieldMath.CompensatedSum();
+            final FieldMath.CompensatedSum logarithmMagnitudes =
+                    new FieldMath.CompensatedSum();
             boolean hasZero = false;
             boolean hasInfinity = false;
+            boolean positiveLogarithm = false;
+            boolean negativeLogarithm = false;
             boolean exactNeeded = false;
-            double largestLogarithm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
@@ -309,7 +319,9 @@ final class AggregateFields {
                 hasZero |= logarithm == Double.NEGATIVE_INFINITY;
                 hasInfinity |= logarithm == Double.POSITIVE_INFINITY;
                 if (Double.isFinite(logarithm)) {
-                    largestLogarithm = Math.max(largestLogarithm, Math.abs(logarithm));
+                    positiveLogarithm |= logarithm > 0;
+                    negativeLogarithm |= logarithm < 0;
+                    logarithmMagnitudes.add(Math.abs(logarithm));
                     logarithms.add(logarithm);
                 }
             }
@@ -322,10 +334,13 @@ final class AggregateFields {
             if (hasInfinity) {
                 return Double.POSITIVE_INFINITY;
             }
-            final double meanLogarithm = logarithms.value() / foci.activeCount();
-            if (finitePoint && (exactNeeded || largestLogarithm > 0
-                    && Math.abs(meanLogarithm) <= Math.ulp(largestLogarithm)
-                            * foci.activeCount() * 2)) {
+            final double logarithmSum = logarithms.value();
+            final double meanLogarithm = logarithmSum / foci.activeCount();
+            if (finitePoint && (exactNeeded
+                    || positiveLogarithm && negativeLogarithm
+                            && FieldMath.cancellationUncertain(logarithmSum,
+                                    logarithmMagnitudes.value(), foci.activeCount(),
+                                    FieldMath.EXACT_CANCELLATION_RATIO))) {
                 return ExactFieldMath.powerMean(foci, x, y, 0);
             }
             return FieldMath.expFromLog(meanLogarithm);
@@ -560,11 +575,10 @@ final class AggregateFields {
                 if (!foci.isActive(index)) {
                     continue;
                 }
-                // The plain quotient keeps the ordinary path on one division per
-                // focus; its overflow and underflow limits land in the envelope,
-                // all-zero and collapse branches below, exactly like the previous
-                // log-domain form, only without two transcendentals per sample.
-                final double ratio = foci.magnitudeDistance(index, x, y) / temperature;
+                // Scale by |w|/temperature before taking the norm. This keeps the
+                // ordinary path on one division per focus without overflowing |w|d.
+                final double ratio = foci.magnitudeDistanceRatio(
+                        index, x, y, temperature);
                 if (Double.isNaN(ratio)) {
                     return Double.NaN;
                 }

@@ -40,12 +40,13 @@ final class RadialFields {
             }
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             final FieldMath.CompensatedSum normalizedSum = new FieldMath.CompensatedSum();
+            final FieldMath.CompensatedSum normalizedMagnitudes =
+                    new FieldMath.CompensatedSum();
             boolean exactNeeded = false;
             boolean zeroFactor = false;
             boolean infiniteFactor = false;
             boolean positiveTerm = false;
             boolean negativeTerm = false;
-            double largestTerm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
                 if (weight == 0) {
@@ -77,7 +78,7 @@ final class RadialFields {
                 } else {
                     positiveTerm |= term > 0;
                     negativeTerm |= term < 0;
-                    largestTerm = Math.max(largestTerm, Math.abs(term));
+                    normalizedMagnitudes.add(Math.abs(term));
                     normalizedSum.add(term);
                 }
             }
@@ -94,8 +95,9 @@ final class RadialFields {
             final double resultLogarithm = weightScale * normalized;
             if (finitePoint && (exactNeeded || !Double.isFinite(resultLogarithm)
                     || positiveTerm && negativeTerm
-                            && FieldMath.cancellationUncertain(normalized, largestTerm,
-                                    foci.activeCount(), 0))) {
+                            && FieldMath.cancellationUncertain(normalized,
+                                    normalizedMagnitudes.value(), foci.activeCount(),
+                                    FieldMath.EXACT_CANCELLATION_RATIO))) {
                 return ExactFieldMath.cassini(foci, x, y);
             }
             return FieldMath.expFromLog(resultLogarithm);
@@ -164,9 +166,6 @@ final class RadialFields {
     }
 
     private static final class PotentialField implements DistanceField {
-        /** Preserve at least about 24 significant bits after mixed-sign cancellation. */
-        private static final double EXACT_CANCELLATION_RATIO = 0x1.0p-24;
-
         private final FocusSet foci;
 
         PotentialField(final FocusSet foci) {
@@ -251,7 +250,7 @@ final class RadialFields {
             final double magnitude = magnitudeSum.value();
             final boolean illConditioned = positiveTerm && negativeTerm
                     && FieldMath.cancellationUncertain(normalized, magnitude,
-                            termCount, EXACT_CANCELLATION_RATIO);
+                            termCount, FieldMath.EXACT_CANCELLATION_RATIO);
             if (finitePoint && illConditioned) {
                 return ExactFieldMath.potential(foci, x, y);
             }
@@ -277,10 +276,10 @@ final class RadialFields {
             }
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             final FieldMath.CompensatedSum sum = new FieldMath.CompensatedSum();
+            final FieldMath.CompensatedSum magnitudes = new FieldMath.CompensatedSum();
             boolean positive = false;
             boolean negative = false;
             boolean exactNeeded = false;
-            double largestTerm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
                 if (weight == 0) {
@@ -302,13 +301,13 @@ final class RadialFields {
                 }
                 positive |= term > 0;
                 negative |= term < 0;
-                largestTerm = Math.max(largestTerm, Math.abs(term));
+                magnitudes.add(Math.abs(term));
                 sum.add(term);
             }
             final double result = sum.value();
             if (finitePoint && (exactNeeded || positive && negative
-                    && FieldMath.cancellationUncertain(result, largestTerm,
-                            foci.activeCount(), 0))) {
+                    && FieldMath.cancellationUncertain(result, magnitudes.value(),
+                            foci.activeCount(), FieldMath.EXACT_CANCELLATION_RATIO))) {
                 return ExactFieldMath.gaussian(foci, x, y, sigma);
             }
             return result;

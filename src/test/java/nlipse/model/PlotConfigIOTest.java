@@ -66,11 +66,11 @@ class PlotConfigIOTest {
 
         model.apply(loaded);
 
-        assertEquals(loaded, new PlotConfig(model.getCurveType(), model.getFamilyParameter(),
-                model.getFociCopy(), model.getDistanceMin(), model.getDistanceMax(),
-                model.getCurveCount(),
-                model.getViewport(), model.isShowBackground(), model.isShowExtrema(),
-                model.isAntiAlias(), model.isLogSpacing(), model.isShowLegend()));
+        final PlotSnapshot state = model.snapshot();
+        assertEquals(loaded, new PlotConfig(state.curveType(), state.familyParameter(),
+                state.foci(), state.distanceMin(), state.distanceMax(), state.curveCount(),
+                state.viewport(), state.showBackground(), state.showExtrema(),
+                state.antiAlias(), state.logSpacing(), state.showLegend()));
         assertEquals(-1, model.getSelectedFocusIndex());
         model.resetViewport();
         assertEquals(loaded.viewport(), model.getViewport());
