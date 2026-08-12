@@ -560,12 +560,14 @@ final class AggregateFields {
                 if (!foci.isActive(index)) {
                     continue;
                 }
-                final double logRatio = foci.logMagnitudeDistance(index, x, y)
-                        - Math.log(temperature);
-                if (Double.isNaN(logRatio)) {
+                // The plain quotient keeps the ordinary path on one division per
+                // focus; its overflow and underflow limits land in the envelope,
+                // all-zero and collapse branches below, exactly like the previous
+                // log-domain form, only without two transcendentals per sample.
+                final double ratio = foci.magnitudeDistance(index, x, y) / temperature;
+                if (Double.isNaN(ratio)) {
                     return Double.NaN;
                 }
-                final double ratio = FieldMath.expFromLog(logRatio);
                 ratios[count++] = ratio;
                 allZero &= ratio == 0;
                 minimum = Math.min(minimum, ratio);
