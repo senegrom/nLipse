@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import nlipse.geometry.Point2;
 import nlipse.math.DistanceField;
 import nlipse.math.DistanceFields;
+import nlipse.math.ExactBudget;
 import nlipse.math.ScalarRanges;
 import nlipse.model.Focus;
 import nlipse.model.PlotSnapshot;
@@ -95,9 +96,14 @@ public final class PlotRenderer implements RenderEngine {
         } else {
             final DistanceField field = DistanceFields.create(snapshot.curveType(), snapshot.foci(),
                     snapshot.familyParameter());
-            grid = getGrid(request, field, token);
-            levels = contourLevels(snapshot, grid);
-            contours = getContourGeometry(request, grid, field, levels, token);
+            ExactBudget.begin(exactBudget(request.width(), request.height()));
+            try {
+                grid = getGrid(request, field, token);
+                levels = contourLevels(snapshot, grid);
+                contours = getContourGeometry(request, grid, field, levels, token);
+            } finally {
+                ExactBudget.end();
+            }
             cachedLayer = null;
         }
         final RenderPackage completed = new RenderPackage(snapshot,
@@ -135,6 +141,13 @@ public final class PlotRenderer implements RenderEngine {
         token.throwIfCancelled();
         return new RenderResult(image, request.sequence(), request.quality(), completed.extrema(),
                 System.nanoTime() - started, completed);
+    }
+
+    /** Ill-conditioned samples normally form a curve, so a per-pass allowance that
+     *  scales with the image perimeter covers them while capping the degenerate
+     *  case in which every sample would otherwise be evaluated exactly. */
+    static long exactBudget(final int width, final int height) {
+        return Math.clamp((long) width + height, 4096, 65_536);
     }
 
     private static double[] contourLevels(final PlotSnapshot snapshot, final FieldGrid grid) {

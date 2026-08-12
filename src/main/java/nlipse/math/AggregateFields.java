@@ -119,7 +119,8 @@ final class AggregateFields {
             final double result = rawSum / divisor;
             if (finitePoint && !magnitudes && positiveFinite && negativeFinite
                     && FieldMath.cancellationUncertain(rawSum, magnitudeSum.value(),
-                            finiteTermCount, FieldMath.EXACT_CANCELLATION_RATIO)) {
+                            finiteTermCount, FieldMath.EXACT_CANCELLATION_RATIO)
+                    && ExactBudget.tryConsume()) {
                 return exactValue(x, y);
             }
             return Double.isFinite(result) ? result : exactValue(x, y);
@@ -210,7 +211,8 @@ final class AggregateFields {
             final double result = scale * normalized;
             final int pairCount = size * (size - 1) / 2;
             if (finitePoint && FieldMath.cancellationUncertain(normalized, 1.0,
-                    pairCount, FieldMath.EXACT_CANCELLATION_RATIO)) {
+                    pairCount, FieldMath.EXACT_CANCELLATION_RATIO)
+                    && ExactBudget.tryConsume()) {
                 return ExactFieldMath.hyperbola(foci, x, y);
             }
             return Double.isFinite(result) || !finitePoint ? result
@@ -275,7 +277,8 @@ final class AggregateFields {
             final double result = maximum - minimum;
             if (finitePoint && Double.isFinite(maximum)
                     && FieldMath.cancellationUncertain(result, maximum, 2,
-                            FieldMath.EXACT_CANCELLATION_RATIO)) {
+                            FieldMath.EXACT_CANCELLATION_RATIO)
+                    && ExactBudget.tryConsume()) {
                 return ExactFieldMath.range(foci, x, y);
             }
             return Double.isFinite(result) || !finitePoint ? result
@@ -340,7 +343,8 @@ final class AggregateFields {
                     || positiveLogarithm && negativeLogarithm
                             && FieldMath.cancellationUncertain(logarithmSum,
                                     logarithmMagnitudes.value(), foci.activeCount(),
-                                    FieldMath.EXACT_CANCELLATION_RATIO))) {
+                                    FieldMath.EXACT_CANCELLATION_RATIO)
+                            && ExactBudget.tryConsume())) {
                 return ExactFieldMath.powerMean(foci, x, y, 0);
             }
             return FieldMath.expFromLog(meanLogarithm);

@@ -6,7 +6,7 @@
 
     <groupId>com.github.senegrom</groupId>
     <artifactId>nlipse-benchmarks</artifactId>
-    <version>0.11.4-SNAPSHOT</version>
+    <version>0.11.5-SNAPSHOT</version>
     <name>nLipse JMH benchmarks</name>
 
     <properties>

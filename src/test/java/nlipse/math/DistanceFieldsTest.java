@@ -716,6 +716,28 @@ class DistanceFieldsTest {
     }
 
     @Test
+    void anExhaustedBudgetKeepsThePrimitiveResultButNeverAppliesOutsideARender() {
+        final List<Focus> foci = List.of(
+                new Focus(1.1, 0, 1e16),
+                new Focus(2.3, 0, 4_782_608_695_647_391.0));
+        final DistanceField field = DistanceFields.create(CurveType.RANGE, foci);
+        final double exact = 0x1.57d3807e081ccp13;
+
+        ExactBudget.begin(1);
+        try {
+            assertEquals(exact, field.value(0, 0), 0);
+            final double afterBudget = field.value(0, 0);
+            assertTrue(afterBudget != exact, "the budget was not consumed");
+            assertEquals(exact, afterBudget, Math.abs(exact) * 1e-3);
+        } finally {
+            ExactBudget.end();
+        }
+
+        // Cursor readouts and direct API use are never budgeted.
+        assertEquals(exact, field.value(0, 0), 0);
+    }
+
+    @Test
     void exactFocusCoordinatesAreConvertedOnlyOncePerField() {
         final FocusSet foci = FocusSet.from(List.of(
                 new Focus(Double.MAX_VALUE, Double.MIN_VALUE, -2),
