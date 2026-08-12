@@ -10,7 +10,10 @@ final class FieldMath {
     private FieldMath() {
     }
 
-
+    /**
+     * Returns a reusable thread-local array. Only indices below
+     * {@code minimumLength} belong to the caller; all contents are undefined.
+     */
     static double[] scratch(final int minimumLength) {
         double[] values = SCRATCH.get();
         if (values.length < minimumLength) {
@@ -51,6 +54,25 @@ final class FieldMath {
         }
         final double magnitude = expFromLog(Math.log(Math.abs(signedFactor)) + logarithm);
         return Math.copySign(magnitude, signedFactor);
+    }
+
+    /**
+     * Returns whether a mixed-sign sum is too close to its condition scale to
+     * trust the floating-point result without the exceptional evaluator.
+     */
+    static boolean cancellationUncertain(final double result,
+            final double magnitudeScale, final int termCount,
+            final double relativeLimit) {
+        if (!Double.isFinite(result) || !Double.isFinite(magnitudeScale)) {
+            return true;
+        }
+        if (magnitudeScale <= 0) {
+            return false;
+        }
+        final double ulpBound = Math.ulp(magnitudeScale) * Math.max(8, termCount * 4);
+        final double relativeBound = relativeLimit <= 0
+                ? 0 : magnitudeScale * relativeLimit;
+        return Math.abs(result) <= Math.max(ulpBound, relativeBound);
     }
 
     static final class CompensatedSum {

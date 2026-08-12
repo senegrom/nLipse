@@ -1,40 +1,64 @@
 package nlipse.render;
 
-import java.util.ArrayDeque;
 import java.util.Objects;
 import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
 
 /**
- * One-worker scheduler for latest-wins interactive renders and durable export jobs.
+ * Bounded single-worker scheduler for interactive renders and durable exports.
  *
- * <p>Interactive submissions replace one another and may cancel an active
- * interactive render. Export jobs are bounded, FIFO and are never cancelled by
- * later interactive activity. Both kinds of work therefore share one renderer
- * and one cache-ownership thread without allowing an unbounded backlog.</p>
+ * <p>Interactive work is latest-wins: a newer request cancels the active or
+ * pending interactive request and suppresses its callbacks. One durable export
+ * may be active or queued and is never superseded by later interaction.</p>
  */
 public final class AsyncRenderService implements AutoCloseable {
-    private static final int MAX_PENDING_EXPORTS = 4;
-
     @FunctionalInterface
-    public interface BackgroundJob<T> {
-        T run(CancellationToken cancellationToken) throws Exception;
+    public interface ExportOperation {
+        void write(RenderResult result) throws Exception;
+    }
+
+    private static final class WorkItem {
+        private final boolean export;
+        private final RenderRequest request;
+        private final Consumer<RenderResult> onSuccess;
+        private final Consumer<Throwable> onFailure;
+        private final ExportOperation exportOperation;
+        private volatile boolean cancelled;
+
+        WorkItem(final boolean export, final RenderRequest request,
+                final Consumer<RenderResult> onSuccess,
+                final Consumer<Throwable> onFailure,
+                final ExportOperation exportOperation) {
+            this.export = export;
+            this.request = request;
+            this.onSuccess = onSuccess;
+            this.onFailure = onFailure;
+            this.exportOperation = exportOperation;
+        }
+    }
+
+    private record Outcome(RenderResult result, Throwable failure) {
+        static Outcome success(final RenderResult result) {
+            return new Outcome(result, null);
+        }
+
+        static Outcome failure(final Throwable failure) {
+            return new Outcome(null, failure);
+        }
     }
 
     private final RenderEngine engine;
     private final Executor callbackExecutor;
     private final Object monitor = new Object();
-    private final AtomicLong interactiveGeneration = new AtomicLong();
-    private final AtomicLong jobSequence = new AtomicLong();
-    private final ArrayDeque<ScheduledTask> pendingExports = new ArrayDeque<>();
-    private final Thread workerThread;
+    private final Thread worker;
 
-    private ScheduledTask pendingInteractive;
-    private ScheduledTask runningTask;
-    private boolean closed;
+    private long nextSequence;
+    private long latestInteractiveSequence = -1;
+    private WorkItem active;
+    private WorkItem pendingInteractive;
+    private WorkItem pendingExport;
+    private volatile boolean closed;
 
     public AsyncRenderService(final RenderEngine engine) {
         this(engine, SwingUtilities::invokeLater);
@@ -43,156 +67,196 @@ public final class AsyncRenderService implements AutoCloseable {
     public AsyncRenderService(final RenderEngine engine, final Executor callbackExecutor) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.callbackExecutor = Objects.requireNonNull(callbackExecutor, "callbackExecutor");
-        workerThread = Thread.ofPlatform().name("nlipse-renderer").daemon()
-                .start(this::workerLoop);
+        worker = Thread.ofPlatform().name("nlipse-renderer").daemon().start(this::workerLoop);
     }
 
-    public long submit(final RenderRequest request,
-            final Consumer<RenderResult> onSuccess, final Consumer<Throwable> onFailure) {
+    public long submitInteractive(final RenderRequest request,
+            final Consumer<RenderResult> onSuccess,
+            final Consumer<Throwable> onFailure) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(onSuccess, "onSuccess");
         Objects.requireNonNull(onFailure, "onFailure");
-
-        final long generation;
         synchronized (monitor) {
             ensureOpen();
-            generation = interactiveGeneration.incrementAndGet();
-            if (pendingInteractive != null) {
-                pendingInteractive.cancel();
+            final long sequence = ++nextSequence;
+            latestInteractiveSequence = sequence;
+            cancel(pendingInteractive);
+            pendingInteractive = new WorkItem(false, request.withSequence(sequence),
+                    onSuccess, onFailure, null);
+            if (active != null && !active.export) {
+                cancel(active);
+                worker.interrupt();
             }
-            if (runningTask != null && !runningTask.durable()) {
-                runningTask.cancel();
-                workerThread.interrupt();
-            }
-            final RenderRequest sequenced = request.withSequence(generation);
-            pendingInteractive = new InteractiveTask(sequenced, generation,
-                    onSuccess, onFailure);
-            monitor.notifyAll();
-        }
-        return generation;
-    }
-
-    /**
-     * Queues a durable background job on the renderer worker.
-     *
-     * <p>An export cancels obsolete interactive work, but later interactive
-     * submissions do not cancel the export. At most four exports may wait.</p>
-     */
-    public <T> long submitExport(final BackgroundJob<T> job,
-            final Consumer<T> onSuccess, final Consumer<Throwable> onFailure) {
-        Objects.requireNonNull(job, "job");
-        Objects.requireNonNull(onSuccess, "onSuccess");
-        Objects.requireNonNull(onFailure, "onFailure");
-
-        synchronized (monitor) {
-            ensureOpen();
-            if (pendingExports.size() >= MAX_PENDING_EXPORTS) {
-                throw new RejectedExecutionException("The export queue is full");
-            }
-            interactiveGeneration.incrementAndGet();
-            if (pendingInteractive != null) {
-                pendingInteractive.cancel();
-                pendingInteractive = null;
-            }
-            if (runningTask != null && !runningTask.durable()) {
-                runningTask.cancel();
-                workerThread.interrupt();
-            }
-            final long sequence = jobSequence.incrementAndGet();
-            pendingExports.addLast(new ExportTask<>(sequence, job, onSuccess, onFailure));
             monitor.notifyAll();
             return sequence;
         }
     }
 
+    /**
+     * Attempts to enqueue one full-quality durable export.
+     *
+     * @return {@code false} when another export is already active or queued
+     */
+    public boolean submitExport(final RenderRequest request,
+            final ExportOperation operation,
+            final Consumer<RenderResult> onSuccess,
+            final Consumer<Throwable> onFailure) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(operation, "operation");
+        Objects.requireNonNull(onSuccess, "onSuccess");
+        Objects.requireNonNull(onFailure, "onFailure");
+        if (request.quality() != RenderQuality.FULL) {
+            throw new IllegalArgumentException("Exports require a full-quality render");
+        }
+        synchronized (monitor) {
+            ensureOpen();
+            if (hasOutstandingExport()) {
+                return false;
+            }
+            final long sequence = ++nextSequence;
+            pendingExport = new WorkItem(true, request.withSequence(sequence),
+                    onSuccess, onFailure, operation);
+            // Do not discard a display render that is already producing a
+            // useful frame. The export has priority over queued interaction
+            // once the active render finishes.
+            monitor.notifyAll();
+            return true;
+        }
+    }
+
     private void workerLoop() {
         while (true) {
-            final ScheduledTask task;
+            final WorkItem item;
             synchronized (monitor) {
-                while (!closed && pendingExports.isEmpty() && pendingInteractive == null) {
-                    try {
-                        monitor.wait();
-                    } catch (final InterruptedException ignored) {
-                        // Cancellation also interrupts the worker so blocking jobs wake promptly.
-                    }
-                }
-                if (closed) {
+                item = awaitNextItem();
+                if (item == null) {
                     return;
                 }
-                task = pendingExports.isEmpty()
-                        ? takeInteractive() : pendingExports.removeFirst();
-                runningTask = task;
+                active = item;
             }
 
+            // Cancellation interrupts belong to the previous interactive task.
             Thread.interrupted();
-            task.execute();
-            Thread.interrupted();
-            synchronized (monitor) {
-                if (runningTask == task) {
-                    runningTask = null;
+            final Outcome outcome;
+            try {
+                outcome = execute(item);
+            } finally {
+                synchronized (monitor) {
+                    if (active == item) {
+                        active = null;
+                    }
                 }
             }
+            dispatch(item, outcome);
         }
     }
 
-    private ScheduledTask takeInteractive() {
-        final ScheduledTask task = pendingInteractive;
+    private WorkItem awaitNextItem() {
+        while (!closed && pendingExport == null && pendingInteractive == null) {
+            try {
+                monitor.wait();
+            } catch (final InterruptedException ignored) {
+                // Re-evaluate closed state and pending work.
+            }
+        }
+        if (closed) {
+            return null;
+        }
+        if (pendingExport != null) {
+            final WorkItem item = pendingExport;
+            pendingExport = null;
+            return item;
+        }
+        final WorkItem item = pendingInteractive;
         pendingInteractive = null;
-        return task;
+        return item;
     }
 
-    private void deliver(final Runnable callback) {
+    private Outcome execute(final WorkItem item) {
+        final CancellationToken token = () -> item.cancelled
+                || Thread.currentThread().isInterrupted() || closed;
         try {
-            callbackExecutor.execute(callback);
+            final RenderResult result = engine.render(item.request, token);
+            token.throwIfCancelled();
+            if (item.export) {
+                item.exportOperation.write(result);
+                token.throwIfCancelled();
+            }
+            return Outcome.success(result);
+        } catch (final RenderCancelledException ignored) {
+            return null;
+        } catch (final InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return item.cancelled || closed ? null : Outcome.failure(interrupted);
+        } catch (final VirtualMachineError fatal) {
+            throw fatal;
+        } catch (final Throwable failure) {
+            return item.cancelled || closed ? null : Outcome.failure(failure);
+        }
+    }
+
+    private void dispatch(final WorkItem item, final Outcome outcome) {
+        if (outcome == null) {
+            return;
+        }
+        try {
+            callbackExecutor.execute(() -> {
+                if (!shouldDeliver(item)) {
+                    return;
+                }
+                if (outcome.failure() == null) {
+                    item.onSuccess.accept(outcome.result());
+                } else {
+                    item.onFailure.accept(outcome.failure());
+                }
+            });
         } catch (final RuntimeException failed) {
-            // A callback executor failure must not terminate the renderer worker.
-            System.err.println("Could not deliver renderer callback: " + failed.getMessage());
+            if (!closed) {
+                System.err.println("Could not deliver render callback: " + failed.getMessage());
+            }
         }
     }
 
-    /** Cancels only interactive rendering; queued or active exports are preserved. */
-    public void cancelInteractive() {
+    private boolean shouldDeliver(final WorkItem item) {
         synchronized (monitor) {
-            interactiveGeneration.incrementAndGet();
-            if (pendingInteractive != null) {
-                pendingInteractive.cancel();
-                pendingInteractive = null;
-            }
-            if (runningTask != null && !runningTask.durable()) {
-                runningTask.cancel();
-                workerThread.interrupt();
-            }
+            return !closed && !item.cancelled
+                    && (item.export || item.request.sequence() == latestInteractiveSequence);
         }
     }
 
-    /** Cancels all interactive and durable work. */
+    /** Cancels only interactive work; an accepted export remains durable. */
     public void cancel() {
         synchronized (monitor) {
-            interactiveGeneration.incrementAndGet();
-            if (pendingInteractive != null) {
-                pendingInteractive.cancel();
-                pendingInteractive = null;
-            }
-            for (final ScheduledTask task : pendingExports) {
-                task.cancel();
-            }
-            pendingExports.clear();
-            if (runningTask != null) {
-                runningTask.cancel();
-                workerThread.interrupt();
+            latestInteractiveSequence = -1;
+            cancel(pendingInteractive);
+            pendingInteractive = null;
+            if (active != null && !active.export) {
+                cancel(active);
+                worker.interrupt();
             }
         }
     }
+
+    private boolean hasOutstandingExport() {
+        return pendingExport != null || active != null && active.export;
+    }
+
+    private static void cancel(final WorkItem item) {
+        if (item != null) {
+            item.cancelled = true;
+        }
+    }
+
 
     int pendingTaskCount() {
         synchronized (monitor) {
-            return (pendingInteractive == null ? 0 : 1) + pendingExports.size();
+            return (pendingInteractive == null ? 0 : 1) + (pendingExport == null ? 0 : 1);
         }
     }
 
-    int pendingExportCount() {
+    boolean exportOutstanding() {
         synchronized (monitor) {
-            return pendingExports.size();
+            return hasOutstandingExport();
         }
     }
 
@@ -209,141 +273,14 @@ public final class AsyncRenderService implements AutoCloseable {
                 return;
             }
             closed = true;
-            interactiveGeneration.incrementAndGet();
-            if (pendingInteractive != null) {
-                pendingInteractive.cancel();
-                pendingInteractive = null;
-            }
-            for (final ScheduledTask task : pendingExports) {
-                task.cancel();
-            }
-            pendingExports.clear();
-            if (runningTask != null) {
-                runningTask.cancel();
-            }
+            latestInteractiveSequence = -1;
+            cancel(active);
+            cancel(pendingInteractive);
+            cancel(pendingExport);
+            pendingInteractive = null;
+            pendingExport = null;
+            worker.interrupt();
             monitor.notifyAll();
-        }
-        workerThread.interrupt();
-    }
-
-    private abstract class ScheduledTask {
-        private volatile boolean cancelled;
-
-        abstract boolean durable();
-
-        abstract void run(CancellationToken token) throws Exception;
-
-        final void cancel() {
-            cancelled = true;
-        }
-
-        final boolean isCancelled() {
-            return cancelled || Thread.currentThread().isInterrupted();
-        }
-
-        final void execute() {
-            final CancellationToken token = this::isCancelled;
-            try {
-                run(token);
-            } catch (final RenderCancelledException ignored) {
-                // Cancellation is expected control flow.
-            } catch (final Throwable throwable) {
-                failed(throwable);
-            }
-        }
-
-        abstract void failed(Throwable throwable);
-    }
-
-    private final class InteractiveTask extends ScheduledTask {
-        private final RenderRequest request;
-        private final long generation;
-        private final Consumer<RenderResult> onSuccess;
-        private final Consumer<Throwable> onFailure;
-
-        InteractiveTask(final RenderRequest request, final long generation,
-                final Consumer<RenderResult> onSuccess,
-                final Consumer<Throwable> onFailure) {
-            this.request = request;
-            this.generation = generation;
-            this.onSuccess = onSuccess;
-            this.onFailure = onFailure;
-        }
-
-        @Override
-        boolean durable() {
-            return false;
-        }
-
-        @Override
-        void run(final CancellationToken token) {
-            final RenderResult result = engine.render(request,
-                    () -> token.isCancelled() || interactiveGeneration.get() != generation);
-            if (!token.isCancelled() && interactiveGeneration.get() == generation) {
-                deliver(() -> {
-                    if (interactiveGeneration.get() == generation) {
-                        onSuccess.accept(result);
-                    }
-                });
-            }
-        }
-
-        @Override
-        void failed(final Throwable throwable) {
-            if (!isCancelled() && interactiveGeneration.get() == generation) {
-                deliver(() -> {
-                    if (interactiveGeneration.get() == generation) {
-                        onFailure.accept(throwable);
-                    }
-                });
-            }
-        }
-    }
-
-    private final class ExportTask<T> extends ScheduledTask {
-        private final long sequence;
-        private final BackgroundJob<T> job;
-        private final Consumer<T> onSuccess;
-        private final Consumer<Throwable> onFailure;
-
-        ExportTask(final long sequence, final BackgroundJob<T> job,
-                final Consumer<T> onSuccess, final Consumer<Throwable> onFailure) {
-            this.sequence = sequence;
-            this.job = job;
-            this.onSuccess = onSuccess;
-            this.onFailure = onFailure;
-        }
-
-        @Override
-        boolean durable() {
-            return true;
-        }
-
-        @Override
-        void run(final CancellationToken token) throws Exception {
-            final T result = job.run(token);
-            token.throwIfCancelled();
-            deliver(() -> {
-                if (!isCancelled()) {
-                    onSuccess.accept(result);
-                }
-            });
-        }
-
-        @Override
-        void failed(final Throwable throwable) {
-            if (!isCancelled()) {
-                deliver(() -> {
-                    if (!isCancelled()) {
-                        onFailure.accept(throwable);
-                    }
-                });
-            }
-        }
-
-        @Override
-        public String toString() {
-            return "ExportTask[sequence=" + sequence + ']';
         }
     }
 }

@@ -116,11 +116,6 @@ public final class PlotCanvas extends JComponent {
         repaint();
     }
 
-    /** True while a submitted render has not yet delivered a result. */
-    public boolean isRendering() {
-        return rendering;
-    }
-
     public void setMessage(final String newMessage) {
         message = newMessage == null ? "" : newMessage;
         rendering = false;
