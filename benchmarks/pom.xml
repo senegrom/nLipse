@@ -6,7 +6,8 @@
 
     <groupId>com.github.senegrom</groupId>
     <artifactId>nlipse-benchmarks</artifactId>
-    <version>0.11.6-SNAPSHOT</version>
+    <!-- The concrete value lives once, in .mvn/maven.config at the repo root. -->
+    <version>${revision}</version>
     <name>nLipse JMH benchmarks</name>
 
     <properties>
