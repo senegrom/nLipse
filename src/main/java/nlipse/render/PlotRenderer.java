@@ -728,10 +728,6 @@ public final class PlotRenderer implements RenderEngine {
         }
     }
 
-    public long getCacheBudgetBytes() {
-        return cacheBudgetBytes;
-    }
-
     public String cacheSummary() {
         return String.format(Locale.ROOT,
                 "tiles %d/%d (%d reused), grid %d/%d (+%d derived), "

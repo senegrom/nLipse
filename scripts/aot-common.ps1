@@ -35,7 +35,9 @@ function Write-AotMetadata {
     "." + [IO.Path]::GetFileName($fullPath) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
   try {
     [IO.File]::WriteAllLines($temporary, $lines, [Text.Encoding]::ASCII)
-    [IO.File]::Move($temporary, $fullPath, $true)
+    # Move-Item -Force overwrites on both Windows PowerShell 5.1 and pwsh 7;
+    # the three-argument [IO.File]::Move overload only exists on .NET Core.
+    Move-Item -LiteralPath $temporary -Destination $fullPath -Force
   } finally {
     if ([IO.File]::Exists($temporary)) {
       [IO.File]::Delete($temporary)
