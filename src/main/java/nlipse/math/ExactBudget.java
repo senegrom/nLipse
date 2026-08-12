@@ -21,8 +21,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * direct API use remain fully exact.</p>
  */
 public final class ExactBudget {
+    /** Marks worker threads whose evaluations belong to the declared render pass. */
+    public interface Participant {
+    }
+
     private static final long UNLIMITED = -1;
     private static final AtomicLong REMAINING = new AtomicLong(UNLIMITED);
+    private static volatile Thread declaringThread;
 
     private ExactBudget() {
     }
@@ -32,16 +37,26 @@ public final class ExactBudget {
         if (limit < 0) {
             throw new IllegalArgumentException("Exact-evaluation budget must not be negative");
         }
+        declaringThread = Thread.currentThread();
         REMAINING.set(limit);
     }
 
     /** Restores unlimited exact evaluation. */
     public static void end() {
+        declaringThread = null;
         REMAINING.set(UNLIMITED);
     }
 
-    /** Whether the current pass may spend one more precision-driven evaluation. */
+    /** Whether the current thread may spend one more precision-driven evaluation.
+     *  Only the declaring thread and {@link Participant} sampling workers are
+     *  budgeted; any other thread — the event-dispatch thread probing the field
+     *  under the cursor, or direct API use — always evaluates exactly, even
+     *  while a render pass is active. */
     static boolean tryConsume() {
+        final Thread current = Thread.currentThread();
+        if (current != declaringThread && !(current instanceof Participant)) {
+            return true;
+        }
         return REMAINING.getAndUpdate(value -> value <= 0 ? value : value - 1) != 0;
     }
 }

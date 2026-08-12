@@ -729,6 +729,16 @@ class DistanceFieldsTest {
             final double afterBudget = field.value(0, 0);
             assertTrue(afterBudget != exact, "the budget was not consumed");
             assertEquals(exact, afterBudget, Math.abs(exact) * 1e-3);
+
+            // A thread outside the render pass stays exact even while the
+            // declaring thread's budget is active and exhausted.
+            final double[] probed = new double[1];
+            final Thread probe = new Thread(() -> probed[0] = field.value(0, 0));
+            probe.start();
+            probe.join();
+            assertEquals(exact, probed[0], 0);
+        } catch (final InterruptedException interrupted) {
+            throw new AssertionError(interrupted);
         } finally {
             ExactBudget.end();
         }
