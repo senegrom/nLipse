@@ -10,18 +10,28 @@ final class FocusSet {
     private final double[] weights;
     private final int activeCount;
     private final double maximumAbsoluteWeight;
+    private final ExactBudget exactBudget;
     private volatile ExactFocusData exactData;
 
     private FocusSet(final double[] xs, final double[] ys, final double[] weights,
-            final int activeCount, final double maximumAbsoluteWeight) {
+            final int activeCount, final double maximumAbsoluteWeight,
+            final ExactBudget exactBudget) {
         this.xs = xs;
         this.ys = ys;
         this.weights = weights;
         this.activeCount = activeCount;
         this.maximumAbsoluteWeight = maximumAbsoluteWeight;
+        this.exactBudget = exactBudget;
     }
 
     static FocusSet from(final List<Focus> foci) {
+        return from(foci, ExactBudget.unlimited());
+    }
+
+    static FocusSet from(final List<Focus> foci, final ExactBudget exactBudget) {
+        if (exactBudget == null) {
+            throw new IllegalArgumentException("Exact-evaluation budget is required");
+        }
         final int size = foci.size();
         final double[] xs = new double[size];
         final double[] ys = new double[size];
@@ -42,7 +52,7 @@ final class FocusSet {
                         Math.abs(focus.weight()));
             }
         }
-        return new FocusSet(xs, ys, weights, activeCount, maximumAbsoluteWeight);
+        return new FocusSet(xs, ys, weights, activeCount, maximumAbsoluteWeight, exactBudget);
     }
 
     int size() {
@@ -71,6 +81,10 @@ final class FocusSet {
 
     double maximumAbsoluteWeight() {
         return maximumAbsoluteWeight;
+    }
+
+    boolean tryConsumeExact() {
+        return exactBudget.tryConsume();
     }
 
     ExactFocusData exactData() {
@@ -123,12 +137,25 @@ final class FocusSet {
         if (absoluteWeight == 0) {
             return 0;
         }
-        if (Double.isFinite(x) && Double.isFinite(y)) {
-            return Math.hypot(
-                    scaledAbsoluteDifference(x, xs[index], absoluteWeight),
-                    scaledAbsoluteDifference(y, ys[index], absoluteWeight));
+        final double ordinaryDistance = distance(index, x, y);
+        if (!Double.isFinite(x) || !Double.isFinite(y)) {
+            return ordinaryDistance * absoluteWeight;
         }
-        return distance(index, x, y) * absoluteWeight;
+
+        final double scaledX = scaledAbsoluteDifference(x, xs[index], absoluteWeight);
+        final double scaledY = scaledAbsoluteDifference(y, ys[index], absoluteWeight);
+        final double scaled = Math.hypot(scaledX, scaledY);
+        if (scaled != 0 || ordinaryDistance == 0) {
+            return scaled;
+        }
+
+        // Each weighted Cartesian component can round to zero while their
+        // combined Euclidean norm still rounds to the smallest subnormal.
+        final double direct = ordinaryDistance * absoluteWeight;
+        if (direct != 0) {
+            return direct;
+        }
+        return ExactFieldMath.magnitudeDistance(this, index, x, y);
     }
 
     double signedDistance(final int index, final double x, final double y) {
@@ -158,9 +185,16 @@ final class FocusSet {
         final double relativeWeight = absoluteWeight / positiveScale;
         if (relativeWeight > 0 && Double.isFinite(relativeWeight)
                 && Double.isFinite(x) && Double.isFinite(y)) {
-            return Math.hypot(
-                    scaledAbsoluteDifference(x, xs[index], relativeWeight),
-                    scaledAbsoluteDifference(y, ys[index], relativeWeight));
+            final double scaledX = scaledAbsoluteDifference(x, xs[index], relativeWeight);
+            final double scaledY = scaledAbsoluteDifference(y, ys[index], relativeWeight);
+            final double scaled = Math.hypot(scaledX, scaledY);
+            if (scaled != 0 || distance(index, x, y) == 0) {
+                return scaled;
+            }
+            final double direct = distance(index, x, y) * relativeWeight;
+            if (direct != 0) {
+                return direct;
+            }
         }
         return FieldMath.expFromLog(
                 logMagnitudeDistance(index, x, y) - Math.log(positiveScale));
@@ -171,9 +205,17 @@ final class FocusSet {
         final double reciprocal = 1.0 / positiveScale;
         if (reciprocal > 0 && Double.isFinite(reciprocal)
                 && Double.isFinite(x) && Double.isFinite(y)) {
-            return Math.hypot(
-                    scaledAbsoluteDifference(x, xs[index], reciprocal),
-                    scaledAbsoluteDifference(y, ys[index], reciprocal));
+            final double ordinary = distance(index, x, y);
+            final double scaledX = scaledAbsoluteDifference(x, xs[index], reciprocal);
+            final double scaledY = scaledAbsoluteDifference(y, ys[index], reciprocal);
+            final double scaled = Math.hypot(scaledX, scaledY);
+            if (scaled != 0 || ordinary == 0) {
+                return scaled;
+            }
+            final double direct = ordinary * reciprocal;
+            if (direct != 0) {
+                return direct;
+            }
         }
         final double distance = distance(index, x, y);
         final double ratio = distance / positiveScale;

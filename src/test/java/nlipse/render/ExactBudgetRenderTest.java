@@ -26,6 +26,8 @@ class ExactBudgetRenderTest {
             assertTrue(evaluations > 0, type + " never used the exact path");
             assertTrue(evaluations <= budget,
                     type + " spent " + evaluations + " exact evaluations, budget " + budget);
+            assertTrue(renderer.cacheSummary().contains(evaluations + " exact"),
+                    renderer.cacheSummary());
         }
     }
 
@@ -39,6 +41,30 @@ class ExactBudgetRenderTest {
 
         assertEquals(0, renderer.getExactEvaluations());
         assertTrue(renderer.cacheSummary().endsWith("MiB"), renderer.cacheSummary());
+    }
+
+    @Test
+    void exhaustedRenderDoesNotSeedReusableApproximateArtifacts() {
+        final PlotRenderer renderer = new PlotRenderer();
+        final PlotSnapshot snapshot = snapshot(CurveType.RANGE,
+                degenerateFoci(CurveType.RANGE));
+        final RenderRequest request = new RenderRequest(snapshot, WIDTH, HEIGHT,
+                RenderQuality.FULL);
+
+        renderer.render(request, CancellationToken.NONE);
+        final long first = renderer.getExactEvaluations();
+        renderer.render(request, CancellationToken.NONE);
+        final long second = renderer.getExactEvaluations() - first;
+
+        assertTrue(first > 0);
+        assertTrue(second > 0, "an exhausted render was reused from a cache");
+        assertTrue(second <= PlotRenderer.exactBudget(WIDTH, HEIGHT));
+    }
+
+    private static PlotSnapshot snapshot(final CurveType type, final List<Focus> foci) {
+        return new PlotSnapshot(type, type.defaultParameter(),
+                foci, type == CurveType.LIPSE ? -1 : 0.05, 5, 12,
+                new Viewport(-3, 3, -2, 2), true, true, true, false, false, -1);
     }
 
     /** Weighted distances that stay near-equal across the whole viewport, which is
@@ -57,11 +83,7 @@ class ExactBudgetRenderTest {
 
     private static void render(final PlotRenderer renderer, final CurveType type,
             final List<Focus> foci) {
-        final PlotSnapshot snapshot = new PlotSnapshot(type, type.defaultParameter(),
-                foci, type == CurveType.LIPSE ? -1 : 0.05, 5, 12,
-                new Viewport(-3, 3, -2, 2), true, true, true, false, false, -1);
-
-        renderer.render(new RenderRequest(snapshot, WIDTH, HEIGHT,
+        renderer.render(new RenderRequest(snapshot(type, foci), WIDTH, HEIGHT,
                 RenderQuality.FULL), CancellationToken.NONE);
     }
 }

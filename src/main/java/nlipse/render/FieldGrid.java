@@ -44,9 +44,7 @@ public final class FieldGrid {
         if (field == null || viewport == null || token == null) {
             throw new IllegalArgumentException("Field, viewport and cancellation token are required");
         }
-        if (pixelWidth < 2 || pixelHeight < 2) {
-            throw new IllegalArgumentException("Grid size must be at least 2 by 2");
-        }
+        RenderDimensions.checkedPixelCount(pixelWidth, pixelHeight, 2);
         token.throwIfCancelled();
 
         final int step = Math.max(1, requestedStep);
@@ -67,7 +65,8 @@ public final class FieldGrid {
             worldYs[row] = viewport.worldY(pixelY, pixelHeight);
         }
 
-        final double[] values = new double[columns * rows];
+        final double[] values = new double[
+                RenderDimensions.checkedPixelCount(columns, rows, 1)];
         final double[] rowMinima = new double[rows];
         final double[] rowMaxima = new double[rows];
         final int[] rowMinColumns = new int[rows];
@@ -109,7 +108,8 @@ public final class FieldGrid {
         final int targetRows = Math.ceilDiv(pixelHeight - 1, targetStep) + 1;
         final int[] targetPixelXs = new int[targetColumns];
         final int[] targetPixelYs = new int[targetRows];
-        final double[] targetValues = new double[targetColumns * targetRows];
+        final double[] targetValues = new double[
+                RenderDimensions.checkedPixelCount(targetColumns, targetRows, 1)];
         final double[] rowMinima = new double[targetRows];
         final double[] rowMaxima = new double[targetRows];
         final int[] rowMinColumns = new int[targetRows];
@@ -177,8 +177,8 @@ public final class FieldGrid {
             throw new IllegalArgumentException(
                     "Viewport, sampled values and cancellation token are required");
         }
-        if (pixelWidth < 2 || pixelHeight < 2
-                || values.length != Math.multiplyExact(pixelWidth, pixelHeight)) {
+        if (values.length != RenderDimensions.checkedPixelCount(
+                pixelWidth, pixelHeight, 2)) {
             throw new IllegalArgumentException("Full-resolution values must match the grid size");
         }
         final int[] pixelXs = new int[pixelWidth];

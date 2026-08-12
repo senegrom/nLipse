@@ -180,4 +180,25 @@ class WorldFieldCacheTest {
         assertEquals(width * height, evaluations.get() - beforeReconstructed);
     }
 
+    @Test
+    void invalidatingAFieldIdentityForcesFreshSampling() {
+        final int width = 65;
+        final int height = 49;
+        final WorldFieldCache cache = new WorldFieldCache(16L * 1024 * 1024);
+        final AtomicInteger evaluations = new AtomicInteger();
+        final DistanceField field = (x, y) -> {
+            evaluations.incrementAndGet();
+            return x - y;
+        };
+        final Viewport viewport = new Viewport(-2, 2, -1, 1);
+
+        cache.sample(IDENTITY, field, viewport, width, height, CancellationToken.NONE);
+        final int afterFirst = evaluations.get();
+        cache.invalidate(IDENTITY);
+        cache.sample(IDENTITY, field, viewport, width, height, CancellationToken.NONE);
+
+        assertEquals(width * height, afterFirst);
+        assertEquals(width * height, evaluations.get() - afterFirst);
+    }
+
 }

@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.InputMap;
@@ -53,10 +54,19 @@ public final class PlotController implements AutoCloseable {
     private static final double NUDGE_FINE = 0.01;
     private static final double HIT_RADIUS = 11;
 
-    private enum RangeAdjustment {
+    enum RangeAdjustment {
         NONE,
         CLAMP,
         AUTO_FIT
+    }
+
+    record RangeResolution(
+            double fullMin,
+            double fullMax,
+            double levelMin,
+            double levelMax,
+            boolean rangeChanged,
+            boolean adjustmentDeferred) {
     }
 
     private final PlotModel model;
@@ -73,6 +83,7 @@ public final class PlotController implements AutoCloseable {
     private double fullMax;
     private double sampledMin;
     private double sampledMax;
+    private boolean sampledRangeApproximate;
     private RangeAdjustment pendingRangeAdjustment = RangeAdjustment.CLAMP;
     private DistanceField cursorField;
 
@@ -129,7 +140,7 @@ public final class PlotController implements AutoCloseable {
             model.setLogSpacing(type.defaultLogSpacing());
             refreshCursorField();
             markRangeAdjustment(RangeAdjustment.AUTO_FIT);
-            requestFullRender();
+            requestFullRender(true);
         });
 
         view.getDistanceMin().addChangeListener(event -> distanceSliderChanged(true));
@@ -205,7 +216,7 @@ public final class PlotController implements AutoCloseable {
         view.getRemoveFocus().addActionListener(event -> removeFocusAt(view.getFocusTable().getSelectedRow()));
         view.getFitDistance().addActionListener(event -> {
             markRangeAdjustment(RangeAdjustment.AUTO_FIT);
-            requestFullRender();
+            requestFullRender(true);
         });
         view.getResetView().addActionListener(event -> {
             model.resetViewport();
@@ -464,9 +475,9 @@ public final class PlotController implements AutoCloseable {
             return;
         }
         if (pendingRangeAdjustment != RangeAdjustment.NONE) {
-            requestFullRender();
+            requestFullRender(true);
             JOptionPane.showMessageDialog(view,
-                    "The field-level range is still being updated. Retry after the render finishes.",
+                    "The exact field-level range is still being updated. Retry after the render finishes.",
                     "Export not ready", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
@@ -656,7 +667,7 @@ public final class PlotController implements AutoCloseable {
             view.setCurvePresentation(type, parameter);
             refreshCursorField();
             markRangeAdjustment(RangeAdjustment.AUTO_FIT);
-            requestFullRender();
+            requestFullRender(true);
         } catch (final IllegalArgumentException exception) {
             view.setCurvePresentation(type, model.getFamilyParameter());
         }
@@ -712,62 +723,71 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void requestFullRender() {
+        requestFullRender(false);
+    }
+
+    private void requestFullRender(final boolean exactRequired) {
         previewTimer.stop();
         fullTimer.stop();
-        submit(RenderQuality.FULL);
+        submit(RenderQuality.FULL, exactRequired);
     }
 
     private void submit(final RenderQuality quality) {
+        submit(quality, false);
+    }
+
+    private void submit(final RenderQuality quality, final boolean exactRequired) {
         final int width = view.getCanvas().getWidth();
         final int height = view.getCanvas().getHeight();
         if (width < 2 || height < 2 || !view.isDisplayable()) {
             return;
         }
         view.getCanvas().setRendering(true);
-        final RenderRequest request = new RenderRequest(model.snapshot(), width, height, quality);
+        RenderRequest request = new RenderRequest(model.snapshot(), width, height, quality);
+        if (exactRequired) {
+            request = request.requiringExact();
+        }
         renderService.submitInteractive(request, this::renderCompleted, this::renderFailed);
     }
 
     private void renderCompleted(final RenderResult result) {
         final FieldExtrema extrema = result.extrema().orElse(null);
-        final boolean rangeChanged;
-        if (extrema == null) {
-            sampledMin = Double.NaN;
-            sampledMax = Double.NaN;
+        sampledMin = extrema == null ? Double.NaN : extrema.minimum();
+        sampledMax = extrema == null ? Double.NaN : extrema.maximum();
+        sampledRangeApproximate = result.precisionLimited();
+
+        final RangeResolution resolution = resolveRange(
+                fullMin, fullMax, model.getDistanceMin(), model.getDistanceMax(),
+                pendingRangeAdjustment, result.extrema(), result.precisionLimited());
+        fullMin = resolution.fullMin();
+        fullMax = resolution.fullMax();
+        if (!resolution.adjustmentDeferred()) {
             pendingRangeAdjustment = RangeAdjustment.NONE;
-            rangeChanged = false;
-        } else {
-            sampledMin = extrema.minimum();
-            sampledMax = extrema.maximum();
-            fullMin = sampledMin;
-            fullMax = sampledMax;
-            if (fullMax <= fullMin) {
-                final double centre = fullMin;
-                final double padding = Math.max(1, Math.abs(centre) * 0.05);
-                fullMin = centre - padding;
-                fullMax = centre + padding;
-                if (!Double.isFinite(fullMin) || !Double.isFinite(fullMax)) {
-                    if (centre >= 0) {
-                        fullMin = Math.nextDown(centre);
-                        fullMax = centre;
-                    } else {
-                        fullMin = centre;
-                        fullMax = Math.nextUp(centre);
-                    }
-                }
-            }
-            rangeChanged = applyPendingRangeAdjustment();
         }
+        if (resolution.rangeChanged()) {
+            model.setDistanceRange(resolution.levelMin(), resolution.levelMax());
+        }
+
         syncSlidersFromModel();
         view.getCanvas().setRenderResult(result);
         view.getRenderInfo().setText(String.format(Locale.ROOT,
-                "%s · %.1f ms · %d×%d · cache %s%s",
+                "%s · %.1f ms · %d×%d · cache %s%s%s",
                 result.quality() == RenderQuality.FULL ? "Full" : "Preview",
                 result.renderNanos() / 1_000_000.0,
                 result.image().getWidth(), result.image().getHeight(),
-                renderer.cacheSummary(), extrema == null ? " · no finite samples" : ""));
-        if (rangeChanged) {
+                renderer.cacheSummary(), extrema == null ? " · no finite samples" : "",
+                result.precisionLimited()
+                        ? resolution.adjustmentDeferred()
+                                ? " · precision limited · resolving exact range"
+                                : " · precision limited"
+                        : ""));
+        if (resolution.rangeChanged()) {
             requestFullRender();
+        } else if (requiresExactRangeRetry(result.quality(), resolution)) {
+            // Keep the limited frame responsive, but settle a pending fit or
+            // clamp from exact extrema. Newer interaction can still cancel
+            // this retry through the normal latest-wins scheduler.
+            requestFullRender(true);
         }
     }
 
@@ -778,33 +798,61 @@ public final class PlotController implements AutoCloseable {
         view.getRenderInfo().setText("Rendering failed");
     }
 
-    private boolean applyPendingRangeAdjustment() {
-        final RangeAdjustment adjustment = pendingRangeAdjustment;
-        pendingRangeAdjustment = RangeAdjustment.NONE;
-        if (adjustment == RangeAdjustment.NONE) {
-            return false;
+    static RangeResolution resolveRange(final double previousFullMin,
+            final double previousFullMax, final double oldMin, final double oldMax,
+            final RangeAdjustment adjustment, final Optional<FieldExtrema> extrema,
+            final boolean precisionLimited) {
+        if (precisionLimited) {
+            return new RangeResolution(previousFullMin, previousFullMax, oldMin, oldMax,
+                    false, adjustment != RangeAdjustment.NONE);
         }
-        final double oldMin = model.getDistanceMin();
-        final double oldMax = model.getDistanceMax();
-        double newMin = oldMin;
-        double newMax = oldMax;
-        if (adjustment == RangeAdjustment.AUTO_FIT
-                || oldMax < fullMin || oldMin > fullMax || oldMin > oldMax) {
-            newMin = ScalarRanges.interpolate(fullMin, fullMax, 0.05);
-            newMax = ScalarRanges.interpolate(fullMin, fullMax, 0.95);
-        } else {
-            newMin = Math.max(fullMin, oldMin);
-            newMax = Math.min(fullMax, oldMax);
-            if (newMin > newMax) {
-                newMin = ScalarRanges.interpolate(fullMin, fullMax, 0.05);
-                newMax = ScalarRanges.interpolate(fullMin, fullMax, 0.95);
+        if (extrema.isEmpty()) {
+            return new RangeResolution(previousFullMin, previousFullMax, oldMin, oldMax,
+                    false, false);
+        }
+
+        double resolvedFullMin = extrema.orElseThrow().minimum();
+        double resolvedFullMax = extrema.orElseThrow().maximum();
+        if (resolvedFullMax <= resolvedFullMin) {
+            final double centre = resolvedFullMin;
+            final double padding = Math.max(1, Math.abs(centre) * 0.05);
+            resolvedFullMin = centre - padding;
+            resolvedFullMax = centre + padding;
+            if (!Double.isFinite(resolvedFullMin) || !Double.isFinite(resolvedFullMax)) {
+                if (centre >= 0) {
+                    resolvedFullMin = Math.nextDown(centre);
+                    resolvedFullMax = centre;
+                } else {
+                    resolvedFullMin = centre;
+                    resolvedFullMax = Math.nextUp(centre);
+                }
             }
         }
-        if (sameDouble(oldMin, newMin) && sameDouble(oldMax, newMax)) {
-            return false;
+
+        double newMin = oldMin;
+        double newMax = oldMax;
+        if (adjustment != RangeAdjustment.NONE) {
+            if (adjustment == RangeAdjustment.AUTO_FIT
+                    || oldMax < resolvedFullMin || oldMin > resolvedFullMax || oldMin > oldMax) {
+                newMin = ScalarRanges.interpolate(resolvedFullMin, resolvedFullMax, 0.05);
+                newMax = ScalarRanges.interpolate(resolvedFullMin, resolvedFullMax, 0.95);
+            } else {
+                newMin = Math.max(resolvedFullMin, oldMin);
+                newMax = Math.min(resolvedFullMax, oldMax);
+                if (newMin > newMax) {
+                    newMin = ScalarRanges.interpolate(resolvedFullMin, resolvedFullMax, 0.05);
+                    newMax = ScalarRanges.interpolate(resolvedFullMin, resolvedFullMax, 0.95);
+                }
+            }
         }
-        model.setDistanceRange(newMin, newMax);
-        return true;
+        final boolean changed = !sameDouble(oldMin, newMin) || !sameDouble(oldMax, newMax);
+        return new RangeResolution(resolvedFullMin, resolvedFullMax, newMin, newMax,
+                changed, false);
+    }
+
+    static boolean requiresExactRangeRetry(final RenderQuality quality,
+            final RangeResolution resolution) {
+        return quality == RenderQuality.FULL && resolution.adjustmentDeferred();
     }
 
     static boolean sameDouble(final double first, final double second) {
@@ -829,11 +877,12 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void updateDistanceLabels() {
+        final String fieldLabel = sampledRangeApproximate ? "approx. field" : "field";
         view.getDistanceMinLabel().setText(String.format(Locale.ROOT,
-                "Level min: %.5g   (field min: %s)", model.getDistanceMin(),
+                "Level min: %.5g   (%s min: %s)", model.getDistanceMin(), fieldLabel,
                 formatFieldValue(sampledMin)));
         view.getDistanceMaxLabel().setText(String.format(Locale.ROOT,
-                "Level max: %.5g   (field max: %s)", model.getDistanceMax(),
+                "Level max: %.5g   (%s max: %s)", model.getDistanceMax(), fieldLabel,
                 formatFieldValue(sampledMax)));
     }
 

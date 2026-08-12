@@ -4,7 +4,6 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.atomic.AtomicInteger;
-import nlipse.math.ExactBudget;
 
 /** Shared, bounded worker pool for CPU-bound scalar-field sampling. */
 final class SamplingPool {
@@ -42,17 +41,10 @@ final class SamplingPool {
     }
 
     private static ForkJoinWorkerThread newWorker(final ForkJoinPool pool) {
-        final ForkJoinWorkerThread thread = new SamplerThread(pool);
+        final ForkJoinWorkerThread thread = ForkJoinPool.defaultForkJoinWorkerThreadFactory
+                .newThread(pool);
         thread.setName("nlipse-sampler-" + WORKER_NUMBER.incrementAndGet());
         thread.setDaemon(true);
         return thread;
-    }
-
-    /** Sampling workers take part in the render pass's exact-evaluation budget. */
-    private static final class SamplerThread extends ForkJoinWorkerThread
-            implements ExactBudget.Participant {
-        SamplerThread(final ForkJoinPool pool) {
-            super(pool);
-        }
     }
 }

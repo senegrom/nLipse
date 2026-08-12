@@ -98,7 +98,7 @@ final class RadialFields {
                             && FieldMath.cancellationUncertain(normalized,
                                     normalizedMagnitudes.value(), foci.activeCount(),
                                     FieldMath.EXACT_CANCELLATION_RATIO)
-                            && ExactBudget.tryConsume())) {
+                            && foci.tryConsumeExact())) {
                 return ExactFieldMath.cassini(foci, x, y);
             }
             return FieldMath.expFromLog(resultLogarithm);
@@ -252,7 +252,7 @@ final class RadialFields {
             final boolean illConditioned = positiveTerm && negativeTerm
                     && FieldMath.cancellationUncertain(normalized, magnitude,
                             termCount, FieldMath.EXACT_CANCELLATION_RATIO);
-            if (finitePoint && illConditioned && ExactBudget.tryConsume()) {
+            if (finitePoint && illConditioned && foci.tryConsumeExact()) {
                 return ExactFieldMath.potential(foci, x, y);
             }
             final double result = scale * normalized;
@@ -309,7 +309,7 @@ final class RadialFields {
             if (finitePoint && (exactNeeded || positive && negative
                     && FieldMath.cancellationUncertain(result, magnitudes.value(),
                             foci.activeCount(), FieldMath.EXACT_CANCELLATION_RATIO)
-                    && ExactBudget.tryConsume())) {
+                    && foci.tryConsumeExact())) {
                 return ExactFieldMath.gaussian(foci, x, y, sigma);
             }
             return result;

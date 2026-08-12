@@ -15,13 +15,19 @@ public final class DistanceFields {
 
     public static DistanceField create(final CurveType type, final List<Focus> foci,
             final double familyParameter) {
+        return create(type, foci, familyParameter, ExactBudget.unlimited());
+    }
+
+    /** Creates a field with an isolated precision-fallback allowance. */
+    public static DistanceField create(final CurveType type, final List<Focus> foci,
+            final double familyParameter, final ExactBudget exactBudget) {
         if (type == null) {
             throw new IllegalArgumentException("Curve type is required");
         }
         if (foci == null || foci.isEmpty()) {
             throw new IllegalArgumentException("At least one focus is required");
         }
-        final FocusSet focusSet = FocusSet.from(foci);
+        final FocusSet focusSet = FocusSet.from(foci, exactBudget);
         final double parameter = type.normalizeParameter(familyParameter);
         return switch (type) {
             case LIPSE -> AggregateFields.sum(focusSet);
