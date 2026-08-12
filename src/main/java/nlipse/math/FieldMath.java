@@ -35,16 +35,6 @@ final class FieldMath {
         return Math.exp(logarithm);
     }
 
-    static double scaledProduct(final double first, final double second) {
-        final double product = first * second;
-        if (Double.isFinite(product) || first == 0 || second == 0
-                || !Double.isFinite(first) || !Double.isFinite(second)) {
-            return product;
-        }
-        final double logarithm = Math.log(Math.abs(first)) + Math.log(Math.abs(second));
-        return Math.copySign(expFromLog(logarithm), first * Math.copySign(1.0, second));
-    }
-
     static double multiplyFromLog(final double signedFactor, final double logarithm) {
         if (signedFactor == 0) {
             return 0;

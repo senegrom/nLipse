@@ -344,33 +344,6 @@ final class ExactFieldMath {
         });
     }
 
-    static double doubleSum(final double[] values, final int length) {
-        requireAtLeast(values, length, "values");
-        BigDecimal sum = BigDecimal.ZERO;
-        for (int index = 0; index < length; index++) {
-            if (values[index] != 0) {
-                sum = sum.add(AdaptiveDecimal.exact(values[index]));
-            }
-        }
-        return sum.doubleValue();
-    }
-
-    static double weightedLogSum(final double[] logarithms, final double[] weights) {
-        requireAtLeast(logarithms, weights.length, "logarithms");
-        BigDecimal sum = BigDecimal.ZERO;
-        for (int index = 0; index < weights.length; index++) {
-            if (weights[index] != 0 && logarithms[index] != 0) {
-                sum = sum.add(AdaptiveDecimal.exact(weights[index])
-                        .multiply(AdaptiveDecimal.exact(logarithms[index])));
-            }
-        }
-        return sum.doubleValue();
-    }
-
-    static double multiply(final double first, final double second) {
-        return AdaptiveDecimal.exact(first).multiply(AdaptiveDecimal.exact(second)).doubleValue();
-    }
-
     private static BigDecimal powerMeanDecimal(final FocusSet foci, final double x,
             final double y, final double power, final MathContext context) {
         final DecimalPoint point = point(x, y);
@@ -450,14 +423,6 @@ final class ExactFieldMath {
 
     private static DecimalPoint point(final double x, final double y) {
         return new DecimalPoint(AdaptiveDecimal.exact(x), AdaptiveDecimal.exact(y));
-    }
-
-    private static void requireAtLeast(final double[] values, final int minimumLength,
-            final String name) {
-        if (values.length < minimumLength) {
-            throw new IllegalArgumentException(name + " must contain at least "
-                    + minimumLength + " entries");
-        }
     }
 
     private record DecimalPoint(BigDecimal x, BigDecimal y) {
