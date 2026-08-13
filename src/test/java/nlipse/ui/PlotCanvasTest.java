@@ -13,7 +13,7 @@ import nlipse.render.RenderResult;
 
 class PlotCanvasTest {
     @Test
-    void panPreviewTranslatesTheLastImageAndLeavesExposedPixelsBlank() {
+    void panPreviewTranslatesTheLastImageAndMarksExposedPixelsUncomputed() {
         final BufferedImage source = new BufferedImage(5, 3, BufferedImage.TYPE_INT_ARGB);
         final Graphics2D sourceGraphics = source.createGraphics();
         try {
@@ -34,15 +34,28 @@ class PlotCanvasTest {
         final BufferedImage exported = canvas.snapshotImage();
 
         assertEquals(Color.RED.getRGB(), preview.getRGB(3, 1));
-        assertEquals(Color.WHITE.getRGB(), preview.getRGB(0, 1));
+        assertEquals(PlotCanvas.UNCOMPUTED_BACKGROUND.getRGB(), preview.getRGB(0, 1));
         assertEquals(Color.RED.getRGB(), exported.getRGB(3, 1));
-        assertEquals(Color.WHITE.getRGB(), exported.getRGB(0, 1));
+        assertEquals(PlotCanvas.UNCOMPUTED_BACKGROUND.getRGB(), exported.getRGB(0, 1));
 
         canvas.commitPanPreview();
         assertEquals(Color.RED.getRGB(), canvas.image().getRGB(3, 1));
-        assertEquals(Color.WHITE.getRGB(), canvas.image().getRGB(0, 1));
+        assertEquals(PlotCanvas.UNCOMPUTED_BACKGROUND.getRGB(),
+                canvas.image().getRGB(0, 1));
     }
 
+    @Test
+    void emptyCanvasUsesTheUncomputedTint() {
+        final PlotCanvas canvas = new PlotCanvas();
+        canvas.setSize(20, 20);
+        canvas.setMessage("");
+
+        final BufferedImage painted = paint(canvas);
+
+        assertEquals(PlotCanvas.UNCOMPUTED_BACKGROUND.getRGB(), painted.getRGB(0, 0));
+        assertTrue(PlotCanvas.UNCOMPUTED_BACKGROUND.getBlue()
+                > PlotCanvas.UNCOMPUTED_BACKGROUND.getRed());
+    }
 
     @Test
     void snapshotUsesTheCurrentCanvasSizeRatherThanTheOldRenderSize() {
