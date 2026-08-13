@@ -74,6 +74,20 @@ class SvgPlotWriterTest {
         assertFalse(svg.isBlank());
     }
 
+    @Test
+    void fullyOffscreenFocusMarkersAreOmitted() throws Exception {
+        final PlotSnapshot snapshot = new PlotSnapshot(
+                CurveType.NEAREST, CurveType.NEAREST.defaultParameter(),
+                List.of(new Focus(0, 0, 1), new Focus(Double.MAX_VALUE, 0, 0)),
+                0, 2, 4, new Viewport(-1, 1, -1, 1),
+                false, false, true, false, false, -1);
+
+        final String svg = write(snapshot, 101, 101);
+        final Document document = parse(svg);
+
+        assertEquals(1, document.getElementsByTagName("circle").getLength());
+        assertFalse(svg.contains("Infinity"));
+    }
 
     @Test
     void legendRowsAreReducedToFitTheSvgHeight() throws Exception {

@@ -240,6 +240,32 @@ class PlotRendererTest {
     }
 
     @Test
+    void fullyOffscreenFocusMarkersDoNotWrapOntoTheCanvas() {
+        final PlotSnapshot visibleOnly = new PlotSnapshot(CurveType.NEAREST,
+                CurveType.NEAREST.defaultParameter(),
+                List.of(new Focus(0, 0, 1)), 0, 2, 4,
+                new Viewport(-1, 1, -1, 1),
+                false, false, true, false, false, -1);
+        final PlotSnapshot withFarDisabledFocus = new PlotSnapshot(CurveType.NEAREST,
+                CurveType.NEAREST.defaultParameter(),
+                List.of(new Focus(0, 0, 1), new Focus(Double.MAX_VALUE, 0, 0)),
+                0, 2, 4, new Viewport(-1, 1, -1, 1),
+                false, false, true, false, false, -1);
+        final int width = 101;
+        final int height = 101;
+
+        final RenderResult expected = new PlotRenderer().render(
+                new RenderRequest(visibleOnly, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+        final RenderResult actual = new PlotRenderer().render(
+                new RenderRequest(withFarDisabledFocus, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+
+        assertArrayEquals(expected.image().getRGB(0, 0, width, height, null, 0, width),
+                actual.image().getRGB(0, 0, width, height, null, 0, width));
+    }
+
+    @Test
     void legendSubsamplingKeepsBothEndpointsAndTheRowCap() {
         assertArrayEquals(new int[]{0, 1, 2}, PlotRenderer.legendLevelIndices(3));
         final int[] subsampled = PlotRenderer.legendLevelIndices(200);

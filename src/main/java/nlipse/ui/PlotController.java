@@ -754,11 +754,13 @@ public final class PlotController implements AutoCloseable {
         final FieldExtrema extrema = result.extrema().orElse(null);
         sampledMin = extrema == null ? Double.NaN : extrema.minimum();
         sampledMax = extrema == null ? Double.NaN : extrema.maximum();
-        sampledRangeApproximate = result.precisionLimited();
+        final boolean trustedExtrema = trustsRangeExtrema(
+                result.quality(), result.precisionLimited());
+        sampledRangeApproximate = !trustedExtrema;
 
         final RangeResolution resolution = resolveRange(
                 fullMin, fullMax, model.getDistanceMin(), model.getDistanceMax(),
-                pendingRangeAdjustment, result.extrema(), result.precisionLimited());
+                pendingRangeAdjustment, result.extrema(), trustedExtrema);
         fullMin = resolution.fullMin();
         fullMax = resolution.fullMax();
         if (!resolution.adjustmentDeferred()) {
@@ -801,8 +803,8 @@ public final class PlotController implements AutoCloseable {
     static RangeResolution resolveRange(final double previousFullMin,
             final double previousFullMax, final double oldMin, final double oldMax,
             final RangeAdjustment adjustment, final Optional<FieldExtrema> extrema,
-            final boolean precisionLimited) {
-        if (precisionLimited) {
+            final boolean trustedExtrema) {
+        if (!trustedExtrema) {
             return new RangeResolution(previousFullMin, previousFullMax, oldMin, oldMax,
                     false, adjustment != RangeAdjustment.NONE);
         }
@@ -848,6 +850,11 @@ public final class PlotController implements AutoCloseable {
         final boolean changed = !sameDouble(oldMin, newMin) || !sameDouble(oldMax, newMax);
         return new RangeResolution(resolvedFullMin, resolvedFullMax, newMin, newMax,
                 changed, false);
+    }
+
+    static boolean trustsRangeExtrema(final RenderQuality quality,
+            final boolean precisionLimited) {
+        return quality == RenderQuality.FULL && !precisionLimited;
     }
 
     static boolean requiresExactRangeRetry(final RenderQuality quality,

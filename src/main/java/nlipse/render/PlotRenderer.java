@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-import nlipse.geometry.Point2;
 import nlipse.math.DistanceField;
 import nlipse.math.DistanceFields;
 import nlipse.math.ExactBudget;
@@ -130,9 +129,9 @@ public final class PlotRenderer implements RenderEngine {
             if (snapshot.showExtrema()) {
                 completed.extrema().ifPresent(extrema -> {
                     drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
-                            extrema.minimumPoint(), MIN_COLOR, 7);
+                            extrema.minimumPoint().x(), extrema.minimumPoint().y(), MIN_COLOR, 7);
                     drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
-                            extrema.maximumPoint(), MAX_COLOR, 7);
+                            extrema.maximumPoint().x(), extrema.maximumPoint().y(), MAX_COLOR, 7);
                 });
             }
             if (snapshot.showLegend() && completed.levelCount() > 0) {
@@ -569,24 +568,36 @@ public final class PlotRenderer implements RenderEngine {
         final PlotSnapshot snapshot = request.snapshot();
         for (int index = 0; index < snapshot.foci().size(); index++) {
             final Focus focus = snapshot.foci().get(index);
-            final Point2 point = new Point2(focus.x(), focus.y());
-            drawMarker(graphics, snapshot.viewport(), request.width(), request.height(), point,
+            drawMarker(graphics, snapshot.viewport(), request.width(), request.height(),
+                    focus.x(), focus.y(),
                     index == snapshot.selectedFocusIndex() ? SELECTED_FOCUS_COLOR : FOCUS_COLOR,
                     index == snapshot.selectedFocusIndex() ? 10 : 8);
         }
     }
 
     private static void drawMarker(final Graphics2D graphics, final Viewport viewport,
-            final int width, final int height, final Point2 point, final Color color, final int diameter) {
-        final double x = viewport.pixelX(point.x(), width);
-        final double y = viewport.pixelY(point.y(), height);
-        final int left = (int) Math.round(x - diameter / 2.0);
-        final int top = (int) Math.round(y - diameter / 2.0);
+            final int width, final int height, final double worldX, final double worldY,
+            final Color color, final int diameter) {
+        final double x = viewport.pixelX(worldX, width);
+        final double y = viewport.pixelY(worldY, height);
+        final double radius = diameter / 2.0;
+        if (!markerIntersectsCanvas(x, y, radius, width, height)) {
+            return;
+        }
+        final int left = (int) Math.round(x - radius);
+        final int top = (int) Math.round(y - radius);
         graphics.setColor(color);
         graphics.fillOval(left, top, diameter, diameter);
         graphics.setColor(Color.WHITE);
         graphics.setStroke(new BasicStroke(1f));
         graphics.drawOval(left, top, diameter, diameter);
+    }
+
+    static boolean markerIntersectsCanvas(final double x, final double y,
+            final double radius, final int width, final int height) {
+        return Double.isFinite(x) && Double.isFinite(y)
+                && x >= -radius && x <= width - 1.0 + radius
+                && y >= -radius && y <= height - 1.0 + radius;
     }
 
     static double[] levels(final double min, final double max, final int count,

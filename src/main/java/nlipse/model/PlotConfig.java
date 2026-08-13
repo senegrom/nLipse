@@ -37,6 +37,8 @@ public record PlotConfig(
                 || distanceMin > distanceMax) {
             throw new IllegalArgumentException("Field level range must be finite and ordered");
         }
+        distanceMin = distanceMin == 0 ? 0 : distanceMin;
+        distanceMax = distanceMax == 0 ? 0 : distanceMax;
         if (curveCount < 1 || curveCount > MAX_CURVES) {
             throw new IllegalArgumentException("Curve count must be between 1 and " + MAX_CURVES);
         }

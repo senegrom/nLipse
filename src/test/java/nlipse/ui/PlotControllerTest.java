@@ -22,10 +22,17 @@ class PlotControllerTest {
     }
 
     @Test
-    void precisionLimitedExtremaDoNotChangeExactRangeState() {
+    void onlyExactFullRendersMayMutateTrustedRangeState() {
+        assertFalse(PlotController.trustsRangeExtrema(RenderQuality.PREVIEW, false));
+        assertFalse(PlotController.trustsRangeExtrema(RenderQuality.FULL, true));
+        assertTrue(PlotController.trustsRangeExtrema(RenderQuality.FULL, false));
+    }
+
+    @Test
+    void untrustedExtremaDoNotChangeExactRangeState() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
                 -5, 5, 1, 2, PlotController.RangeAdjustment.AUTO_FIT,
-                Optional.of(EXTREMA), true);
+                Optional.of(EXTREMA), false);
 
         assertEquals(-5, resolution.fullMin());
         assertEquals(5, resolution.fullMax());
@@ -39,14 +46,14 @@ class PlotControllerTest {
     void deferredRangeAdjustmentRetriesAfterASettledLimitedFullRender() {
         final PlotController.RangeResolution deferred = PlotController.resolveRange(
                 -5, 5, 1, 2, PlotController.RangeAdjustment.CLAMP,
-                Optional.of(EXTREMA), true);
+                Optional.of(EXTREMA), false);
 
         assertFalse(PlotController.requiresExactRangeRetry(RenderQuality.PREVIEW, deferred));
         assertTrue(PlotController.requiresExactRangeRetry(RenderQuality.FULL, deferred));
 
         final PlotController.RangeResolution noAdjustment = PlotController.resolveRange(
                 -5, 5, 1, 2, PlotController.RangeAdjustment.NONE,
-                Optional.of(EXTREMA), true);
+                Optional.of(EXTREMA), false);
         assertFalse(PlotController.requiresExactRangeRetry(
                 RenderQuality.FULL, noAdjustment));
     }
@@ -55,7 +62,7 @@ class PlotControllerTest {
     void exactExtremaApplyDeferredAutoFit() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
                 -5, 5, 1, 2, PlotController.RangeAdjustment.AUTO_FIT,
-                Optional.of(EXTREMA), false);
+                Optional.of(EXTREMA), true);
 
         assertEquals(10, resolution.fullMin());
         assertEquals(20, resolution.fullMax());
@@ -69,7 +76,7 @@ class PlotControllerTest {
     void exactRenderWithoutFiniteSamplesConsumesPendingAdjustmentSafely() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
                 -5, 5, 1, 2, PlotController.RangeAdjustment.CLAMP,
-                Optional.empty(), false);
+                Optional.empty(), true);
 
         assertEquals(-5, resolution.fullMin());
         assertEquals(5, resolution.fullMax());
@@ -79,12 +86,11 @@ class PlotControllerTest {
         assertFalse(resolution.adjustmentDeferred());
     }
 
-
     @Test
     void exactExtremaDoNotAutoFitManualLevelsWithoutAPendingAdjustment() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
                 -5, 5, -20, -10, PlotController.RangeAdjustment.NONE,
-                Optional.of(EXTREMA), false);
+                Optional.of(EXTREMA), true);
 
         assertEquals(10, resolution.fullMin());
         assertEquals(20, resolution.fullMax());
@@ -98,7 +104,7 @@ class PlotControllerTest {
     void exactExtremaRefreshSliderDomainWithoutChangingManualLevels() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
                 -5, 5, 12, 18, PlotController.RangeAdjustment.NONE,
-                Optional.of(EXTREMA), false);
+                Optional.of(EXTREMA), true);
 
         assertEquals(10, resolution.fullMin());
         assertEquals(20, resolution.fullMax());

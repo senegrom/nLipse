@@ -2,9 +2,11 @@ package nlipse.io;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -43,6 +45,39 @@ class PlotExportsTest {
         assertTrue(xml.startsWith("<?xml"));
         assertTrue(xml.contains("<svg"));
         assertTrue(xml.contains("<polyline") || xml.contains("<path"));
+    }
+
+    @Test
+    void rejectsPreviewResultsWithoutReplacingExistingFiles() throws Exception {
+        final RenderResult preview = new PlotRenderer().render(new RenderRequest(snapshot(),
+                64, 48, RenderQuality.PREVIEW), CancellationToken.NONE);
+        final Path png = directory.resolve("preview.png");
+        final Path svg = directory.resolve("preview.svg");
+        Files.writeString(png, "existing png");
+        Files.writeString(svg, "existing svg");
+
+        assertThrows(IOException.class, () -> PlotExports.writePng(preview, png));
+        assertThrows(IOException.class, () -> PlotExports.writeSvg(preview, svg));
+        assertEquals("existing png", Files.readString(png));
+        assertEquals("existing svg", Files.readString(svg));
+    }
+
+    @Test
+    void rejectsPrecisionLimitedResultsWithoutReplacingExistingFiles() throws Exception {
+        final RenderResult exact = new PlotRenderer().render(new RenderRequest(snapshot(),
+                64, 48, RenderQuality.FULL), CancellationToken.NONE);
+        final RenderResult limited = new RenderResult(exact.image(), exact.sequence(),
+                exact.quality(), exact.extrema(), exact.renderNanos(), true,
+                exact.renderPackage().orElseThrow());
+        final Path png = directory.resolve("limited.png");
+        final Path svg = directory.resolve("limited.svg");
+        Files.writeString(png, "existing png");
+        Files.writeString(svg, "existing svg");
+
+        assertThrows(IOException.class, () -> PlotExports.writePng(limited, png));
+        assertThrows(IOException.class, () -> PlotExports.writeSvg(limited, svg));
+        assertEquals("existing png", Files.readString(png));
+        assertEquals("existing svg", Files.readString(svg));
     }
 
     private static PlotSnapshot snapshot() {

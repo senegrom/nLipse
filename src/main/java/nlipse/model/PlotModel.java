@@ -162,8 +162,8 @@ public final class PlotModel {
         if (!Double.isFinite(min) || !Double.isFinite(max) || min > max) {
             throw new IllegalArgumentException("Field level range must be finite and ordered");
         }
-        distanceMin = min;
-        distanceMax = max;
+        distanceMin = min == 0 ? 0 : min;
+        distanceMax = max == 0 ? 0 : max;
     }
 
     public synchronized int getCurveCount() {

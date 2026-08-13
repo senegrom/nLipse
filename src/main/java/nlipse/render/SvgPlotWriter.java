@@ -144,7 +144,7 @@ public final class SvgPlotWriter {
             final double radius, final Color fill) {
         final double x = viewport.pixelX(worldX, width);
         final double y = viewport.pixelY(worldY, height);
-        if (!Double.isFinite(x) || !Double.isFinite(y)) {
+        if (!PlotRenderer.markerIntersectsCanvas(x, y, radius, width, height)) {
             return;
         }
         svg.append("<circle cx=\"").append(coordinate(x)).append("\" cy=\"")

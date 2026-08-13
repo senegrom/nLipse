@@ -53,6 +53,28 @@ class PlotModelTest {
     }
 
     @Test
+    void canonicalizesSignedZeroLevelState() {
+        final PlotConfig defaults = PlotConfig.defaults();
+        final PlotConfig config = new PlotConfig(defaults.curveType(),
+                defaults.familyParameter(), defaults.foci(), -0.0, 0.0,
+                defaults.curveCount(), defaults.viewport(), defaults.showBackground(),
+                defaults.showExtrema(), defaults.antiAlias(), defaults.logSpacing(),
+                defaults.showLegend());
+        final PlotModel model = new PlotModel(config);
+
+        assertEquals(Double.doubleToLongBits(0.0),
+                Double.doubleToLongBits(config.distanceMin()));
+        assertEquals(Double.doubleToLongBits(0.0),
+                Double.doubleToLongBits(model.snapshot().distanceMin()));
+
+        model.setDistanceRange(-0.0, -0.0);
+        assertEquals(Double.doubleToLongBits(0.0),
+                Double.doubleToLongBits(model.getDistanceMin()));
+        assertEquals(Double.doubleToLongBits(0.0),
+                Double.doubleToLongBits(model.getDistanceMax()));
+    }
+
+    @Test
     void familyParametersAreValidatedAndIncludedInSnapshots() {
         final PlotModel model = new PlotModel(PlotConfig.defaults());
         model.setCurveType(CurveType.POWER_MEAN);
@@ -65,7 +87,6 @@ class PlotModelTest {
         assertEquals(CurveType.GAUSSIAN.defaultParameter(), model.getFamilyParameter(), 0);
         assertThrows(IllegalArgumentException.class, () -> model.setFamilyParameter(0));
     }
-
 
     @Test
     void modelEnforcesTheSharedFocusLimit() {

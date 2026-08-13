@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import javax.imageio.ImageIO;
 import nlipse.render.RenderPackage;
+import nlipse.render.RenderQuality;
 import nlipse.render.RenderResult;
 import nlipse.render.SvgPlotWriter;
 
@@ -15,7 +16,7 @@ public final class PlotExports {
     }
 
     public static void writePng(final RenderResult result, final Path target) throws IOException {
-        Objects.requireNonNull(result, "result");
+        requireExportable(result);
         Objects.requireNonNull(target, "target");
         AtomicFiles.replace(target, temporary -> {
             if (!ImageIO.write(result.image(), "png", temporary.toFile())) {
@@ -25,10 +26,17 @@ public final class PlotExports {
     }
 
     public static void writeSvg(final RenderResult result, final Path target) throws IOException {
-        Objects.requireNonNull(result, "result");
+        requireExportable(result);
         Objects.requireNonNull(target, "target");
         final RenderPackage completed = result.renderPackage().orElseThrow(
                 () -> new IOException("Renderer did not produce an export package"));
         AtomicFiles.writeString(target, SvgPlotWriter.write(completed), StandardCharsets.UTF_8);
+    }
+
+    private static void requireExportable(final RenderResult result) throws IOException {
+        Objects.requireNonNull(result, "result");
+        if (result.quality() != RenderQuality.FULL || result.precisionLimited()) {
+            throw new IOException("Export requires an exact full-quality render");
+        }
     }
 }
