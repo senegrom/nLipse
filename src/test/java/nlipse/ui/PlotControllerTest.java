@@ -29,6 +29,15 @@ class PlotControllerTest {
     }
 
     @Test
+    void initialSliderDomainRemainsOrderedAtTheNegativeFiniteLimit() {
+        final double maximum = PlotController.initialFullMaximum(
+                -Double.MAX_VALUE, -Double.MAX_VALUE);
+
+        assertTrue(maximum > -Double.MAX_VALUE);
+        assertTrue(Double.isFinite(maximum));
+    }
+
+    @Test
     void untrustedExtremaDoNotChangeExactRangeState() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
                 -5, 5, 1, 2, PlotController.RangeAdjustment.AUTO_FIT,

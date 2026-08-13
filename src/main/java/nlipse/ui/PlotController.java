@@ -103,7 +103,7 @@ public final class PlotController implements AutoCloseable {
         this.renderer = renderer;
         this.renderService = renderService;
         fullMin = Math.min(0, model.getDistanceMin());
-        fullMax = Math.max(fullMin + 1, model.getDistanceMax());
+        fullMax = initialFullMaximum(fullMin, model.getDistanceMax());
         sampledMin = fullMin;
         sampledMax = fullMax;
         refreshCursorField();
@@ -444,13 +444,15 @@ public final class PlotController implements AutoCloseable {
                     JOptionPane.ERROR_MESSAGE);
             return;
         }
+        renderService.cancel();
         model.apply(config);
         suppressControls = true;
         view.syncControls(model.snapshot());
         suppressControls = false;
         refreshCursorField();
         syncTableFromModel();
-        markRangeAdjustment(RangeAdjustment.CLAMP);
+        resetRangeStateAfterLoad();
+        syncSlidersFromModel();
         requestFullRender();
     }
 
@@ -715,6 +717,9 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void requestInteractiveRender() {
+        // Invalidate a completed callback that may already be queued for Swing
+        // before the debounce timers submit the replacement frame.
+        renderService.cancel();
         view.getCanvas().setRendering(true);
         if (!previewTimer.isRunning()) {
             previewTimer.start();
@@ -866,6 +871,23 @@ public final class PlotController implements AutoCloseable {
         // Configured levels are exact model state, not noisy measurements. Any
         // representable change can alter a contour and must be retained.
         return first == second;
+    }
+
+    static double initialFullMaximum(final double fullMinimum,
+            final double levelMaximum) {
+        final double unitExpanded = fullMinimum + 1;
+        final double expanded = unitExpanded > fullMinimum
+                ? unitExpanded : Math.nextUp(fullMinimum);
+        return Math.max(expanded, levelMaximum);
+    }
+
+    private void resetRangeStateAfterLoad() {
+        fullMin = Math.min(0, model.getDistanceMin());
+        fullMax = initialFullMaximum(fullMin, model.getDistanceMax());
+        sampledMin = Double.NaN;
+        sampledMax = Double.NaN;
+        sampledRangeApproximate = true;
+        pendingRangeAdjustment = RangeAdjustment.NONE;
     }
 
     private void markRangeAdjustment(final RangeAdjustment adjustment) {

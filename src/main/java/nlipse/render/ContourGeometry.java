@@ -11,14 +11,12 @@ import nlipse.math.DistanceField;
 final class ContourGeometry {
     private static final double ENDPOINT_QUANTIZATION = 1_000_000.0;
 
-    private final double[] levels;
     private final List<List<Polyline>> polylines;
     private final long estimatedBytes;
 
-    private ContourGeometry(final double[] levels, final List<List<Polyline>> polylines) {
-        this.levels = levels.clone();
+    private ContourGeometry(final List<List<Polyline>> polylines) {
         this.polylines = List.copyOf(polylines);
-        long bytes = 128L + (long) levels.length * Double.BYTES;
+        long bytes = 128L;
         for (final List<Polyline> levelLines : polylines) {
             bytes += 48;
             for (final Polyline line : levelLines) {
@@ -47,11 +45,11 @@ final class ContourGeometry {
             token.throwIfCancelled();
             lines.add(assembler.stitch());
         }
-        return new ContourGeometry(levels, lines);
+        return new ContourGeometry(lines);
     }
 
     int levelCount() {
-        return levels.length;
+        return polylines.size();
     }
 
     List<Polyline> polylines(final int index) {

@@ -56,6 +56,28 @@ class AsyncRenderServiceTest {
     }
 
     @Test
+    void cancellationSuppressesAResultAlreadyQueuedForDelivery() throws Exception {
+        final CountDownLatch queued = new CountDownLatch(1);
+        final AtomicReference<Runnable> delivery = new AtomicReference<>();
+        final AtomicInteger callbacks = new AtomicInteger();
+
+        try (AsyncRenderService service = new AsyncRenderService(
+                (request, token) -> result(request), runnable -> {
+                    delivery.set(runnable);
+                    queued.countDown();
+                })) {
+            service.submitInteractive(request(RenderQuality.PREVIEW),
+                    ignored -> callbacks.incrementAndGet(), ignored -> { });
+            assertTrue(queued.await(2, TimeUnit.SECONDS));
+
+            service.cancel();
+            delivery.get().run();
+
+            assertEquals(0, callbacks.get());
+        }
+    }
+
+    @Test
     void rapidSubmissionsKeepTheInteractiveBacklogBoundedAndDeliverOnlyTheLatest()
             throws Exception {
         final CountDownLatch firstStarted = new CountDownLatch(1);

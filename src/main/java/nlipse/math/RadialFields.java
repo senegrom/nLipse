@@ -121,21 +121,25 @@ final class RadialFields {
             }
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             boolean exactNeeded = false;
+            boolean roundingSensitive = false;
             double result = nearest ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
                 final double distance = foci.distance(index, x, y);
-                final double candidate = foci.magnitudeDistance(index, x, y);
+                final double candidate = foci.magnitudeDistanceApproximate(index, x, y);
                 if (Double.isNaN(candidate)) {
                     return Double.NaN;
                 }
                 exactNeeded |= finitePoint && (!Double.isFinite(distance)
+                        || !Double.isFinite(candidate)
                         || candidate == 0 && distance != 0);
+                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(candidate);
                 result = nearest ? Math.min(result, candidate) : Math.max(result, candidate);
             }
-            return exactNeeded ? ExactFieldMath.envelope(foci, x, y, nearest) : result;
+            return exactNeeded || finitePoint && roundingSensitive && foci.tryConsumeExact()
+                    ? ExactFieldMath.envelope(foci, x, y, nearest) : result;
         }
     }
 
@@ -150,18 +154,24 @@ final class RadialFields {
         public double value(final double x, final double y) {
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             boolean exactNeeded = false;
+            boolean roundingSensitive = false;
             double norm = 0;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
                 final double distance = foci.distance(index, x, y);
-                final double magnitude = foci.magnitudeDistance(index, x, y);
+                final double magnitude = foci.magnitudeDistanceApproximate(index, x, y);
                 exactNeeded |= finitePoint && (!Double.isFinite(distance)
                         || magnitude == 0 && distance != 0);
                 norm = Math.hypot(norm, magnitude);
+                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(magnitude)
+                        || FieldMath.isMagnitudeRoundingSensitive(norm);
             }
-            return exactNeeded || finitePoint && !Double.isFinite(norm)
+            if (exactNeeded || finitePoint && !Double.isFinite(norm)) {
+                return ExactFieldMath.quadraticMagnitudeNorm(foci, x, y);
+            }
+            return finitePoint && roundingSensitive && foci.tryConsumeExact()
                     ? ExactFieldMath.quadraticMagnitudeNorm(foci, x, y) : norm;
         }
     }

@@ -133,6 +133,15 @@ final class FocusSet {
     }
 
     double magnitudeDistance(final int index, final double x, final double y) {
+        return magnitudeDistance(index, x, y, true);
+    }
+
+    double magnitudeDistanceApproximate(final int index, final double x, final double y) {
+        return magnitudeDistance(index, x, y, false);
+    }
+
+    private double magnitudeDistance(final int index, final double x, final double y,
+            final boolean resolveSensitiveRounding) {
         final double absoluteWeight = Math.abs(weights[index]);
         if (absoluteWeight == 0) {
             return 0;
@@ -142,26 +151,42 @@ final class FocusSet {
             return ordinaryDistance * absoluteWeight;
         }
 
+        if (ordinaryDistance == 0) {
+            return 0;
+        }
+        final double direct = ordinaryDistance * absoluteWeight;
+        if (direct != 0 && Double.isFinite(direct)
+                && !FieldMath.isMagnitudeRoundingSensitive(direct)) {
+            return direct;
+        }
+
         final double scaledX = scaledAbsoluteDifference(x, xs[index], absoluteWeight);
         final double scaledY = scaledAbsoluteDifference(y, ys[index], absoluteWeight);
         final double scaled = Math.hypot(scaledX, scaledY);
-        if (scaled != 0 || ordinaryDistance == 0) {
-            return scaled;
+        if (!resolveSensitiveRounding) {
+            return direct != 0 && Double.isFinite(direct) ? direct : scaled;
         }
-
-        // Each weighted Cartesian component can round to zero while their
-        // combined Euclidean norm still rounds to the smallest subnormal.
-        final double direct = ordinaryDistance * absoluteWeight;
-        if (direct != 0) {
-            return direct;
+        // A primitive zero or infinity cannot establish the correctly rounded
+        // result at a finite point, so these structural failures bypass the
+        // interactive precision allowance.
+        if (direct == 0 || !Double.isFinite(direct) || !Double.isFinite(scaled)) {
+            return ExactFieldMath.magnitudeDistance(this, index, x, y);
         }
-        return ExactFieldMath.magnitudeDistance(this, index, x, y);
+        if ((FieldMath.isMagnitudeRoundingSensitive(direct)
+                || FieldMath.isMagnitudeRoundingSensitive(scaled))
+                && tryConsumeExact()) {
+            return ExactFieldMath.magnitudeDistance(this, index, x, y);
+        }
+        // Scaling the completed norm once avoids the extra component-rounding
+        // step. The component-scaled value is used only to classify the extreme
+        // boundary above.
+        return direct;
     }
 
-    double signedDistance(final int index, final double x, final double y) {
+    double signedDistanceApproximate(final int index, final double x, final double y) {
         final double weight = weights[index];
         return weight == 0 ? 0
-                : Math.copySign(magnitudeDistance(index, x, y), weight);
+                : Math.copySign(magnitudeDistanceApproximate(index, x, y), weight);
     }
 
     double logMagnitudeDistance(final int index, final double x, final double y) {
@@ -169,7 +194,7 @@ final class FocusSet {
         if (absoluteWeight == 0) {
             return Double.NEGATIVE_INFINITY;
         }
-        final double magnitude = magnitudeDistance(index, x, y);
+        final double magnitude = magnitudeDistanceApproximate(index, x, y);
         if (magnitude > 0 && Double.isFinite(magnitude)) {
             return Math.log(magnitude);
         }

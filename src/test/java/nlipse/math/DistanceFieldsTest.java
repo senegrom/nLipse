@@ -220,6 +220,116 @@ class DistanceFieldsTest {
     }
 
     @Test
+    void weightedSubnormalNormIsRoundedOnlyAfterCombiningItsComponents() {
+        final List<Focus> foci = List.of(new Focus(0, 0, 11 * Double.MIN_VALUE));
+        final double x = 0.0625;
+        final double y = 0.125;
+        final double expected = 2 * Double.MIN_VALUE;
+
+        for (final CurveType type : List.of(CurveType.LIPSE,
+                CurveType.NEAREST, CurveType.FARTHEST,
+                CurveType.QUADRATIC, CurveType.MEDIAN,
+                CurveType.SMOOTH_NEAREST, CurveType.SMOOTH_FARTHEST)) {
+            assertEquals(expected, DistanceFields.create(type, foci).value(x, y), 0,
+                    type.name());
+        }
+        for (final double power : new double[]{
+                Double.NEGATIVE_INFINITY, -2, -1, 0, 0.5, 1, 2,
+                Double.POSITIVE_INFINITY}) {
+            assertEquals(expected,
+                    DistanceFields.create(CurveType.POWER_MEAN, foci, power).value(x, y),
+                    0, "p=" + power);
+        }
+    }
+
+    @Test
+    void weightedNormAtTheNormalBoundaryAvoidsComponentDoubleRounding() {
+        final List<Focus> foci = List.of(new Focus(0, 0,
+                0x0.b0dcb733d9d23p-1022));
+        final double x = 0x1.cd976e17321dbp-2;
+        final double y = 0x1.601f1316cf2c7p0;
+        final double expected = 0x1.0000000000001p-1022;
+
+        for (final CurveType type : List.of(CurveType.NEAREST, CurveType.FARTHEST,
+                CurveType.QUADRATIC, CurveType.MEDIAN,
+                CurveType.SMOOTH_NEAREST, CurveType.SMOOTH_FARTHEST)) {
+            assertEquals(expected, DistanceFields.create(type, foci).value(x, y), 0,
+                    type.name());
+        }
+        for (final double power : new double[]{
+                Double.NEGATIVE_INFINITY, -2, -1, 0, 0.5, 1, 2,
+                Double.POSITIVE_INFINITY}) {
+            assertEquals(expected,
+                    DistanceFields.create(CurveType.POWER_MEAN, foci, power).value(x, y),
+                    0, "p=" + power);
+        }
+    }
+
+    @Test
+    void oddMedianResolvesNearUnderflowWeightedDistanceOnce() {
+        final List<Focus> foci = List.of(new Focus(0, 0,
+                0x0.03bc91bbfc919p-1022));
+        final double actual = DistanceFields.create(CurveType.MEDIAN, foci)
+                .value(0x1.120bc7ca09569p6, 0x1.ddfb0f55e4a89p-12);
+
+        assertEquals(0x1.000000000000ep-1022, actual, 0);
+    }
+
+    @Test
+    void weightedNormAtTheOverflowBoundaryUsesTheCompleteExpression() {
+        final List<Focus> foci = List.of(new Focus(0, 0,
+                0x1.36a29ba69d70ap829));
+        final double x = 0x1.479a130a1b892p185;
+        final double y = 0x1.a5f2a640604b7p194;
+
+        for (final CurveType type : List.of(CurveType.LIPSE,
+                CurveType.NEAREST, CurveType.FARTHEST,
+                CurveType.QUADRATIC, CurveType.MEDIAN,
+                CurveType.SMOOTH_NEAREST, CurveType.SMOOTH_FARTHEST)) {
+            assertEquals(Double.POSITIVE_INFINITY,
+                    DistanceFields.create(type, foci).value(x, y), type.name());
+        }
+        for (final double power : new double[]{
+                Double.NEGATIVE_INFINITY, -2, -1, 0, 0.5, 1, 2,
+                Double.POSITIVE_INFINITY}) {
+            assertEquals(Double.POSITIVE_INFINITY,
+                    DistanceFields.create(CurveType.POWER_MEAN, foci, power)
+                            .value(x, y),
+                    "p=" + power);
+        }
+    }
+
+    @Test
+    void subnormalMagnitudeAggregatesRoundTheCompleteExpressionOnce() {
+        final List<Focus> three = List.of(
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(0, 1, Double.MIN_VALUE),
+                new Focus(-1, 0, Double.MIN_VALUE));
+        assertEquals(2 * Double.MIN_VALUE,
+                DistanceFields.create(CurveType.QUADRATIC, three).value(0, 0), 0);
+
+        final List<Focus> four = List.of(
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(0, 1, Double.MIN_VALUE),
+                new Focus(-1, 0, Double.MIN_VALUE),
+                new Focus(0, -1, Double.MIN_VALUE));
+        assertEquals(Double.MIN_VALUE,
+                DistanceFields.create(CurveType.POWER_MEAN, four, 2).value(0, 0), 0);
+    }
+
+    @Test
+    void subnormalSumsAndArithmeticMeansDoNotAverageRoundedTerms() {
+        final List<Focus> foci = List.of(
+                new Focus(2, 0.4375, 8 * Double.MIN_VALUE),
+                new Focus(1.625, 1.5625, 4 * Double.MIN_VALUE));
+
+        assertEquals(25 * Double.MIN_VALUE,
+                DistanceFields.create(CurveType.LIPSE, foci).value(0, 0), 0);
+        assertEquals(13 * Double.MIN_VALUE,
+                DistanceFields.create(CurveType.POWER_MEAN, foci, 1).value(0, 0), 0);
+    }
+
+    @Test
     void magnitudeFamiliesAreZeroWhenNoFocusIsActive() {
         final List<Focus> foci = List.of(new Focus(0, 0, 0), new Focus(1, 1, -0.0));
 
@@ -428,6 +538,38 @@ class DistanceFieldsTest {
     }
 
     @Test
+    void evenMedianRoundsTheExactMidpointRatherThanRoundedEndpoints() {
+        final List<Focus> foci = List.of(
+                new Focus(0.0625, 0.5, Double.MIN_VALUE),
+                new Focus(0.0625, 1.5, Double.MIN_VALUE));
+
+        assertEquals(Double.MIN_VALUE,
+                DistanceFields.create(CurveType.MEDIAN, foci).value(0, 0), 0);
+    }
+
+    @Test
+    void harmonicMeanHandlesSubnormalDistancesWithoutReciprocalOverflow() {
+        final List<Focus> foci = List.of(
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(1, 0, 2 * Double.MIN_VALUE));
+
+        assertEquals(Double.MIN_VALUE,
+                DistanceFields.create(CurveType.POWER_MEAN, foci, -1).value(0, 0), 0);
+    }
+
+    @Test
+    void ordinaryHarmonicMeanStaysOnThePrimitivePath() {
+        final List<Focus> foci = List.of(
+                new Focus(2, 0, 1), new Focus(8, 0, 1));
+        AdaptiveDecimal.resetStatistics();
+
+        assertEquals(3.2,
+                DistanceFields.create(CurveType.POWER_MEAN, foci, -1).value(0, 0),
+                EPSILON);
+        assertEquals(0, AdaptiveDecimal.statistics().evaluations());
+    }
+
+    @Test
     void smoothEnvelopesAreNormalizedStableAndApproachExactEnvelopes() {
         final List<Focus> foci = List.of(new Focus(2, 0, 1), new Focus(10, 0, 1));
         final double temperature = 0.5;
@@ -463,6 +605,26 @@ class DistanceFieldsTest {
                 new Focus(coordinate, 0, 2)), 1);
 
         assertEquals(coordinate * 2, field.value(0, 0), 0);
+    }
+
+    @Test
+    void oneFocusPowerMeanReusesTheSingleWeightedDistanceForEveryPower() {
+        final List<Focus> foci = List.of(new Focus(0, 0,
+                0x1.aa59e3d455c2ep177));
+        final double x = 0x1.3b1ad5466e273p-353;
+        final double y = 0x1.d09bf31a96667p303;
+        final double expected = DistanceFields.create(CurveType.NEAREST, foci)
+                .value(x, y);
+
+        for (final double power : new double[]{
+                Double.NEGATIVE_INFINITY, -8, -3.5, -1.5, -1, -0.25,
+                0, 0.25, 0.5, 0.75, 1, 1.5, 2, 3.5, 8,
+                Double.POSITIVE_INFINITY}) {
+            assertEquals(expected,
+                    DistanceFields.create(CurveType.POWER_MEAN, foci, power)
+                            .value(x, y),
+                    0, "p=" + power);
+        }
     }
 
     @Test

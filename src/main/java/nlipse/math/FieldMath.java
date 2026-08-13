@@ -49,6 +49,27 @@ final class FieldMath {
         return Math.copySign(magnitude, signedFactor);
     }
 
+    // A small guard band catches classification-changing double rounding while
+    // remaining many orders of magnitude below ordinary user-scale values.
+    private static final double UNDERFLOW_SENSITIVE_LIMIT =
+            Math.scalb(Double.MIN_NORMAL, 5);
+    private static final double OVERFLOW_SENSITIVE_LIMIT =
+            Math.scalb(Double.MAX_VALUE, -5);
+
+    /**
+     * Whether a non-zero finite magnitude is close enough to gradual underflow
+     * or overflow that intermediate rounding can change the final binary64
+     * classification or value.
+     */
+    static boolean isMagnitudeRoundingSensitive(final double value) {
+        if (value == 0 || !Double.isFinite(value)) {
+            return false;
+        }
+        final double magnitude = Math.abs(value);
+        return magnitude < UNDERFLOW_SENSITIVE_LIMIT
+                || magnitude > OVERFLOW_SENSITIVE_LIMIT;
+    }
+
     /**
      * Returns whether a mixed-sign sum is too close to its condition scale to
      * trust the floating-point result without the exceptional evaluator.

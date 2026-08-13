@@ -26,6 +26,9 @@ final class AggregateFields {
         if (foci.activeCount() == 0) {
             return (x, y) -> 0;
         }
+        if (foci.activeCount() == 1) {
+            return RadialFields.envelope(foci, true);
+        }
         if (power == Double.POSITIVE_INFINITY) {
             return RadialFields.envelope(foci, false);
         }
@@ -37,6 +40,9 @@ final class AggregateFields {
         }
         if (power == 2) {
             return new RmsField(foci);
+        }
+        if (power == -1) {
+            return new HarmonicMeanField(foci);
         }
         if (power == 0) {
             return new GeometricMeanField(foci);
@@ -71,6 +77,7 @@ final class AggregateFields {
             boolean negativeInfinity = false;
             boolean positiveFinite = false;
             boolean negativeFinite = false;
+            boolean roundingSensitiveFinite = false;
             final FieldMath.CompensatedSum magnitudeSum = new FieldMath.CompensatedSum();
             int finiteTermCount = 0;
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
@@ -80,8 +87,8 @@ final class AggregateFields {
                 }
                 final double distance = foci.distance(index, x, y);
                 final double term = magnitudes
-                        ? foci.magnitudeDistance(index, x, y)
-                        : foci.signedDistance(index, x, y);
+                        ? foci.magnitudeDistanceApproximate(index, x, y)
+                        : foci.signedDistanceApproximate(index, x, y);
                 if (Double.isNaN(term)) {
                     return Double.NaN;
                 }
@@ -94,16 +101,13 @@ final class AggregateFields {
                 } else {
                     positiveFinite |= term > 0;
                     negativeFinite |= term < 0;
+                    roundingSensitiveFinite |= FieldMath.isMagnitudeRoundingSensitive(term);
                     magnitudeSum.add(Math.abs(term));
                     finiteTermCount++;
                     sum.add(term);
                 }
             }
-            if (finitePoint && ((magnitudes && positiveInfinity)
-                    || (!magnitudes
-                            && ((positiveInfinity && (negativeInfinity || negativeFinite))
-                                    || (negativeInfinity
-                                            && (positiveInfinity || positiveFinite)))))) {
+            if (finitePoint && (positiveInfinity || negativeInfinity)) {
                 return exactValue(x, y);
             }
             if (positiveInfinity && negativeInfinity) {
@@ -114,6 +118,9 @@ final class AggregateFields {
             }
             if (negativeInfinity) {
                 return Double.NEGATIVE_INFINITY;
+            }
+            if (finitePoint && roundingSensitiveFinite && foci.tryConsumeExact()) {
+                return exactValue(x, y);
             }
             final double rawSum = sum.value();
             final double result = rawSum / divisor;
@@ -144,12 +151,13 @@ final class AggregateFields {
         public double value(final double x, final double y) {
             double norm = 0;
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
+            boolean roundingSensitive = false;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
                 final double distance = foci.distance(index, x, y);
-                final double value = foci.magnitudeDistance(index, x, y);
+                final double value = foci.magnitudeDistanceApproximate(index, x, y);
                 if (Double.isNaN(value)) {
                     return Double.NaN;
                 }
@@ -158,10 +166,74 @@ final class AggregateFields {
                     return ExactFieldMath.quadraticMagnitudeMean(foci, x, y);
                 }
                 norm = Math.hypot(norm, value);
+                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(value)
+                        || FieldMath.isMagnitudeRoundingSensitive(norm);
             }
             final double result = norm / Math.sqrt(foci.activeCount());
-            return Double.isFinite(result) || !finitePoint ? result
-                    : ExactFieldMath.quadraticMagnitudeMean(foci, x, y);
+            if (finitePoint && (!Double.isFinite(result) || result == 0 && norm != 0)) {
+                return ExactFieldMath.quadraticMagnitudeMean(foci, x, y);
+            }
+            return finitePoint && roundingSensitive && foci.tryConsumeExact()
+                    ? ExactFieldMath.quadraticMagnitudeMean(foci, x, y) : result;
+        }
+    }
+
+    private static final class HarmonicMeanField implements DistanceField {
+        private final FocusSet foci;
+
+        HarmonicMeanField(final FocusSet foci) {
+            this.foci = foci;
+        }
+
+        @Override
+        public double value(final double x, final double y) {
+            final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
+            final double[] values = FieldMath.scratch(foci.size());
+            double minimum = Double.POSITIVE_INFINITY;
+            boolean exactNeeded = false;
+            boolean roundingSensitiveNeeded = false;
+            for (int index = 0; index < foci.size(); index++) {
+                values[index] = Double.POSITIVE_INFINITY;
+                if (!foci.isActive(index)) {
+                    continue;
+                }
+                final double distance = foci.distance(index, x, y);
+                final double value = foci.magnitudeDistanceApproximate(index, x, y);
+                if (Double.isNaN(value)) {
+                    return Double.NaN;
+                }
+                if (value == 0) {
+                    return 0;
+                }
+                exactNeeded |= finitePoint && (!Double.isFinite(distance)
+                        || !Double.isFinite(value));
+                roundingSensitiveNeeded |= FieldMath.isMagnitudeRoundingSensitive(value);
+                values[index] = value;
+                minimum = Math.min(minimum, value);
+            }
+            if (finitePoint && (exactNeeded
+                    || roundingSensitiveNeeded && foci.tryConsumeExact())) {
+                return ExactFieldMath.powerMean(foci, x, y, -1);
+            }
+            if (Double.isInfinite(minimum)) {
+                return Double.POSITIVE_INFINITY;
+            }
+
+            final FieldMath.CompensatedSum reciprocalSum = new FieldMath.CompensatedSum();
+            for (int index = 0; index < foci.size(); index++) {
+                if (foci.isActive(index) && Double.isFinite(values[index])) {
+                    reciprocalSum.add(minimum / values[index]);
+                }
+            }
+            final double scale = foci.activeCount() / reciprocalSum.value();
+            final double result = minimum * scale;
+            if (finitePoint && (!Double.isFinite(result)
+                    || result == 0 && minimum != 0)) {
+                return ExactFieldMath.powerMean(foci, x, y, -1);
+            }
+            return finitePoint && FieldMath.isMagnitudeRoundingSensitive(result)
+                    && foci.tryConsumeExact()
+                    ? ExactFieldMath.powerMean(foci, x, y, -1) : result;
         }
     }
 
@@ -181,9 +253,10 @@ final class AggregateFields {
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             final double[] values = FieldMath.scratch(foci.size());
             double scale = 0;
+            boolean roundingSensitive = false;
             for (int index = 0; index < size; index++) {
                 final double distance = foci.distance(index, x, y);
-                final double value = foci.signedDistance(index, x, y);
+                final double value = foci.signedDistanceApproximate(index, x, y);
                 if (Double.isNaN(value)) {
                     return Double.NaN;
                 }
@@ -194,6 +267,7 @@ final class AggregateFields {
                 }
                 values[index] = value;
                 scale = Math.max(scale, Math.abs(value));
+                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(value);
             }
             if (scale == 0) {
                 return 0;
@@ -210,8 +284,9 @@ final class AggregateFields {
                     : sortedPairwiseMean(values, size);
             final double result = scale * normalized;
             final int pairCount = size * (size - 1) / 2;
-            if (finitePoint && FieldMath.cancellationUncertain(normalized, 1.0,
-                    pairCount, FieldMath.EXACT_CANCELLATION_RATIO)
+            if (finitePoint && (roundingSensitive
+                    || FieldMath.cancellationUncertain(normalized, 1.0,
+                            pairCount, FieldMath.EXACT_CANCELLATION_RATIO))
                     && foci.tryConsumeExact()) {
                 return ExactFieldMath.hyperbola(foci, x, y);
             }
@@ -255,12 +330,13 @@ final class AggregateFields {
             final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
             double minimum = Double.POSITIVE_INFINITY;
             double maximum = Double.NEGATIVE_INFINITY;
+            boolean roundingSensitive = false;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
                 final double distance = foci.distance(index, x, y);
-                final double candidate = foci.magnitudeDistance(index, x, y);
+                final double candidate = foci.magnitudeDistanceApproximate(index, x, y);
                 if (Double.isNaN(candidate)) {
                     return Double.NaN;
                 }
@@ -270,11 +346,15 @@ final class AggregateFields {
                 }
                 minimum = Math.min(minimum, candidate);
                 maximum = Math.max(maximum, candidate);
+                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(candidate);
             }
             if (foci.activeCount() < 2) {
                 return 0;
             }
             final double result = maximum - minimum;
+            if (finitePoint && roundingSensitive && foci.tryConsumeExact()) {
+                return ExactFieldMath.range(foci, x, y);
+            }
             if (finitePoint && Double.isFinite(maximum)
                     && FieldMath.cancellationUncertain(result, maximum, 2,
                             FieldMath.EXACT_CANCELLATION_RATIO)
@@ -304,12 +384,13 @@ final class AggregateFields {
             boolean positiveLogarithm = false;
             boolean negativeLogarithm = false;
             boolean exactNeeded = false;
+            boolean roundingSensitiveNeeded = false;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
                 final double distance = foci.distance(index, x, y);
-                final double magnitude = foci.magnitudeDistance(index, x, y);
+                final double magnitude = foci.magnitudeDistanceApproximate(index, x, y);
                 final double logarithm = foci.logMagnitudeDistance(index, x, y);
                 if (Double.isNaN(logarithm)) {
                     return Double.NaN;
@@ -319,6 +400,7 @@ final class AggregateFields {
                         || magnitude == 0 && distance != 0)) {
                     exactNeeded = true;
                 }
+                roundingSensitiveNeeded |= FieldMath.isMagnitudeRoundingSensitive(magnitude);
                 hasZero |= logarithm == Double.NEGATIVE_INFINITY;
                 hasInfinity |= logarithm == Double.POSITIVE_INFINITY;
                 if (Double.isFinite(logarithm)) {
@@ -340,6 +422,7 @@ final class AggregateFields {
             final double logarithmSum = logarithms.value();
             final double meanLogarithm = logarithmSum / foci.activeCount();
             if (finitePoint && (exactNeeded
+                    || roundingSensitiveNeeded && foci.tryConsumeExact()
                     || positiveLogarithm && negativeLogarithm
                             && FieldMath.cancellationUncertain(logarithmSum,
                                     logarithmMagnitudes.value(), foci.activeCount(),
@@ -368,6 +451,7 @@ final class AggregateFields {
             boolean hasZero = false;
             boolean hasInfinity = false;
             boolean exactNeeded = false;
+            boolean roundingSensitiveNeeded = false;
             double minimum = Double.POSITIVE_INFINITY;
             double maximum = Double.NEGATIVE_INFINITY;
             for (int index = 0; index < foci.size(); index++) {
@@ -375,7 +459,7 @@ final class AggregateFields {
                     continue;
                 }
                 final double distance = foci.distance(index, x, y);
-                final double magnitude = foci.magnitudeDistance(index, x, y);
+                final double magnitude = foci.magnitudeDistanceApproximate(index, x, y);
                 final double logarithm = foci.logMagnitudeDistance(index, x, y);
                 if (Double.isNaN(logarithm)) {
                     return Double.NaN;
@@ -385,6 +469,7 @@ final class AggregateFields {
                         || magnitude == 0 && distance != 0)) {
                     exactNeeded = true;
                 }
+                roundingSensitiveNeeded |= FieldMath.isMagnitudeRoundingSensitive(magnitude);
                 if (logarithm == Double.NEGATIVE_INFINITY) {
                     hasZero = true;
                 } else if (logarithm == Double.POSITIVE_INFINITY) {
@@ -410,7 +495,8 @@ final class AggregateFields {
                     return Double.POSITIVE_INFINITY;
                 }
             }
-            if (finitePoint && exactNeeded) {
+            if (finitePoint && (exactNeeded
+                    || roundingSensitiveNeeded && foci.tryConsumeExact())) {
                 return ExactFieldMath.powerMean(foci, x, y, power);
             }
 
@@ -468,7 +554,7 @@ final class AggregateFields {
                     continue;
                 }
                 final double distance = foci.distance(index, x, y);
-                final double candidate = foci.magnitudeDistance(index, x, y);
+                final double candidate = foci.magnitudeDistanceApproximate(index, x, y);
                 if (Double.isNaN(candidate)) {
                     return Double.NaN;
                 }
@@ -490,7 +576,11 @@ final class AggregateFields {
             }
             final double lower = values[lowerIndex];
             final double upper = values[upperIndex];
-            if (finitePoint && lowerIndex != upperIndex && lower == upper) {
+            if (finitePoint
+                    && (FieldMath.isMagnitudeRoundingSensitive(lower)
+                            || FieldMath.isMagnitudeRoundingSensitive(upper)
+                            || lowerIndex != upperIndex && lower == upper)
+                    && foci.tryConsumeExact()) {
                 return ExactFieldMath.median(foci, x, y);
             }
             final double result = ScalarRanges.interpolate(lower, upper, 0.5);
@@ -575,6 +665,7 @@ final class AggregateFields {
             double minimum = Double.POSITIVE_INFINITY;
             double maximum = Double.NEGATIVE_INFINITY;
             boolean allZero = true;
+            boolean roundingSensitiveRatio = false;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
@@ -588,10 +679,15 @@ final class AggregateFields {
                 }
                 ratios[count++] = ratio;
                 allZero &= ratio == 0;
+                roundingSensitiveRatio |= FieldMath.isMagnitudeRoundingSensitive(ratio);
                 minimum = Math.min(minimum, ratio);
                 maximum = Math.max(maximum, ratio);
             }
             if (allZero) {
+                return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
+            }
+            if (roundingSensitiveRatio && Double.isFinite(x) && Double.isFinite(y)
+                    && foci.tryConsumeExact()) {
                 return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
             }
             if (!nearest && Double.isInfinite(maximum)) {
@@ -628,8 +724,12 @@ final class AggregateFields {
                 resultRatio = nearest ? anchor - correction : anchor + correction;
             }
             final double result = temperature * resultRatio;
-            return Double.isFinite(result) ? result
-                    : ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
+            if (!Double.isFinite(result)) {
+                return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
+            }
+            return FieldMath.isMagnitudeRoundingSensitive(result) && foci.tryConsumeExact()
+                    ? ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest)
+                    : result;
         }
 
         private static double stableNonNegativeMean(final double[] values,
