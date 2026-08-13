@@ -64,6 +64,8 @@ The optional level legend (Display → "Level legend") lists the drawn contour l
 
 "Export PNG…" and "Export SVG…" capture a fresh full-quality, exact-arithmetic render from the committed controls and focus table at the current canvas size. Interactive renders retain a bounded precision-fallback allowance for responsiveness, but accepted exports use an unlimited allowance and are rejected if a render engine reports a precision-limited result. They run through the bounded background scheduler, so encoding never blocks Swing and later mouse movement cannot cancel an accepted export. A second simultaneous export is rejected instead of building an unbounded queue. PNG contains the complete raster image; SVG writes contour polylines, axes, focus and extrema markers, and the legend, while deliberately omitting the raster heatmap background. Setup, PNG and SVG writes use a same-directory temporary file and replace the destination only after the complete output has been produced.
 
+Editable coordinates, weights, viewport bounds and field levels use locale-independent round-trip decimal text, so opening and committing a cell does not silently discard valid `double` precision.
+
 ## Rendering architecture
 
 Rendering runs on a bounded single-worker scheduler rather than Swing's event-dispatch thread. Interactive edits are latest-wins and use coalesced previews followed by a full-quality render. Durable PNG/SVG exports share the same scheduler but are never superseded by later interaction. While middle-dragging, the last completed image is translated immediately; releasing the mouse starts the exact render.
@@ -72,7 +74,7 @@ Full-resolution field samples are cached in memory-bounded 32×32 world-space ti
 
 Contours are extracted in one multi-level marching-squares pass. Ambiguous saddle cells use the bilinear asymptotic decider, with a centre sample only for an exact numerical tie. Individual cell segments are stitched into continuous world-coordinate polylines and cached independently of background shading, anti-aliasing and focus selection. Marker-free raster layers are cached separately, so selection-only redraws do not resample the field or retrace contours. Coarse previews retain the existing bounded one-level refinement for small hidden loops; a full adaptive quadtree remains deliberately deferred until representative benchmarks justify its added complexity.
 
-Render requests are rejected before allocation when their pixel count would exceed a conservative heap-derived budget: one thirty-second of the maximum heap, bounded between one and sixty-four million pixels. This protects field, image and cache buffers from integer overflow and predictable out-of-memory failures while retaining ordinary 4K and 8K display sizes on appropriately sized heaps.
+Render requests are rejected before allocation when their pixel count would exceed a conservative heap-derived budget: one thirty-second of the maximum heap, capped at sixty-four million pixels and never below the 2×2 minimum. This protects field, image and cache buffers from integer overflow and predictable out-of-memory failures while retaining ordinary 4K and 8K display sizes on appropriately sized heaps.
 
 CPU-bound sampling uses a renderer-owned daemon pool instead of Java's common pool. The default worker count is capped at 32 and can be overridden with `-Dnlipse.renderThreads=<count>`. The combined cache budget defaults to one-eighth of the maximum heap, bounded between 32 and 256 MiB, and can be overridden with `-Dnlipse.cacheMiB=<MiB>`.
 

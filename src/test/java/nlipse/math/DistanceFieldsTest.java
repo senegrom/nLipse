@@ -354,6 +354,27 @@ class DistanceFieldsTest {
     }
 
     @Test
+    void potentialRoundsSameSignSubnormalTermsAfterSummation() {
+        final List<Focus> foci = List.of(
+                new Focus(5, 0, 3 * Double.MIN_VALUE),
+                new Focus(5, 0, 3 * Double.MIN_VALUE),
+                new Focus(5, 0, 3 * Double.MIN_VALUE));
+
+        assertEquals(2 * Double.MIN_VALUE,
+                DistanceFields.create(CurveType.POTENTIAL, foci).value(0, 0), 0);
+    }
+
+    @Test
+    void gaussianRoundsSameSignSubnormalTermsAfterSummation() {
+        final List<Focus> foci = List.of(
+                new Focus(1, 0, Double.MIN_VALUE),
+                new Focus(1, 0, Double.MIN_VALUE));
+
+        assertEquals(Double.MIN_VALUE,
+                DistanceFields.create(CurveType.GAUSSIAN, foci, 1).value(0, 0), 0);
+    }
+
+    @Test
     void potentialUsesSignedInverseDistances() {
         final DistanceField field = DistanceFields.create(CurveType.POTENTIAL,
                 List.of(new Focus(0, 0, 2), new Focus(3, 4, -5)));

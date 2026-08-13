@@ -945,9 +945,9 @@ public final class PlotController implements AutoCloseable {
         }
         final Focus focus = model.getFocus(index);
         suppressTable = true;
-        view.getFocusTableModel().setValueAt(format(focus.x()), index, 0);
-        view.getFocusTableModel().setValueAt(format(focus.y()), index, 1);
-        view.getFocusTableModel().setValueAt(format(focus.weight()), index, 2);
+        view.getFocusTableModel().setValueAt(EditableNumbers.format(focus.x()), index, 0);
+        view.getFocusTableModel().setValueAt(EditableNumbers.format(focus.y()), index, 1);
+        view.getFocusTableModel().setValueAt(EditableNumbers.format(focus.weight()), index, 2);
         suppressTable = false;
     }
 
@@ -982,12 +982,6 @@ public final class PlotController implements AutoCloseable {
         return parsed;
     }
 
-    private static String format(final double value) {
-        if (value == Math.floor(value) && Math.abs(value) < 1e15) {
-            return Long.toString((long) value);
-        }
-        return String.format(Locale.ROOT, "%.6g", value);
-    }
 
     @Override
     public void close() {

@@ -88,8 +88,8 @@ public final class SetupDialog extends JDialog {
                 ? initial.curveType().formatParameter(initial.familyParameter()) : "not used");
         updateCurvePresentation(initial.curveType(), initial.familyParameter());
         for (final Focus focus : initial.foci()) {
-            focusModel.addRow(new Object[]{format(focus.x()), format(focus.y()),
-                    format(focus.weight())});
+            focusModel.addRow(new Object[]{EditableNumbers.format(focus.x()),
+                    EditableNumbers.format(focus.y()), EditableNumbers.format(focus.weight())});
         }
         focusTable.setRowHeight(22);
         final DefaultCellEditor editor = new DefaultCellEditor(new JTextField());
@@ -97,13 +97,13 @@ public final class SetupDialog extends JDialog {
         focusTable.setDefaultEditor(Object.class, editor);
         focusTable.setPreferredScrollableViewportSize(new Dimension(285, 165));
 
-        distanceMin.setText(format(initial.distanceMin()));
-        distanceMax.setText(format(initial.distanceMax()));
+        distanceMin.setText(EditableNumbers.format(initial.distanceMin()));
+        distanceMax.setText(EditableNumbers.format(initial.distanceMax()));
         curveCount.setText(Integer.toString(initial.curveCount()));
-        xMin.setText(format(initial.viewport().xMin()));
-        xMax.setText(format(initial.viewport().xMax()));
-        yMin.setText(format(initial.viewport().yMin()));
-        yMax.setText(format(initial.viewport().yMax()));
+        xMin.setText(EditableNumbers.format(initial.viewport().xMin()));
+        xMax.setText(EditableNumbers.format(initial.viewport().xMax()));
+        yMin.setText(EditableNumbers.format(initial.viewport().yMin()));
+        yMax.setText(EditableNumbers.format(initial.viewport().yMax()));
         showBackground.setSelected(initial.showBackground());
         showExtrema.setSelected(initial.showExtrema());
         antiAlias.setSelected(initial.antiAlias());
@@ -315,12 +315,6 @@ public final class SetupDialog extends JDialog {
         return parsed;
     }
 
-    private static String format(final double value) {
-        if (value == Math.floor(value) && Math.abs(value) < 1e15) {
-            return Long.toString((long) value);
-        }
-        return Double.toString(value);
-    }
 
     private static JPanel labelledRow(final String label, final Component component) {
         final JPanel row = rowPanel();

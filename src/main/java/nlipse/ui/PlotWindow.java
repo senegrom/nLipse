@@ -225,8 +225,8 @@ public final class PlotWindow extends JFrame {
     public void setFocusRows(final List<Focus> foci, final int selectedIndex) {
         focusTableModel.setRowCount(0);
         for (final Focus focus : foci) {
-            focusTableModel.addRow(new Object[]{format(focus.x()), format(focus.y()),
-                    format(focus.weight())});
+            focusTableModel.addRow(new Object[]{EditableNumbers.format(focus.x()),
+                    EditableNumbers.format(focus.y()), EditableNumbers.format(focus.weight())});
         }
         if (selectedIndex >= 0 && selectedIndex < foci.size()) {
             focusTable.setRowSelectionInterval(selectedIndex, selectedIndex);
@@ -235,12 +235,6 @@ public final class PlotWindow extends JFrame {
         }
     }
 
-    private static String format(final double value) {
-        if (value == Math.floor(value) && Math.abs(value) < 1e15) {
-            return Long.toString((long) value);
-        }
-        return String.format(java.util.Locale.ROOT, "%.6g", value);
-    }
 
     public PlotCanvas getCanvas() { return canvas; }
     public JComboBox<CurveType> getCurveType() { return curveType; }

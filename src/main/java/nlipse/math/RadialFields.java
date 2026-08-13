@@ -195,6 +195,7 @@ final class RadialFields {
             boolean positiveTerm = false;
             boolean negativeTerm = false;
             boolean exactNeeded = false;
+            boolean roundingSensitive = false;
             double scale = 0;
             for (int index = 0; index < foci.size(); index++) {
                 terms[index] = 0;
@@ -224,6 +225,7 @@ final class RadialFields {
                 scale = Math.max(scale, Math.abs(term));
                 positiveTerm |= term > 0;
                 negativeTerm |= term < 0;
+                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(term);
             }
             if (positiveInfinity && negativeInfinity) {
                 return Double.NaN;
@@ -234,7 +236,8 @@ final class RadialFields {
             if (negativeInfinity) {
                 return Double.NEGATIVE_INFINITY;
             }
-            if (finitePoint && exactNeeded) {
+            if (finitePoint && (exactNeeded
+                    || roundingSensitive && foci.tryConsumeExact())) {
                 return ExactFieldMath.potential(foci, x, y);
             }
             if (scale == 0) {
@@ -291,6 +294,7 @@ final class RadialFields {
             boolean positive = false;
             boolean negative = false;
             boolean exactNeeded = false;
+            boolean roundingSensitive = false;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
                 if (weight == 0) {
@@ -312,14 +316,17 @@ final class RadialFields {
                 }
                 positive |= term > 0;
                 negative |= term < 0;
+                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(term);
                 magnitudes.add(Math.abs(term));
                 sum.add(term);
             }
             final double result = sum.value();
-            if (finitePoint && (exactNeeded || positive && negative
-                    && FieldMath.cancellationUncertain(result, magnitudes.value(),
-                            foci.activeCount(), FieldMath.EXACT_CANCELLATION_RATIO)
-                    && foci.tryConsumeExact())) {
+            final boolean uncertain = roundingSensitive
+                    || positive && negative
+                            && FieldMath.cancellationUncertain(result, magnitudes.value(),
+                                    foci.activeCount(), FieldMath.EXACT_CANCELLATION_RATIO);
+            if (finitePoint && (exactNeeded || !Double.isFinite(result)
+                    || uncertain && foci.tryConsumeExact())) {
                 return ExactFieldMath.gaussian(foci, x, y, sigma);
             }
             return result;
