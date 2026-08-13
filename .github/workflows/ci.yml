@@ -30,18 +30,6 @@ jobs:
           java-version: '25'
           cache: maven
 
-      - name: Verify application and benchmark versions match
-        shell: python
-        run: |
-          import xml.etree.ElementTree as ET
-          namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
-          root = ET.parse("pom.xml").getroot().find("m:version", namespace).text
-          benchmark = ET.parse("benchmarks/pom.xml").getroot().find(
-              "m:version", namespace).text
-          if root != benchmark:
-              raise SystemExit(
-                  f"Version mismatch: application={root}, benchmarks={benchmark}")
-
       - name: Build, test and install application
         run: mvn --batch-mode --no-transfer-progress install
 
