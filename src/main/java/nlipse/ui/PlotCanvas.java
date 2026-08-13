@@ -13,6 +13,8 @@ import nlipse.render.RenderResult;
 /** Resizable image surface. Expensive plot construction happens elsewhere. */
 public final class PlotCanvas extends JComponent {
     private static final long serialVersionUID = 1L;
+    /** Soft blue-lavender shown only where no completed plot pixels exist yet. */
+    static final Color UNCOMPUTED_BACKGROUND = new Color(242, 243, 252);
 
     private transient BufferedImage image;
     private transient BufferedImage panImage;
@@ -142,7 +144,8 @@ public final class PlotCanvas extends JComponent {
 
     private void drawDisplayedPlot(final Graphics2D graphics,
             final BufferedImage displayed) {
-        graphics.setColor(getBackground());
+        graphics.setColor(displayed == null || panPreview
+                ? UNCOMPUTED_BACKGROUND : getBackground());
         graphics.fillRect(0, 0, getWidth(), getHeight());
         if (displayed == null) {
             return;
