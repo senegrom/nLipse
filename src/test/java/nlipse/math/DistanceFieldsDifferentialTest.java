@@ -52,7 +52,6 @@ class DistanceFieldsDifferentialTest {
         }
     }
 
-
     @Test
     void algebraicFamiliesRetainUsefulBitsUnderDeliberateFiniteCancellation() {
         final Random random = new Random(0x4147475245474154L);

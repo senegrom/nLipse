@@ -105,7 +105,6 @@ class PlotConfigIOTest {
         }
     }
 
-
     @Test
     void parameterizedFamilyAndInfinitySurvivePersistence() throws Exception {
         final PlotConfig config = new PlotConfig(CurveType.POWER_MEAN,
@@ -181,7 +180,6 @@ class PlotConfigIOTest {
                 () -> PlotConfigIO.load(file));
         assertTrue(failure.getMessage().contains("familyParameter"));
     }
-
 
     @Test
     void saveReplacesTheTargetWithoutLeavingTemporaryFiles() throws Exception {

@@ -116,7 +116,6 @@ class SvgPlotWriterTest {
                 () -> SvgPlotWriter.write(null));
     }
 
-
     private static String write(final PlotSnapshot snapshot, final int width, final int height) {
         final RenderResult result = new PlotRenderer().render(
                 new RenderRequest(snapshot, width, height, RenderQuality.FULL),

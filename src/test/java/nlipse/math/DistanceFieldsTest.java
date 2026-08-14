@@ -104,7 +104,6 @@ class DistanceFieldsTest {
         assertEquals(Math.E, field.value(Math.E, 0), 1e-14);
     }
 
-
     @Test
     void cassiniRetainsTermsThatUnderflowOnlyAfterWeightNormalization() {
         final DistanceField field = DistanceFields.create(CurveType.CASSIN, List.of(
@@ -183,7 +182,6 @@ class DistanceFieldsTest {
         assertTrue(Double.isFinite(value));
         assertEquals(4.0 / 3.0, value / coordinate, 1e-12);
     }
-
 
     @Test
     void hyperbolaIgnoresUnusedCapacityInTheSharedScratchBuffer() {
@@ -420,7 +418,6 @@ class DistanceFieldsTest {
         assertEquals(expected, field.value(0, 0), Math.ulp(expected));
     }
 
-
     @Test
     void potentialIgnoresUnusedThreadLocalScratchEntries() {
         final List<Focus> manyFoci = java.util.stream.IntStream.range(0, 32)
@@ -460,7 +457,6 @@ class DistanceFieldsTest {
         assertTrue(Double.isNaN(undefined.value(0, 0)));
         assertEquals(0, disabled.value(0, 0), 0);
     }
-
 
     @Test
     void powerMeanUsesEfficientSpecialCasesAndArbitraryP() {
@@ -627,7 +623,6 @@ class DistanceFieldsTest {
                 .value(0, 0), 0);
     }
 
-
     @Test
     void arithmeticPowerMeanCanBeFiniteWhenEveryTermOverflows() {
         final double coordinate = Double.MAX_VALUE * 0.75;
@@ -719,9 +714,6 @@ class DistanceFieldsTest {
         assertEquals(0, DistanceFields.create(CurveType.GAUSSIAN,
                 List.of(new Focus(0, 0, 0)), 1).value(0, 0), 0);
     }
-
-
-
 
     @Test
     void gaussianRetainsAWeightThatUnderflowsDuringNormalization() {
@@ -846,7 +838,6 @@ class DistanceFieldsTest {
                     type.name());
         }
     }
-
 
     @Test
     void finiteCoordinateOverflowCanBeRescaledBackIntoRange() {

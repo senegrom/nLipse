@@ -447,9 +447,9 @@ final class ExactFieldMath {
     }
 
     /**
-     * Decimal exponent bounding every intermediate the Gaussian sum can cancel
-     * at, derived from the actual terms so that small-magnitude far-field sums
-     * do not demand the static worst case's precision escalation.
+     * ln-domain bound of the largest Gaussian term, derived from the actual
+     * weights and exponents so that small-magnitude far-field sums do not
+     * demand the static worst case's precision escalation.
      */
     private static int gaussianScaleExponent(final FocusSet foci, final double x,
             final double y, final double sigma) {
@@ -465,19 +465,8 @@ final class ExactFieldMath {
                 largestLogTerm = Math.max(largestLogTerm, logTerm);
             }
         }
-        if (largestLogTerm == Double.NEGATIVE_INFINITY) {
-            return Integer.MIN_VALUE;
-        }
-        final double decimalExponent = (largestLogTerm
-                + Math.log(foci.activeCount())) / Math.log(10);
-        if (!(decimalExponent < GAUSSIAN_SCALE_EXPONENT - 4)) {
-            return GAUSSIAN_SCALE_EXPONENT;
-        }
-        // The floor keeps the adaptive error floor above DecimalMath.exp's
-        // zero-truncation bound, so a silently dropped exponential can never
-        // be mistaken for certainty; it stays comfortably below the smallest
-        // subnormal's rounding cell.
-        return (int) Math.ceil(Math.max(-330, decimalExponent)) + 4;
+        return scaleExponentFromLn(largestLogTerm + Math.log(foci.activeCount()),
+                GAUSSIAN_SCALE_EXPONENT);
     }
 
     private static BigDecimal powerMeanDecimal(final FocusSet foci, final double x,

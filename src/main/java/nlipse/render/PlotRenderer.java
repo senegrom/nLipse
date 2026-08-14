@@ -436,7 +436,6 @@ public final class PlotRenderer implements RenderEngine {
                 sampledPixels, grid, token);
     }
 
-
     private static void fillInterpolatedBackground(final int[] targetPixels,
             final int width, final int height, final int[] sampledPixels,
             final FieldGrid grid, final CancellationToken token) {
