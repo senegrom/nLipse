@@ -47,6 +47,7 @@ final class RadialFields {
             boolean infiniteFactor = false;
             boolean positiveTerm = false;
             boolean negativeTerm = false;
+            boolean normalizedWeightRoundingSensitive = false;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
                 if (weight == 0) {
@@ -72,6 +73,8 @@ final class RadialFields {
                     continue;
                 }
                 final double normalizedWeight = weight / weightScale;
+                normalizedWeightRoundingSensitive |= logarithm != 0
+                        && FieldMath.isMagnitudeRoundingSensitive(normalizedWeight);
                 final double term = normalizedWeight * logarithm;
                 if ((term == 0 && logarithm != 0) || !Double.isFinite(term)) {
                     exactNeeded = true;
@@ -93,12 +96,13 @@ final class RadialFields {
             }
             final double normalized = normalizedSum.value();
             final double resultLogarithm = weightScale * normalized;
-            if (finitePoint && (exactNeeded || !Double.isFinite(resultLogarithm)
+            final boolean roundingUncertain = normalizedWeightRoundingSensitive
                     || positiveTerm && negativeTerm
                             && FieldMath.cancellationUncertain(normalized,
                                     normalizedMagnitudes.value(), foci.activeCount(),
-                                    FieldMath.EXACT_CANCELLATION_RATIO)
-                            && foci.tryConsumeExact())) {
+                                    FieldMath.EXACT_CANCELLATION_RATIO);
+            if (finitePoint && (exactNeeded || !Double.isFinite(resultLogarithm)
+                    || roundingUncertain && foci.tryConsumeExact())) {
                 return ExactFieldMath.cassini(foci, x, y);
             }
             return FieldMath.expFromLog(resultLogarithm);
@@ -309,14 +313,20 @@ final class RadialFields {
                         && Double.isFinite(foci.logDistance(index, x, y));
                 final double exponent = -0.5 * ratio * ratio;
                 final double kernel = Math.exp(exponent);
+                final boolean finiteExponent = Double.isFinite(exponent);
+                final boolean kernelUnderflowed = kernel == 0 && finiteExponent;
+                final boolean kernelRoundingSensitive =
+                        FieldMath.isMagnitudeRoundingSensitive(kernel);
                 double term = weight * kernel;
-                if (term == 0 && weight != 0 && Double.isFinite(exponent)) {
+                if (weight != 0 && finiteExponent
+                        && (kernelUnderflowed || kernelRoundingSensitive || term == 0)) {
                     term = FieldMath.multiplyFromLog(weight, exponent);
-                    exactNeeded |= term == 0;
                 }
+                exactNeeded |= kernelUnderflowed || term == 0 && weight != 0 && finiteExponent;
                 positive |= term > 0;
                 negative |= term < 0;
-                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(term);
+                roundingSensitive |= kernelRoundingSensitive
+                        || FieldMath.isMagnitudeRoundingSensitive(term);
                 magnitudes.add(Math.abs(term));
                 sum.add(term);
             }

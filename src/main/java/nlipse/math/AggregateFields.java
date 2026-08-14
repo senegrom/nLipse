@@ -665,6 +665,7 @@ final class AggregateFields {
             double minimum = Double.POSITIVE_INFINITY;
             double maximum = Double.NEGATIVE_INFINITY;
             boolean allZero = true;
+            boolean exactRatioNeeded = false;
             boolean roundingSensitiveRatio = false;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
@@ -672,6 +673,8 @@ final class AggregateFields {
                 }
                 // Scale by |w|/temperature before taking the norm. This keeps the
                 // ordinary path on one division per focus without overflowing |w|d.
+                exactRatioNeeded |= foci.magnitudeDistanceRatioNeedsExact(
+                        index, x, y, temperature);
                 final double ratio = foci.magnitudeDistanceRatio(
                         index, x, y, temperature);
                 if (Double.isNaN(ratio)) {
@@ -686,7 +689,8 @@ final class AggregateFields {
             if (allZero) {
                 return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
             }
-            if (roundingSensitiveRatio && Double.isFinite(x) && Double.isFinite(y)
+            if ((exactRatioNeeded || roundingSensitiveRatio)
+                    && Double.isFinite(x) && Double.isFinite(y)
                     && foci.tryConsumeExact()) {
                 return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
             }

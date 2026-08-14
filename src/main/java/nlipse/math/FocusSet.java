@@ -201,6 +201,17 @@ final class FocusSet {
         return logDistance(index, x, y) + Math.log(absoluteWeight);
     }
 
+    boolean magnitudeDistanceRatioNeedsExact(final int index,
+            final double x, final double y, final double positiveScale) {
+        final double absoluteWeight = Math.abs(weights[index]);
+        if (absoluteWeight == 0 || x == xs[index] && y == ys[index]) {
+            return false;
+        }
+        final double relativeWeight = absoluteWeight / positiveScale;
+        return relativeWeight == 0 || !Double.isFinite(relativeWeight)
+                || FieldMath.isMagnitudeRoundingSensitive(relativeWeight);
+    }
+
     double magnitudeDistanceRatio(final int index, final double x, final double y,
             final double positiveScale) {
         final double absoluteWeight = Math.abs(weights[index]);

@@ -115,6 +115,16 @@ class DistanceFieldsTest {
     }
 
     @Test
+    void cassiniPreservesATinyExponentRescuedAfterWeightNormalization() {
+        final List<Focus> foci = List.of(
+                new Focus(1, 0, Double.MAX_VALUE),
+                new Focus(Double.MAX_VALUE, 0, 1e-15));
+
+        assertEquals(0x1.0000000000c7dp0,
+                DistanceFields.create(CurveType.CASSIN, foci).value(0, 0), 0);
+    }
+
+    @Test
     void cassiniPreservesZeroAndSingularFactorSemantics() {
         final DistanceField zeroWeight = DistanceFields.create(CurveType.CASSIN,
                 List.of(new Focus(0, 0, 0)));
@@ -666,6 +676,21 @@ class DistanceFieldsTest {
     }
 
     @Test
+    void smoothEnvelopesPreserveATinyWeightRescuedByAHugeDistance() {
+        final double temperature = Double.MAX_VALUE;
+        final List<Focus> foci = List.of(
+                new Focus(Double.MAX_VALUE, 0, 1e-14),
+                new Focus(0, 0, 1));
+
+        assertEquals(0x1.6849b86a12b8ap976,
+                DistanceFields.create(CurveType.SMOOTH_NEAREST, foci, temperature)
+                        .value(0, 0), 0);
+        assertEquals(0x1.6849b86a12baap976,
+                DistanceFields.create(CurveType.SMOOTH_FARTHEST, foci, temperature)
+                        .value(0, 0), 0);
+    }
+
+    @Test
     void normalizedSmoothEnvelopesStayBetweenTheExactEnvelopeAndArithmeticMean() {
         final List<Focus> foci = List.of(
                 new Focus(1, 0, 1), new Focus(4, 0, -1), new Focus(10, 0, 1));
@@ -750,10 +775,16 @@ class DistanceFieldsTest {
     void gaussianAmplitudeCanRescueAnUnderflowedKernel() {
         final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN,
                 List.of(new Focus(40, 0, Double.MAX_VALUE)), 1);
-        final double expected = Math.exp(Math.log(Double.MAX_VALUE) - 800);
 
-        assertTrue(expected > 0);
-        assertEquals(expected, field.value(0, 0), Math.ulp(expected));
+        assertEquals(0x1.cb83c52522377p-131, field.value(0, 0), 0);
+    }
+
+    @Test
+    void gaussianDoesNotMagnifyARoundedSubnormalKernel() {
+        final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(38.5, 0, Double.MAX_VALUE)), 1);
+
+        assertEquals(0x1.b863d578c0b55p-46, field.value(0, 0), 0);
     }
 
     @Test
