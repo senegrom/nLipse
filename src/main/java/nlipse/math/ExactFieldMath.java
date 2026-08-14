@@ -7,16 +7,45 @@ import java.util.Arrays;
 /** Rare-path adaptive-precision arithmetic for overflow and severe cancellation. */
 final class ExactFieldMath {
     // Decimal exponents of the largest intermediates that can cancel for finite binary64 input.
-    // They let AdaptiveDecimal distinguish stable-looking zeroes from unresolved cancellation.
+    // They cap the analytic per-call scales, which derive the same bound from the actual
+    // inputs so that ordinary-magnitude evaluations do not pay worst-case precision.
     private static final int WEIGHTED_DISTANCE_SCALE_EXPONENT = 620;
     private static final int POTENTIAL_SCALE_EXPONENT = 640;
     private static final int WEIGHTED_LOG_SCALE_EXPONENT = 320;
     private static final int POWER_SCALE_EXPONENT = 960;
     private static final int SMOOTH_SCALE_EXPONENT = 960;
     private static final int GAUSSIAN_SCALE_EXPONENT = 320;
+    private static final double LN_TEN = Math.log(10);
     private static final BigDecimal TWO = BigDecimal.valueOf(2);
 
     private ExactFieldMath() {
+    }
+
+    /**
+     * Converts an ln-domain bound on the largest additive intermediate into a
+     * decimal scale exponent for {@link AdaptiveDecimal}. The floor of -330
+     * keeps every adaptive error floor above {@code DecimalMath.exp}'s
+     * zero-truncation bound while staying below the smallest subnormal's
+     * rounding cell; unresolvable bounds fall back to the static worst case.
+     */
+    private static int scaleExponentFromLn(final double largestLnMagnitude, final int cap) {
+        final double decimalExponent = largestLnMagnitude / LN_TEN;
+        if (Double.isNaN(decimalExponent) || !(decimalExponent < cap - 4)) {
+            return cap;
+        }
+        return (int) Math.ceil(Math.max(-330, decimalExponent)) + 4;
+    }
+
+    /** ln-domain bound of the largest weighted distance among active foci. */
+    private static double largestLogMagnitudeDistance(final FocusSet foci,
+            final double x, final double y) {
+        double largest = Double.NEGATIVE_INFINITY;
+        for (int index = 0; index < foci.size(); index++) {
+            if (foci.isActive(index)) {
+                largest = Math.max(largest, foci.logMagnitudeDistance(index, x, y));
+            }
+        }
+        return largest;
     }
 
     static double scaledAbsoluteDifference(final double first, final double second,
@@ -33,7 +62,11 @@ final class ExactFieldMath {
     }
 
     static double signedDistanceSum(final FocusSet foci, final double x, final double y) {
-        return AdaptiveDecimal.toDouble(WEIGHTED_DISTANCE_SCALE_EXPONENT, context -> {
+        final int count = Math.max(1, foci.activeCount());
+        final int scale = scaleExponentFromLn(
+                largestLogMagnitudeDistance(foci, x, y) + Math.log(2.0 * count * count),
+                WEIGHTED_DISTANCE_SCALE_EXPONENT);
+        return AdaptiveDecimal.toDouble(scale, context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
@@ -113,7 +146,10 @@ final class ExactFieldMath {
         if (size < 2) {
             return 0;
         }
-        return AdaptiveDecimal.toDouble(WEIGHTED_DISTANCE_SCALE_EXPONENT, context -> {
+        final int scale = scaleExponentFromLn(
+                largestLogMagnitudeDistance(foci, x, y) + Math.log(2.0 * size * size),
+                WEIGHTED_DISTANCE_SCALE_EXPONENT);
+        return AdaptiveDecimal.toDouble(scale, context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
@@ -134,10 +170,14 @@ final class ExactFieldMath {
     }
 
     static double range(final FocusSet foci, final double x, final double y) {
-        if (foci.activeCount() < 2) {
+        final int count = foci.activeCount();
+        if (count < 2) {
             return 0;
         }
-        return AdaptiveDecimal.toDouble(WEIGHTED_DISTANCE_SCALE_EXPONENT, context -> {
+        final int scale = scaleExponentFromLn(
+                largestLogMagnitudeDistance(foci, x, y) + Math.log(2.0 * count * count),
+                WEIGHTED_DISTANCE_SCALE_EXPONENT);
+        return AdaptiveDecimal.toDouble(scale, context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             BigDecimal minimum = null;
@@ -221,7 +261,18 @@ final class ExactFieldMath {
         if (negativeInfinity) {
             return Double.NEGATIVE_INFINITY;
         }
-        return AdaptiveDecimal.toDouble(POTENTIAL_SCALE_EXPONENT, context -> {
+        final int count = Math.max(1, foci.activeCount());
+        double largestTermLn = Double.NEGATIVE_INFINITY;
+        for (int index = 0; index < foci.size(); index++) {
+            if (foci.isActive(index)) {
+                largestTermLn = Math.max(largestTermLn,
+                        Math.log(Math.abs(foci.weight(index)))
+                                - foci.logDistance(index, x, y));
+            }
+        }
+        final int scale = scaleExponentFromLn(
+                largestTermLn + Math.log(2.0 * count * count), POTENTIAL_SCALE_EXPONENT);
+        return AdaptiveDecimal.toDouble(scale, context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
@@ -255,7 +306,19 @@ final class ExactFieldMath {
         if (infiniteFactor) {
             return Double.POSITIVE_INFINITY;
         }
-        final double logarithm = AdaptiveDecimal.toDouble(WEIGHTED_LOG_SCALE_EXPONENT, context -> {
+        final int count = Math.max(1, foci.activeCount());
+        double largestTermLn = Double.NEGATIVE_INFINITY;
+        for (int index = 0; index < foci.size(); index++) {
+            if (foci.isActive(index)) {
+                largestTermLn = Math.max(largestTermLn,
+                        Math.log(Math.abs(foci.weight(index))) + Math.log(
+                                Math.abs(foci.logDistance(index, x, y))));
+            }
+        }
+        final int scale = scaleExponentFromLn(
+                largestTermLn + Math.log(2.0 * count * count),
+                WEIGHTED_LOG_SCALE_EXPONENT);
+        final double logarithm = AdaptiveDecimal.toDouble(scale, context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
@@ -289,15 +352,46 @@ final class ExactFieldMath {
         if (power == 2) {
             return quadraticMagnitudeMean(foci, x, y);
         }
-        return AdaptiveDecimal.toDouble(POWER_SCALE_EXPONENT, context -> powerMeanDecimal(foci, x, y, power, context));
+        // The guarded value is an exponential, so log-domain debris becomes
+        // relative error; bounding the result's own ln-magnitude and adding a
+        // generous constant for the anchored log-sum-exp intermediates keeps
+        // the floor sound for every representable power.
+        double anchorLn = Double.NaN;
+        for (int index = 0; index < foci.size(); index++) {
+            if (!foci.isActive(index)) {
+                continue;
+            }
+            final double logMagnitude = foci.logMagnitudeDistance(index, x, y);
+            if (Double.isNaN(anchorLn)
+                    || (power < 0 ? logMagnitude < anchorLn : logMagnitude > anchorLn)) {
+                anchorLn = logMagnitude;
+            }
+        }
+        final double resultLnUpper = power < 0
+                ? anchorLn + Math.log(Math.max(2, foci.activeCount())) / -power
+                : anchorLn;
+        final int scale = scaleExponentFromLn(Math.min(715, resultLnUpper) + 28,
+                POWER_SCALE_EXPONENT);
+        return AdaptiveDecimal.toDouble(scale, context -> powerMeanDecimal(foci, x, y, power, context));
     }
 
     static double smoothEnvelope(final FocusSet foci, final double x, final double y,
             final double temperature, final boolean nearest) {
-        if (foci.activeCount() == 0) {
+        final int count = foci.activeCount();
+        if (count == 0) {
             return 0;
         }
-        return AdaptiveDecimal.toDouble(SMOOTH_SCALE_EXPONENT, context -> {
+        // The guarded value is anchor +- tau * log(mean of anchored
+        // exponentials), so the cancelling intermediates are bounded by the
+        // largest weighted distance and the temperature-scaled log of the
+        // focus count.
+        final double correctionLn = Math.log(temperature)
+                + Math.log(Math.log(Math.max(2, count)));
+        final double largestLn = Math.max(
+                largestLogMagnitudeDistance(foci, x, y), correctionLn);
+        final int scale = scaleExponentFromLn(
+                largestLn + Math.log(2.0 * count * count), SMOOTH_SCALE_EXPONENT);
+        return AdaptiveDecimal.toDouble(scale, context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
