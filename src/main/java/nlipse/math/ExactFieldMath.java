@@ -329,7 +329,8 @@ final class ExactFieldMath {
         if (foci.activeCount() == 0) {
             return 0;
         }
-        return AdaptiveDecimal.toDouble(GAUSSIAN_SCALE_EXPONENT, context -> {
+        return AdaptiveDecimal.toDouble(gaussianScaleExponent(foci, x, y, sigma),
+                context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
@@ -349,6 +350,40 @@ final class ExactFieldMath {
             }
             return sum.round(context);
         });
+    }
+
+    /**
+     * Decimal exponent bounding every intermediate the Gaussian sum can cancel
+     * at, derived from the actual terms so that small-magnitude far-field sums
+     * do not demand the static worst case's precision escalation.
+     */
+    private static int gaussianScaleExponent(final FocusSet foci, final double x,
+            final double y, final double sigma) {
+        double largestLogTerm = Double.NEGATIVE_INFINITY;
+        for (int index = 0; index < foci.size(); index++) {
+            if (!foci.isActive(index)) {
+                continue;
+            }
+            final double ratio = foci.distanceRatio(index, x, y, sigma);
+            final double exponent = -0.5 * ratio * ratio;
+            final double logTerm = Math.log(Math.abs(foci.weight(index))) + exponent;
+            if (!Double.isNaN(logTerm)) {
+                largestLogTerm = Math.max(largestLogTerm, logTerm);
+            }
+        }
+        if (largestLogTerm == Double.NEGATIVE_INFINITY) {
+            return Integer.MIN_VALUE;
+        }
+        final double decimalExponent = (largestLogTerm
+                + Math.log(foci.activeCount())) / Math.log(10);
+        if (!(decimalExponent < GAUSSIAN_SCALE_EXPONENT - 4)) {
+            return GAUSSIAN_SCALE_EXPONENT;
+        }
+        // The floor keeps the adaptive error floor above DecimalMath.exp's
+        // zero-truncation bound, so a silently dropped exponential can never
+        // be mistaken for certainty; it stays comfortably below the smallest
+        // subnormal's rounding cell.
+        return (int) Math.ceil(Math.max(-330, decimalExponent)) + 4;
     }
 
     private static BigDecimal powerMeanDecimal(final FocusSet foci, final double x,

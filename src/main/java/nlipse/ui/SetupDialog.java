@@ -220,7 +220,6 @@ public final class SetupDialog extends JDialog {
         setContentPane(root);
     }
 
-
     private void updateCurvePresentation(final CurveType selected, final double parameter) {
         final boolean enabled = selected.usesParameter();
         curveDescription.setText(selected.htmlDescription(360, parameter));
@@ -314,7 +313,6 @@ public final class SetupDialog extends JDialog {
         }
         return parsed;
     }
-
 
     private static JPanel labelledRow(final String label, final Component component) {
         final JPanel row = rowPanel();

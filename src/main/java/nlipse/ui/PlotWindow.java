@@ -210,7 +210,6 @@ public final class PlotWindow extends JFrame {
         setFocusRows(snapshot.foci(), snapshot.selectedFocusIndex());
     }
 
-
     public void setCurvePresentation(final CurveType type, final double parameter) {
         final boolean enabled = type.usesParameter();
         curveDescription.setText(type.htmlDescription(345, parameter));
@@ -234,7 +233,6 @@ public final class PlotWindow extends JFrame {
             focusTable.clearSelection();
         }
     }
-
 
     public PlotCanvas getCanvas() { return canvas; }
     public JComboBox<CurveType> getCurveType() { return curveType; }

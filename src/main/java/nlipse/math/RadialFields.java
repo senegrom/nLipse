@@ -279,6 +279,18 @@ final class RadialFields {
     }
 
     private static final class GaussianField implements DistanceField {
+        /** A wholly underflowed sum whose magnitude bound sits this many ln-units
+         *  below {@code Double.MIN_VALUE} provably rounds to a signed zero. Two
+         *  ln-units dwarf the primitive error of the bound itself. */
+        private static final double DROPPED_ZERO_LOG_LIMIT =
+                Math.log(Double.MIN_VALUE) - 2;
+        /** Dropped terms at least this many ln-units below the surviving sum
+         *  cannot move it outside its own rounding neighbourhood. */
+        private static final double DROPPED_NEGLIGIBLE_LOG_MARGIN = 64;
+        /** ln-units by which one sign's underflowed mass must dominate, beyond
+         *  the focus-count factor, before the zero's sign is provable. */
+        private static final double DROPPED_SIGN_LOG_MARGIN = 1;
+
         private final FocusSet foci;
         private final double sigma;
 
@@ -298,7 +310,9 @@ final class RadialFields {
             boolean positive = false;
             boolean negative = false;
             boolean exactNeeded = false;
-            boolean roundingSensitive = false;
+            double sensitiveMagnitude = 0;
+            double droppedPositiveLog = Double.NEGATIVE_INFINITY;
+            double droppedNegativeLog = Double.NEGATIVE_INFINITY;
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
                 if (weight == 0) {
@@ -318,19 +332,56 @@ final class RadialFields {
                 final boolean kernelRoundingSensitive =
                         FieldMath.isMagnitudeRoundingSensitive(kernel);
                 double term = weight * kernel;
-                if (weight != 0 && finiteExponent
+                if (finiteExponent
                         && (kernelUnderflowed || kernelRoundingSensitive || term == 0)) {
                     term = FieldMath.multiplyFromLog(weight, exponent);
                 }
-                exactNeeded |= kernelUnderflowed || term == 0 && weight != 0 && finiteExponent;
+                if (term == 0 && finiteExponent) {
+                    // The whole term underflows binary64. Record its magnitude
+                    // bound and decide after the sum whether it can matter.
+                    final double logMagnitude = Math.log(Math.abs(weight)) + exponent;
+                    if (weight > 0) {
+                        droppedPositiveLog = Math.max(droppedPositiveLog, logMagnitude);
+                    } else {
+                        droppedNegativeLog = Math.max(droppedNegativeLog, logMagnitude);
+                    }
+                }
+                exactNeeded |= kernelUnderflowed && term != 0;
                 positive |= term > 0;
                 negative |= term < 0;
-                roundingSensitive |= kernelRoundingSensitive
-                        || FieldMath.isMagnitudeRoundingSensitive(term);
+                if (kernelRoundingSensitive
+                        || FieldMath.isMagnitudeRoundingSensitive(term)) {
+                    sensitiveMagnitude = Math.max(sensitiveMagnitude, Math.abs(term));
+                }
                 magnitudes.add(Math.abs(term));
                 sum.add(term);
             }
             final double result = sum.value();
+            final double droppedLog = Math.max(droppedPositiveLog, droppedNegativeLog);
+            if (finitePoint && droppedLog != Double.NEGATIVE_INFINITY && !exactNeeded) {
+                final double countLog = Math.log(foci.activeCount());
+                final double droppedBoundLog = droppedLog + countLog;
+                if (result == 0 && !positive && !negative) {
+                    // Every term underflowed. The value provably rounds to zero
+                    // once the bound clears MIN_VALUE; the sign is provable when
+                    // one sign's largest term dominates the other sign's total.
+                    if (droppedBoundLog < DROPPED_ZERO_LOG_LIMIT
+                            && Math.abs(droppedPositiveLog - droppedNegativeLog)
+                                    > countLog + DROPPED_SIGN_LOG_MARGIN) {
+                        return droppedPositiveLog > droppedNegativeLog ? 0.0 : -0.0;
+                    }
+                    exactNeeded = true;
+                } else if (!(Double.isFinite(result) && result != 0
+                        && droppedBoundLog < Math.log(Math.abs(result))
+                                - DROPPED_NEGLIGIBLE_LOG_MARGIN)) {
+                    exactNeeded = true;
+                }
+            }
+            // A coarsely rounded term matters only when the surviving sum does
+            // not dominate its entire magnitude by a provable margin.
+            final boolean roundingSensitive = sensitiveMagnitude != 0
+                    && !(Double.isFinite(result) && result != 0
+                            && sensitiveMagnitude <= Math.abs(result) * 0x1.0p-64);
             final boolean uncertain = roundingSensitive
                     || positive && negative
                             && FieldMath.cancellationUncertain(result, magnitudes.value(),

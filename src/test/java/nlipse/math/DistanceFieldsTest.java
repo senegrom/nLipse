@@ -788,6 +788,55 @@ class DistanceFieldsTest {
     }
 
     @Test
+    void gaussianFarFieldRoundsWhollyUnderflowedSumsToProvableSignedZeros() {
+        final DistanceField positive = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(0, 0, 2), new Focus(1, 0, 3)), 1);
+        final DistanceField negative = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(0, 0, -2)), 1);
+        final DistanceField dominantNegative = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(0, 0, 1), new Focus(900, 0, -1)), 1);
+
+        assertEquals(Double.doubleToRawLongBits(0.0),
+                Double.doubleToRawLongBits(positive.value(1000, 0)));
+        assertEquals(Double.doubleToRawLongBits(-0.0),
+                Double.doubleToRawLongBits(negative.value(1000, 0)));
+        assertEquals(Double.doubleToRawLongBits(-0.0),
+                Double.doubleToRawLongBits(dominantNegative.value(1000, 0)));
+    }
+
+    @Test
+    void gaussianDropsFarFocusTermsThatCannotMoveTheNearFieldSum() {
+        final List<Focus> near = List.of(new Focus(0, 0, 1));
+        final List<Focus> withFar = List.of(new Focus(0, 0, 1),
+                new Focus(1000, 0, 1));
+        final double expected =
+                DistanceFields.create(CurveType.GAUSSIAN, near, 1).value(0.5, 0);
+
+        assertEquals(Double.doubleToRawLongBits(expected), Double.doubleToRawLongBits(
+                DistanceFields.create(CurveType.GAUSSIAN, withFar, 1).value(0.5, 0)));
+    }
+
+    @Test
+    void gaussianIgnoresANegligibleSubnormalKernelBesideADominantTerm() {
+        final List<Focus> near = List.of(new Focus(0, 0, 1));
+        final List<Focus> withRing = List.of(new Focus(0, 0, 1),
+                new Focus(37.8, 0, 1));
+        final double expected =
+                DistanceFields.create(CurveType.GAUSSIAN, near, 1).value(0, 0);
+
+        assertEquals(Double.doubleToRawLongBits(expected), Double.doubleToRawLongBits(
+                DistanceFields.create(CurveType.GAUSSIAN, withRing, 1).value(0, 0)));
+    }
+
+    @Test
+    void gaussianStillResolvesNearBalancedWhollyUnderflowedSumsExactly() {
+        final DistanceField balanced = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(0, 1, 1), new Focus(0, -1, -1)), 1);
+
+        assertEquals(0.0, balanced.value(1000, 0), 0);
+    }
+
+    @Test
     void magnitudeFamiliesPropagateUndefinedCoordinatesInsteadOfTreatingThemAsDisabled() {
         final List<Focus> foci = List.of(new Focus(0, 0, 1));
         for (final CurveType type : List.of(CurveType.NEAREST, CurveType.FARTHEST,

@@ -982,7 +982,6 @@ public final class PlotController implements AutoCloseable {
         return parsed;
     }
 
-
     @Override
     public void close() {
         previewTimer.stop();

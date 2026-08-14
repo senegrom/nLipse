@@ -58,8 +58,12 @@ final class DecimalMath {
         }
         final MathContext work = AdaptiveDecimal.guard(context);
         final Constants constants = constants(work);
+        // Truncating to zero is safe only far below every binary64-relevant
+        // magnitude: callers scale results by weights as large as MAX_VALUE
+        // (~1e308), and adaptive guards prove rounding cells down to the
+        // smallest subnormal (~1e-324), so the cut must clear both combined.
         final BigDecimal negligible = constants.logTen().multiply(
-                BigDecimal.valueOf(-(long) work.getPrecision() - 8), work);
+                BigDecimal.valueOf(-(long) work.getPrecision() - 648), work);
         if (value.compareTo(negligible) < 0) {
             return ZERO;
         }
