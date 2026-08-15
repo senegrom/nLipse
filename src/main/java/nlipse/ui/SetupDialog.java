@@ -256,24 +256,24 @@ public final class SetupDialog extends JDialog {
             final List<Focus> foci = new ArrayList<>();
             for (int row = 0; row < focusModel.getRowCount(); row++) {
                 foci.add(new Focus(
-                        parseFinite(focusModel.getValueAt(row, 0), "Focus " + (row + 1) + " X"),
-                        parseFinite(focusModel.getValueAt(row, 1), "Focus " + (row + 1) + " Y"),
-                        parseFinite(focusModel.getValueAt(row, 2), "Focus " + (row + 1) + " weight")));
+                        EditableNumbers.parseFinite(focusModel.getValueAt(row, 0), "Focus " + (row + 1) + " X"),
+                        EditableNumbers.parseFinite(focusModel.getValueAt(row, 1), "Focus " + (row + 1) + " Y"),
+                        EditableNumbers.parseFinite(focusModel.getValueAt(row, 2), "Focus " + (row + 1) + " weight")));
             }
             if (foci.isEmpty()) {
                 throw new IllegalArgumentException("At least one focus point is required");
             }
             final double parsedFamilyParameter = selectedType.parseParameter(
                     familyParameter.getText());
-            final double parsedDistanceMin = parseFinite(distanceMin.getText(), "Minimum level");
-            final double parsedDistanceMax = parseFinite(distanceMax.getText(), "Maximum level");
+            final double parsedDistanceMin = EditableNumbers.parseFinite(distanceMin.getText(), "Minimum level");
+            final double parsedDistanceMax = EditableNumbers.parseFinite(distanceMax.getText(), "Maximum level");
             final int parsedCount = parseInteger(curveCount.getText(), "Curve count", 1,
                     PlotConfig.MAX_CURVES);
             final Viewport viewport = new Viewport(
-                    parseFinite(xMin.getText(), "X min"),
-                    parseFinite(xMax.getText(), "X max"),
-                    parseFinite(yMin.getText(), "Y min"),
-                    parseFinite(yMax.getText(), "Y max"));
+                    EditableNumbers.parseFinite(xMin.getText(), "X min"),
+                    EditableNumbers.parseFinite(xMax.getText(), "X max"),
+                    EditableNumbers.parseFinite(yMin.getText(), "Y min"),
+                    EditableNumbers.parseFinite(yMax.getText(), "Y max"));
             result = new PlotConfig(selectedType, parsedFamilyParameter, foci,
                     parsedDistanceMin, parsedDistanceMax,
                     parsedCount, viewport, showBackground.isSelected(), showExtrema.isSelected(),
@@ -283,20 +283,6 @@ public final class SetupDialog extends JDialog {
             JOptionPane.showMessageDialog(this, exception.getMessage(), "Invalid input",
                     JOptionPane.ERROR_MESSAGE);
         }
-    }
-
-    private static double parseFinite(final Object value, final String field) {
-        final String text = String.valueOf(value).trim();
-        final double parsed;
-        try {
-            parsed = Double.parseDouble(text);
-        } catch (final NumberFormatException exception) {
-            throw new IllegalArgumentException(field + ": '" + text + "' is not a number");
-        }
-        if (!Double.isFinite(parsed)) {
-            throw new IllegalArgumentException(field + " must be finite");
-        }
-        return parsed;
     }
 
     private static int parseInteger(final Object value, final String field,

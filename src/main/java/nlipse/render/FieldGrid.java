@@ -7,7 +7,7 @@ import nlipse.geometry.Point2;
 import nlipse.math.DistanceField;
 
 /** Reusable sample grid shared by shading, extrema and contour extraction. */
-public final class FieldGrid {
+final class FieldGrid {
     private static final long PARALLEL_SAMPLE_THRESHOLD = 128L * 1024;
     private static final int ROWS_PER_TASK = 16;
 
@@ -38,7 +38,7 @@ public final class FieldGrid {
         this.sampleSource = sampleSource == null ? null : new WeakReference<>(sampleSource);
     }
 
-    public static FieldGrid sample(final DistanceField field, final Viewport viewport,
+    static FieldGrid sample(final DistanceField field, final Viewport viewport,
             final int pixelWidth, final int pixelHeight, final int requestedStep,
             final CancellationToken token) {
         if (field == null || viewport == null || token == null) {
@@ -92,7 +92,7 @@ public final class FieldGrid {
     /**
      * Builds a coarser grid by selecting samples from this grid without evaluating the field again.
      */
-    public FieldGrid coarsen(final int requestedStep, final Viewport viewport) {
+    FieldGrid coarsen(final int requestedStep, final Viewport viewport) {
         if (viewport == null) {
             throw new IllegalArgumentException("Viewport is required");
         }
@@ -323,44 +323,44 @@ public final class FieldGrid {
                         viewport.worldY(pixelYs[maximumRow], pixelHeight))));
     }
 
-    public int getPixelWidth() {
+    int getPixelWidth() {
         return pixelWidth;
     }
 
-    public int getPixelHeight() {
+    int getPixelHeight() {
         return pixelHeight;
     }
 
-    public int getStep() {
+    int getStep() {
         return step;
     }
 
-    public int getColumns() {
+    int getColumns() {
         return columns;
     }
 
-    public int getRows() {
+    int getRows() {
         return rows;
     }
 
-    public int getPixelX(final int column) {
+    int getPixelX(final int column) {
         return pixelXs[column];
     }
 
-    public int getPixelY(final int row) {
+    int getPixelY(final int row) {
         return pixelYs[row];
     }
 
-    public double getValue(final int column, final int row) {
+    double getValue(final int column, final int row) {
         return values[row * columns + column];
     }
 
-    public Optional<FieldExtrema> getExtrema() {
+    Optional<FieldExtrema> getExtrema() {
         return extrema;
     }
 
     /** Returns a cached finite value for an exact pixel, or NaN when unavailable. */
-    public double finiteValueAtPixel(final double pixelX, final double pixelY) {
+    double finiteValueAtPixel(final double pixelX, final double pixelY) {
         if (pixelX != Math.rint(pixelX) || pixelY != Math.rint(pixelY)
                 || pixelX < 0 || pixelX >= pixelWidth
                 || pixelY < 0 || pixelY >= pixelHeight) {
@@ -385,7 +385,7 @@ public final class FieldGrid {
         return Double.NaN;
     }
 
-    public long estimatedBytes() {
+    long estimatedBytes() {
         return 128L + (long) values.length * Double.BYTES
                 + (long) (pixelXs.length + pixelYs.length) * Integer.BYTES;
     }

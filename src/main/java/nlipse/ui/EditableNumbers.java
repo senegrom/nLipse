@@ -11,4 +11,18 @@ final class EditableNumbers {
         }
         return Double.toString(value == 0 ? 0 : value);
     }
+
+    static double parseFinite(final Object value, final String field) {
+        final String text = String.valueOf(value).trim();
+        final double parsed;
+        try {
+            parsed = Double.parseDouble(text);
+        } catch (final NumberFormatException exception) {
+            throw new IllegalArgumentException(field + ": '" + text + "' is not a number");
+        }
+        if (!Double.isFinite(parsed)) {
+            throw new IllegalArgumentException(field + " must be finite");
+        }
+        return parsed;
+    }
 }

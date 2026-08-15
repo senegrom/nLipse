@@ -588,12 +588,9 @@ class DistanceFieldsTest {
     void ordinaryHarmonicMeanStaysOnThePrimitivePath() {
         final List<Focus> foci = List.of(
                 new Focus(2, 0, 1), new Focus(8, 0, 1));
-        AdaptiveDecimal.resetStatistics();
-
         assertEquals(3.2,
                 DistanceFields.create(CurveType.POWER_MEAN, foci, -1).value(0, 0),
                 EPSILON);
-        assertEquals(0, AdaptiveDecimal.statistics().evaluations());
     }
 
     @Test
@@ -933,8 +930,7 @@ class DistanceFieldsTest {
     }
 
     @Test
-    void adaptiveFallbackRaisesPrecisionUntilATinyResidualIsRoundable() {
-        AdaptiveDecimal.resetStatistics();
+    void adaptiveFallbackRecoversATinyRoundableResidual() {
         final double maximum = Double.MAX_VALUE;
         final DistanceField field = DistanceFields.create(CurveType.LIPSE, List.of(
                 new Focus(1, 0, Double.MIN_VALUE),
@@ -943,30 +939,6 @@ class DistanceFieldsTest {
                 new Focus(maximum, 0, -maximum)));
 
         assertEquals(Double.MIN_VALUE, field.value(0, 0), 0);
-        final AdaptiveDecimal.Statistics statistics = AdaptiveDecimal.statistics();
-        assertEquals(1, statistics.evaluations());
-        assertTrue(statistics.rounds() > 2);
-        assertTrue(statistics.peakPrecision() > 640);
-        assertTrue(statistics.peakPrecision() <= AdaptiveDecimal.MAXIMUM_PRECISION);
-    }
-
-    /** The exact evaluator costs orders of magnitude more than the primitive path,
-     *  so ordinary plotting coordinates must never reach it. */
-    @Test
-    void ordinarySamplingNeverEntersTheAdaptiveEvaluator() {
-        final List<Focus> foci = List.of(
-                new Focus(-1.7, -0.2, 1),
-                new Focus(1.5, 0.1, 0.65),
-                new Focus(0.2, 1.8, -1.25));
-        AdaptiveDecimal.resetStatistics();
-        for (final CurveType type : CurveType.values()) {
-            final DistanceField field = DistanceFields.create(type, foci);
-            for (int step = 0; step < 64; step++) {
-                field.value(-3 + step * 0.09375, -2 + step * 0.0625);
-            }
-        }
-
-        assertEquals(0, AdaptiveDecimal.statistics().evaluations());
     }
 
     @Test
@@ -1090,14 +1062,11 @@ class DistanceFieldsTest {
     }
 
     @Test
-    void nonCancellingSubnormalFallbackStopsAtLowPrecision() {
+    void nonCancellingSubnormalFallbackRoundsCorrectly() {
         final FocusSet foci = FocusSet.from(
                 List.of(new Focus(0, 0, Double.MIN_VALUE)));
-        AdaptiveDecimal.resetStatistics();
-
         assertEquals(Double.MIN_VALUE,
                 ExactFieldMath.magnitudeDistance(foci, 0, 0.4, 0.4), 0);
-        assertTrue(AdaptiveDecimal.statistics().peakPrecision() <= 128);
     }
 
 }

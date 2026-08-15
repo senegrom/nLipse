@@ -3,8 +3,6 @@ package nlipse.math;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.LongAdder;
 
 /** Adaptive rare-path decimal evaluation with an explicit binary64 rounding guard. */
 final class AdaptiveDecimal {
@@ -19,9 +17,6 @@ final class AdaptiveDecimal {
     private static final BigDecimal TWO = BigDecimal.valueOf(2);
     private static final BigDecimal FOUR = BigDecimal.valueOf(4);
     private static final BigDecimal EIGHT = BigDecimal.valueOf(8);
-    private static final LongAdder EVALUATIONS = new LongAdder();
-    private static final LongAdder ROUNDS = new LongAdder();
-    private static final AtomicInteger PEAK_PRECISION = new AtomicInteger();
 
     private AdaptiveDecimal() {
     }
@@ -46,7 +41,6 @@ final class AdaptiveDecimal {
         if (computation == null) {
             throw new IllegalArgumentException("Adaptive computation is required");
         }
-        EVALUATIONS.increment();
         BigDecimal previous = null;
         double previousRounded = Double.NaN;
         BigDecimal current = null;
@@ -57,8 +51,6 @@ final class AdaptiveDecimal {
             if (current == null) {
                 throw new IllegalStateException("Adaptive computation returned null");
             }
-            ROUNDS.increment();
-            PEAK_PRECISION.accumulateAndGet(precision, Math::max);
             final double rounded = current.doubleValue();
             if (previous != null
                     && Double.doubleToLongBits(rounded)
@@ -90,16 +82,6 @@ final class AdaptiveDecimal {
             throw new IllegalArgumentException("Only finite doubles have an exact decimal form");
         }
         return new BigDecimal(value);
-    }
-
-    static Statistics statistics() {
-        return new Statistics(EVALUATIONS.sum(), ROUNDS.sum(), PEAK_PRECISION.get());
-    }
-
-    static void resetStatistics() {
-        EVALUATIONS.reset();
-        ROUNDS.reset();
-        PEAK_PRECISION.set(0);
     }
 
     private static BigDecimal decimalResolution(final BigDecimal value, final int precision,
@@ -156,6 +138,4 @@ final class AdaptiveDecimal {
         return first.add(second).divide(TWO);
     }
 
-    record Statistics(long evaluations, long rounds, int peakPrecision) {
-    }
 }

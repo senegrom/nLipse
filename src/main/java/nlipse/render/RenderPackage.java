@@ -75,14 +75,6 @@ public final class RenderPackage {
         return levelColors[index];
     }
 
-    public double[] levels() {
-        return levels.clone();
-    }
-
-    public Color[] levelColors() {
-        return levelColors.clone();
-    }
-
     public Optional<FieldExtrema> extrema() {
         return extrema;
     }

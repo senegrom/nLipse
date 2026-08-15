@@ -151,10 +151,6 @@ public enum CurveType {
         return description;
     }
 
-    public String weightSemantics() {
-        return weightSemantics;
-    }
-
     public boolean usesParameter() {
         return parameterDomain != ParameterDomain.NONE;
     }
@@ -226,10 +222,6 @@ public enum CurveType {
             return Long.toString((long) normalized);
         }
         return Double.toString(normalized);
-    }
-
-    public String htmlDescription(final int widthPixels) {
-        return htmlDescription(widthPixels, defaultParameter);
     }
 
     public String htmlDescription(final int widthPixels, final double parameter) {

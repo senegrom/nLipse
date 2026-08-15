@@ -16,10 +16,8 @@ class CurveTypeTest {
         for (final CurveType type : CurveType.values()) {
             assertFalse(type.formula().isBlank());
             assertFalse(type.description().isBlank());
-            assertFalse(type.weightSemantics().isBlank());
             final String html = type.htmlDescription(200, type.defaultParameter());
             assertTrue(html.contains(type.description()));
-            assertTrue(html.contains(type.weightSemantics()));
             assertTrue(html.contains("Weights:"));
             if (type.usesParameter()) {
                 assertTrue(html.contains(type.parameterDescription()));

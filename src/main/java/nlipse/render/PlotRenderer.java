@@ -741,10 +741,6 @@ public final class PlotRenderer implements RenderEngine {
         return worldFieldCache.reusedSamples();
     }
 
-    long getSampledWorldValues() {
-        return worldFieldCache.sampledValues();
-    }
-
     long getLayerCacheHits() {
         return layerCacheHits.get();
     }

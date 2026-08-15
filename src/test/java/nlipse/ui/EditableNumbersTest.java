@@ -2,6 +2,7 @@ package nlipse.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -28,4 +29,15 @@ class EditableNumbersTest {
         assertThrows(IllegalArgumentException.class,
                 () -> EditableNumbers.format(Double.POSITIVE_INFINITY));
     }
+    @Test
+    void parsesFiniteValuesAndNamesInvalidFields() {
+        assertEquals(Math.nextUp(1.0),
+                EditableNumbers.parseFinite(Double.toString(Math.nextUp(1.0)), "Coordinate"));
+        final IllegalArgumentException invalid = assertThrows(IllegalArgumentException.class,
+                () -> EditableNumbers.parseFinite("not-a-number", "Coordinate"));
+        assertTrue(invalid.getMessage().contains("Coordinate"));
+        assertThrows(IllegalArgumentException.class,
+                () -> EditableNumbers.parseFinite("Infinity", "Coordinate"));
+    }
+
 }

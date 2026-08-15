@@ -276,12 +276,6 @@ public final class AsyncRenderService implements AutoCloseable {
         }
     }
 
-    int pendingTaskCount() {
-        synchronized (monitor) {
-            return (pendingInteractive == null ? 0 : 1) + (pendingExport == null ? 0 : 1);
-        }
-    }
-
     private void ensureOpen() {
         if (closed) {
             throw new IllegalStateException("Render service is closed");

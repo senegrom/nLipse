@@ -31,22 +31,22 @@ import nlipse.model.PlotSnapshot;
 public final class PlotWindow extends JFrame {
     private static final long serialVersionUID = 1L;
 
-    private final PlotCanvas canvas = new PlotCanvas();
-    private final JComboBox<CurveType> curveType = new JComboBox<>(CurveType.values());
+    final PlotCanvas canvas = new PlotCanvas();
+    final JComboBox<CurveType> curveType = new JComboBox<>(CurveType.values());
     private final JLabel curveDescription = new JLabel();
     private final JLabel familyParameterLabel = new JLabel("Parameter:");
-    private final JTextField familyParameter = new JTextField(9);
-    private final JSlider distanceMin = new JSlider(0, 1000, 50);
-    private final JSlider distanceMax = new JSlider(0, 1000, 950);
-    private final JLabel distanceMinLabel = new JLabel();
-    private final JLabel distanceMaxLabel = new JLabel();
-    private final JTextField curveCount = new JTextField(4);
-    private final JCheckBox logSpacing = new JCheckBox("Log spacing");
-    private final JCheckBox showBackground = new JCheckBox("Background field");
-    private final JCheckBox showExtrema = new JCheckBox("Min/max samples");
-    private final JCheckBox antiAlias = new JCheckBox("Anti-alias lines and markers");
-    private final JCheckBox showLegend = new JCheckBox("Level legend");
-    private final DefaultTableModel focusTableModel = new DefaultTableModel(
+    final JTextField familyParameter = new JTextField(9);
+    final JSlider distanceMin = new JSlider(0, 1000, 50);
+    final JSlider distanceMax = new JSlider(0, 1000, 950);
+    final JLabel distanceMinLabel = new JLabel();
+    final JLabel distanceMaxLabel = new JLabel();
+    final JTextField curveCount = new JTextField(4);
+    final JCheckBox logSpacing = new JCheckBox("Log spacing");
+    final JCheckBox showBackground = new JCheckBox("Background field");
+    final JCheckBox showExtrema = new JCheckBox("Min/max samples");
+    final JCheckBox antiAlias = new JCheckBox("Anti-alias lines and markers");
+    final JCheckBox showLegend = new JCheckBox("Level legend");
+    final DefaultTableModel focusTableModel = new DefaultTableModel(
             new String[]{"X", "Y", "Weight"}, 0) {
         private static final long serialVersionUID = 1L;
 
@@ -55,17 +55,17 @@ public final class PlotWindow extends JFrame {
             return String.class;
         }
     };
-    private final JTable focusTable = new JTable(focusTableModel);
-    private final JButton addFocus = new JButton("Add");
-    private final JButton removeFocus = new JButton("Remove");
-    private final JButton fitDistance = new JButton("Fit levels");
-    private final JButton resetView = new JButton("Reset view");
-    private final JButton saveSetup = new JButton("Save setup…");
-    private final JButton loadSetup = new JButton("Load setup…");
-    private final JButton exportImage = new JButton("Export PNG…");
-    private final JButton exportSvg = new JButton("Export SVG…");
-    private final JLabel cursorInfo = new JLabel("Move over plot for coordinates");
-    private final JLabel renderInfo = new JLabel(" ", SwingConstants.LEFT);
+    final JTable focusTable = new JTable(focusTableModel);
+    final JButton addFocus = new JButton("Add");
+    final JButton removeFocus = new JButton("Remove");
+    final JButton fitDistance = new JButton("Fit levels");
+    final JButton resetView = new JButton("Reset view");
+    final JButton saveSetup = new JButton("Save setup…");
+    final JButton loadSetup = new JButton("Load setup…");
+    final JButton exportImage = new JButton("Export PNG…");
+    final JButton exportSvg = new JButton("Export SVG…");
+    final JLabel cursorInfo = new JLabel("Move over plot for coordinates");
+    final JLabel renderInfo = new JLabel(" ", SwingConstants.LEFT);
 
     public PlotWindow(final PlotSnapshot snapshot, final String version) {
         super("nLipse " + version);
@@ -198,7 +198,7 @@ public final class PlotWindow extends JFrame {
     /** Align every non-slider control with the model (after a setup load).
      *  Callers must hold the controller's suppress flags: the combo and
      *  checkbox listeners fire on programmatic changes too. */
-    public void syncControls(final PlotSnapshot snapshot) {
+    void syncControls(final PlotSnapshot snapshot) {
         curveType.setSelectedItem(snapshot.curveType());
         setCurvePresentation(snapshot.curveType(), snapshot.familyParameter());
         curveCount.setText(Integer.toString(snapshot.curveCount()));
@@ -210,7 +210,7 @@ public final class PlotWindow extends JFrame {
         setFocusRows(snapshot.foci(), snapshot.selectedFocusIndex());
     }
 
-    public void setCurvePresentation(final CurveType type, final double parameter) {
+    void setCurvePresentation(final CurveType type, final double parameter) {
         final boolean enabled = type.usesParameter();
         curveDescription.setText(type.htmlDescription(345, parameter));
         curveType.setToolTipText(type.description());
@@ -221,7 +221,7 @@ public final class PlotWindow extends JFrame {
         familyParameter.setToolTipText(enabled ? type.parameterDescription() : null);
     }
 
-    public void setFocusRows(final List<Focus> foci, final int selectedIndex) {
+    void setFocusRows(final List<Focus> foci, final int selectedIndex) {
         focusTableModel.setRowCount(0);
         for (final Focus focus : foci) {
             focusTableModel.addRow(new Object[]{EditableNumbers.format(focus.x()),
@@ -234,29 +234,4 @@ public final class PlotWindow extends JFrame {
         }
     }
 
-    public PlotCanvas getCanvas() { return canvas; }
-    public JComboBox<CurveType> getCurveType() { return curveType; }
-    public JTextField getFamilyParameter() { return familyParameter; }
-    public JSlider getDistanceMin() { return distanceMin; }
-    public JSlider getDistanceMax() { return distanceMax; }
-    public JLabel getDistanceMinLabel() { return distanceMinLabel; }
-    public JLabel getDistanceMaxLabel() { return distanceMaxLabel; }
-    public JTextField getCurveCount() { return curveCount; }
-    public JCheckBox getLogSpacing() { return logSpacing; }
-    public JCheckBox getShowBackground() { return showBackground; }
-    public JCheckBox getShowExtrema() { return showExtrema; }
-    public JCheckBox getAntiAlias() { return antiAlias; }
-    public JCheckBox getShowLegend() { return showLegend; }
-    public DefaultTableModel getFocusTableModel() { return focusTableModel; }
-    public JTable getFocusTable() { return focusTable; }
-    public JButton getAddFocus() { return addFocus; }
-    public JButton getRemoveFocus() { return removeFocus; }
-    public JButton getFitDistance() { return fitDistance; }
-    public JButton getResetView() { return resetView; }
-    public JButton getSaveSetup() { return saveSetup; }
-    public JButton getLoadSetup() { return loadSetup; }
-    public JButton getExportImage() { return exportImage; }
-    public JButton getExportSvg() { return exportSvg; }
-    public JLabel getCursorInfo() { return cursorInfo; }
-    public JLabel getRenderInfo() { return renderInfo; }
 }

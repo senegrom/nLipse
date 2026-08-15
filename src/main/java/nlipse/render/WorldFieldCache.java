@@ -24,14 +24,10 @@ final class WorldFieldCache {
 
     private final long budgetBytes;
     private final Map<LatticeKey, Lattice> lattices = new HashMap<>();
-    private final Map<Long, Lattice> latticesById = new HashMap<>();
-    private final Map<Long, Integer> tileCountsByLattice = new HashMap<>();
     private final Map<TileKey, Tile> tiles = new LinkedHashMap<>(64, 0.75f, true);
     private final AtomicLong tileHits = new AtomicLong();
     private final AtomicLong tileMisses = new AtomicLong();
     private final AtomicLong reusedSamples = new AtomicLong();
-    private final AtomicLong sampledValues = new AtomicLong();
-    private long nextLatticeId;
     private long cachedBytes;
 
     WorldFieldCache(final long budgetBytes) {
@@ -49,10 +45,10 @@ final class WorldFieldCache {
                 pixelWidth, pixelHeight, 2);
         token.throwIfCancelled();
 
-        final LatticeSelection selection = selectLattice(identity, viewport,
-                pixelWidth, pixelHeight);
-        final long firstGlobalX = selection.offsetX();
-        final long firstGlobalY = selection.offsetY();
+        final SamplingLattice requested = viewport.samplingLattice(pixelWidth, pixelHeight);
+        final Lattice lattice = selectLattice(identity, requested);
+        final long firstGlobalX = requested.offsetX();
+        final long firstGlobalY = requested.offsetY();
         final long lastGlobalX = Math.addExact(firstGlobalX, pixelWidth - 1L);
         final long lastGlobalY = Math.addExact(firstGlobalY, pixelHeight - 1L);
 
@@ -74,14 +70,13 @@ final class WorldFieldCache {
                                 ? Math.floorMod(firstGlobalX, TILE_SIZE) : 0;
                         final int maximumLocalX = tileX == lastTileX
                                 ? Math.floorMod(lastGlobalX, TILE_SIZE) : TILE_SIZE - 1;
-                        final TileKey key = new TileKey(selection.lattice().id(), tileX, tileY);
+                        final TileKey key = new TileKey(lattice, tileX, tileY);
                         Tile tile = tiles.get(key);
                         if (tile == null) {
                             tile = new Tile();
                             tiles.put(key, tile);
+                            lattice.tileCount++;
                             cachedBytes += Tile.ESTIMATED_BYTES;
-                            tileCountsByLattice.merge(selection.lattice().id(),
-                                    1, Integer::sum);
                             tileMisses.incrementAndGet();
                         } else {
                             tileHits.incrementAndGet();
@@ -95,10 +90,10 @@ final class WorldFieldCache {
 
             if (SamplingPool.parallelism() > 1 && requests.size() > TILES_PER_TASK) {
                 SamplingPool.invoke(new SampleTilesTask(requests, 0, requests.size(),
-                        selection.lattice(), field, token, reusedSamples, sampledValues));
+                        lattice, field, token, reusedSamples));
             } else {
-                sampleTiles(requests, 0, requests.size(), selection.lattice(), field, token,
-                        reusedSamples, sampledValues);
+                sampleTiles(requests, 0, requests.size(), lattice, field, token,
+                        reusedSamples);
             }
             token.throwIfCancelled();
 
@@ -118,7 +113,7 @@ final class WorldFieldCache {
                     final int localX = Math.floorMod(globalX, TILE_SIZE);
                     final int length = Math.min(pixelWidth - column, TILE_SIZE - localX);
                     final Tile tile = selectedTiles.get(
-                            new TileKey(selection.lattice().id(), tileX, tileY));
+                            new TileKey(lattice, tileX, tileY));
                     if (tile == null) {
                         throw new IllegalStateException("A required world-space tile is missing");
                     }
@@ -133,27 +128,18 @@ final class WorldFieldCache {
         }
     }
 
-    private LatticeSelection selectLattice(final FieldIdentity identity,
-            final Viewport viewport, final int pixelWidth, final int pixelHeight) {
-        final SamplingLattice requested = viewport.samplingLattice(pixelWidth, pixelHeight);
+    private Lattice selectLattice(final FieldIdentity identity,
+            final SamplingLattice requested) {
         final LatticeKey key = LatticeKey.from(identity, requested);
         synchronized (tiles) {
-            Lattice lattice = lattices.get(key);
-            if (lattice == null) {
-                lattice = new Lattice(++nextLatticeId, key, requested);
-                lattices.put(key, lattice);
-                latticesById.put(lattice.id(), lattice);
-            }
-            return new LatticeSelection(lattice, requested.offsetX(), requested.offsetY());
+            return lattices.computeIfAbsent(key, ignored -> new Lattice(key, requested));
         }
     }
 
     private static void sampleTiles(final List<TileRequest> requests, final int from,
             final int to, final Lattice lattice, final DistanceField field,
-            final CancellationToken token, final AtomicLong reusedSamples,
-            final AtomicLong sampledValues) {
+            final CancellationToken token, final AtomicLong reusedSamples) {
         long reused = 0;
-        long sampled = 0;
         try {
             for (int index = from; index < to; index++) {
                 token.throwIfCancelled();
@@ -186,14 +172,12 @@ final class WorldFieldCache {
                             final double worldX = lattice.worldX(globalX);
                             request.tile().values[valueIndex] = field.value(worldX, worldY);
                             request.tile().present.set(valueIndex);
-                            sampled++;
                         }
                     }
                 }
             }
         } finally {
             reusedSamples.addAndGet(reused);
-            sampledValues.addAndGet(sampled);
         }
     }
 
@@ -203,30 +187,15 @@ final class WorldFieldCache {
             return;
         }
         synchronized (tiles) {
-            final java.util.HashSet<Long> latticeIds = new java.util.HashSet<>();
-            for (final Lattice lattice : latticesById.values()) {
-                if (lattice.key().identity().equals(identity)) {
-                    latticeIds.add(lattice.id());
-                }
-            }
-            if (latticeIds.isEmpty()) {
-                return;
-            }
             final Iterator<Map.Entry<TileKey, Tile>> iterator = tiles.entrySet().iterator();
             while (iterator.hasNext()) {
                 final Map.Entry<TileKey, Tile> entry = iterator.next();
-                if (latticeIds.contains(entry.getKey().latticeId())) {
+                if (entry.getKey().lattice().key.identity().equals(identity)) {
                     iterator.remove();
                     cachedBytes -= Tile.ESTIMATED_BYTES;
                 }
             }
-            for (final long latticeId : latticeIds) {
-                final Lattice lattice = latticesById.remove(latticeId);
-                tileCountsByLattice.remove(latticeId);
-                if (lattice != null) {
-                    lattices.remove(lattice.key(), lattice);
-                }
-            }
+            lattices.keySet().removeIf(key -> key.identity().equals(identity));
         }
     }
 
@@ -237,26 +206,15 @@ final class WorldFieldCache {
                 final Map.Entry<TileKey, Tile> entry = iterator.next();
                 iterator.remove();
                 cachedBytes -= Tile.ESTIMATED_BYTES;
-                releaseLatticeTile(entry.getKey().latticeId());
+                releaseLatticeTile(entry.getKey().lattice());
             }
         }
     }
 
-    private void releaseLatticeTile(final long latticeId) {
-        final Integer count = tileCountsByLattice.get(latticeId);
-        if (count == null) {
-            return;
+    private void releaseLatticeTile(final Lattice lattice) {
+        if (--lattice.tileCount == 0) {
+            lattices.remove(lattice.key, lattice);
         }
-        if (count > 1) {
-            tileCountsByLattice.put(latticeId, count - 1);
-            return;
-        }
-        tileCountsByLattice.remove(latticeId);
-        final Lattice lattice = latticesById.remove(latticeId);
-        if (lattice == null) {
-            return;
-        }
-        lattices.remove(lattice.key(), lattice);
     }
 
     long tileHits() {
@@ -271,17 +229,22 @@ final class WorldFieldCache {
         return reusedSamples.get();
     }
 
-    long sampledValues() {
-        return sampledValues.get();
-    }
-
     long cachedBytes() {
         synchronized (tiles) {
             return cachedBytes;
         }
     }
 
-    private record Lattice(long id, LatticeKey key, SamplingLattice coordinates) {
+    private static final class Lattice {
+        private final LatticeKey key;
+        private final SamplingLattice coordinates;
+        private int tileCount;
+
+        Lattice(final LatticeKey key, final SamplingLattice coordinates) {
+            this.key = key;
+            this.coordinates = coordinates;
+        }
+
         double worldX(final long globalX) {
             return coordinates.worldXAtIndex(globalX);
         }
@@ -301,10 +264,7 @@ final class WorldFieldCache {
         }
     }
 
-    private record LatticeSelection(Lattice lattice, long offsetX, long offsetY) {
-    }
-
-    private record TileKey(long latticeId, long tileX, long tileY) {
+    private record TileKey(Lattice lattice, long tileX, long tileY) {
     }
 
     private record TileRequest(TileKey key, Tile tile,
@@ -342,11 +302,10 @@ final class WorldFieldCache {
         private final transient DistanceField field;
         private final transient CancellationToken token;
         private final AtomicLong reusedSamples;
-        private final AtomicLong sampledValues;
 
         SampleTilesTask(final List<TileRequest> requests, final int from, final int to,
                 final Lattice lattice, final DistanceField field, final CancellationToken token,
-                final AtomicLong reusedSamples, final AtomicLong sampledValues) {
+                final AtomicLong reusedSamples) {
             this.requests = requests;
             this.from = from;
             this.to = to;
@@ -354,7 +313,6 @@ final class WorldFieldCache {
             this.field = field;
             this.token = token;
             this.reusedSamples = reusedSamples;
-            this.sampledValues = sampledValues;
         }
 
         @Override
@@ -362,15 +320,15 @@ final class WorldFieldCache {
             token.throwIfCancelled();
             if (to - from <= TILES_PER_TASK) {
                 sampleTiles(requests, from, to, lattice, field, token,
-                        reusedSamples, sampledValues);
+                        reusedSamples);
                 return;
             }
             final int middle = (from + to) >>> 1;
             invokeAll(
                     new SampleTilesTask(requests, from, middle, lattice, field, token,
-                            reusedSamples, sampledValues),
+                            reusedSamples),
                     new SampleTilesTask(requests, middle, to, lattice, field, token,
-                            reusedSamples, sampledValues));
+                            reusedSamples));
         }
     }
 }

@@ -4,21 +4,21 @@ import nlipse.math.DistanceField;
 import nlipse.math.ScalarRanges;
 
 /** Allocation-free, multi-level marching-squares extraction in pixel coordinates. */
-public final class MarchingSquares {
+final class MarchingSquares {
     @FunctionalInterface
-    public interface SegmentConsumer {
+    interface SegmentConsumer {
         void accept(double x1, double y1, double x2, double y2);
     }
 
     @FunctionalInterface
-    public interface LevelSegmentConsumer {
+    interface LevelSegmentConsumer {
         void accept(int levelIndex, double x1, double y1, double x2, double y2);
     }
 
     private MarchingSquares() {
     }
 
-    public static int trace(final FieldGrid grid, final DistanceField field,
+    static int trace(final FieldGrid grid, final DistanceField field,
             final Viewport viewport, final double level, final CancellationToken token,
             final SegmentConsumer consumer) {
         if (consumer == null) {
@@ -32,7 +32,7 @@ public final class MarchingSquares {
         return counts[0];
     }
 
-    public static int[] traceLevels(final FieldGrid grid, final DistanceField field,
+    static int[] traceLevels(final FieldGrid grid, final DistanceField field,
             final Viewport viewport, final double[] levels, final CancellationToken token,
             final LevelSegmentConsumer consumer) {
         if (grid == null || field == null || viewport == null || levels == null

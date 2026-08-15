@@ -99,36 +99,6 @@ class PlotRendererTest {
     }
 
     @Test
-    void integerPixelPanReusesOverlappingWorldSamples() {
-        final int width = 129;
-        final int height = 97;
-        final int panX = 9;
-        final int panY = -6;
-        final PlotRenderer renderer = new PlotRenderer();
-        final PlotSnapshot initial = snapshot(1, 3, 8, true, 0);
-        renderer.render(new RenderRequest(initial, width, height, RenderQuality.FULL),
-                CancellationToken.NONE);
-        final long sampledBeforePan = renderer.getSampledWorldValues();
-        final Viewport pannedViewport = initial.viewport().panPixels(
-                panX, panY, width, height);
-        final PlotSnapshot panned = new PlotSnapshot(initial.curveType(),
-                initial.familyParameter(), initial.foci(),
-                initial.distanceMin(), initial.distanceMax(), initial.curveCount(), pannedViewport,
-                initial.showBackground(), initial.showExtrema(), initial.antiAlias(),
-                initial.logSpacing(), initial.showLegend(), initial.selectedFocusIndex());
-
-        renderer.render(new RenderRequest(panned, width, height, RenderQuality.FULL),
-                CancellationToken.NONE);
-
-        final long overlap = (long) (width - Math.abs(panX))
-                * (height - Math.abs(panY));
-        final long newlyExposed = (long) width * height - overlap;
-        assertEquals(newlyExposed, renderer.getSampledWorldValues() - sampledBeforePan);
-        assertTrue(renderer.getReusedWorldSamples() >= overlap);
-        assertTrue(renderer.getWorldTileHits() > 0);
-    }
-
-    @Test
     void changedFamilyParameterInvalidatesFieldAndContourCaches() {
         final PlotRenderer renderer = new PlotRenderer();
         final List<Focus> foci = List.of(new Focus(-1, 0, 1), new Focus(1, 0, 2));

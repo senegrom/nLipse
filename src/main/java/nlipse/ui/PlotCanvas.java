@@ -11,7 +11,7 @@ import javax.swing.JComponent;
 import nlipse.render.RenderResult;
 
 /** Resizable image surface. Expensive plot construction happens elsewhere. */
-public final class PlotCanvas extends JComponent {
+final class PlotCanvas extends JComponent {
     private static final long serialVersionUID = 1L;
     /** Soft blue-lavender shown only where no completed plot pixels exist yet. */
     static final Color UNCOMPUTED_BACKGROUND = new Color(242, 243, 252);
@@ -24,7 +24,7 @@ public final class PlotCanvas extends JComponent {
     private boolean rendering;
     private String message = "Preparing plot…";
 
-    public PlotCanvas() {
+    PlotCanvas() {
         setOpaque(true);
         setBackground(Color.WHITE);
         setFocusable(true);
@@ -32,7 +32,7 @@ public final class PlotCanvas extends JComponent {
         setMinimumSize(new Dimension(240, 240));
     }
 
-    public void setRenderResult(final RenderResult result) {
+    void setRenderResult(final RenderResult result) {
         image = result.image();
         clearPanPreview();
         rendering = false;
@@ -40,13 +40,8 @@ public final class PlotCanvas extends JComponent {
         repaint();
     }
 
-    /** The most recent completed render, or null before the first one. */
-    public BufferedImage image() {
-        return image;
-    }
-
     /** Plot pixels exactly as currently displayed, excluding transient status badges. */
-    public BufferedImage snapshotImage() {
+    BufferedImage snapshotImage() {
         final BufferedImage displayed = panPreview && panImage != null ? panImage : image;
         if (displayed == null || getWidth() < 1 || getHeight() < 1) {
             return null;
@@ -113,12 +108,12 @@ public final class PlotCanvas extends JComponent {
         panPreview = false;
     }
 
-    public void setRendering(final boolean value) {
+    void setRendering(final boolean value) {
         rendering = value;
         repaint();
     }
 
-    public void setMessage(final String newMessage) {
+    void setMessage(final String newMessage) {
         message = newMessage == null ? "" : newMessage;
         rendering = false;
         repaint();

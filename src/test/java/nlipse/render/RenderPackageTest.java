@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Color;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
@@ -15,19 +16,26 @@ import nlipse.model.PlotSnapshot;
 class RenderPackageTest {
     @Test
     void packageDefensivelyCopiesLevelsAndColours() {
-        final RenderPackage completed = render(snapshot(-1), 180, 120).renderPackage().orElseThrow();
-        final double originalLevel = completed.level(0);
-        final Color originalColor = completed.levelColor(0);
+        final RenderPackage rendered = render(snapshot(-1), 180, 120)
+                .renderPackage().orElseThrow();
+        final double originalLevel = rendered.level(0);
+        final Color originalColor = rendered.levelColor(0);
+        final double[] levels = {originalLevel};
+        final Color[] colors = {originalColor};
+        final ContourGeometry contours = ContourGeometry.trace(
+                FieldGrid.sample((x, y) -> x, snapshot(-1).viewport(), 2, 2, 1,
+                        CancellationToken.NONE),
+                (x, y) -> x, snapshot(-1).viewport(), levels, CancellationToken.NONE);
+        final RenderPackage completed = new RenderPackage(snapshot(-1), 2, 2,
+                RenderQuality.FULL, levels, colors, Optional.empty(), contours);
 
-        final double[] levels = completed.levels();
-        final Color[] colors = completed.levelColors();
         levels[0] = originalLevel + 100;
         colors[0] = Color.MAGENTA;
 
         assertEquals(originalLevel, completed.level(0));
         assertEquals(originalColor, completed.levelColor(0));
         assertEquals(completed.levelCount(), completed.contours().levelCount());
-        assertTrue(completed.extrema().isPresent());
+        assertTrue(rendered.extrema().isPresent());
     }
 
     @Test
@@ -43,7 +51,7 @@ class RenderPackageTest {
         assertNotEquals(first.snapshot().selectedFocusIndex(),
                 second.snapshot().selectedFocusIndex());
         assertSame(first.contours(), second.contours());
-        assertEquals(first.levels().length, second.levels().length);
+        assertEquals(first.levelCount(), second.levelCount());
     }
 
     private static RenderResult render(final PlotSnapshot snapshot,

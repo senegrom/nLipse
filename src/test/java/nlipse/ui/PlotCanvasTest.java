@@ -39,9 +39,10 @@ class PlotCanvasTest {
         assertEquals(PlotCanvas.UNCOMPUTED_BACKGROUND.getRGB(), exported.getRGB(0, 1));
 
         canvas.commitPanPreview();
-        assertEquals(Color.RED.getRGB(), canvas.image().getRGB(3, 1));
+        final BufferedImage committed = canvas.snapshotImage();
+        assertEquals(Color.RED.getRGB(), committed.getRGB(3, 1));
         assertEquals(PlotCanvas.UNCOMPUTED_BACKGROUND.getRGB(),
-                canvas.image().getRGB(0, 1));
+                committed.getRGB(0, 1));
     }
 
     @Test

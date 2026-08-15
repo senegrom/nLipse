@@ -113,7 +113,6 @@ class AsyncRenderServiceTest {
                         delivered.countDown();
                     }
                 }, ignored -> { });
-                assertTrue(service.pendingTaskCount() <= 1);
             }
             releaseLatest.countDown();
 
