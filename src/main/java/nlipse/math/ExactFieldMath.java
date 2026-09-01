@@ -423,7 +423,9 @@ final class ExactFieldMath {
         if (foci.activeCount() == 0) {
             return 0;
         }
-        return AdaptiveDecimal.toDouble(gaussianScaleExponent(foci, x, y, sigma),
+        final GaussianTerms terms = gaussianTerms(foci, x, y, sigma);
+        final double value = AdaptiveDecimal.toDouble(scaleExponentFromLn(
+                terms.largestLogTerm() + Math.log(foci.activeCount()), GAUSSIAN_SCALE_EXPONENT),
                 context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
@@ -444,29 +446,48 @@ final class ExactFieldMath {
             }
             return sum.round(context);
         });
+        // Exponentials truncated to decimal zero cannot carry a sign, so a
+        // wholly underflowed sum arrives as +0.0 whatever its true sign. When
+        // one sign's largest term provably dominates the other sign's total,
+        // the correctly rounded zero is that sign's.
+        if (value == 0 && Math.abs(terms.positiveLog() - terms.negativeLog())
+                > Math.log(foci.activeCount()) + 1) {
+            return terms.positiveLog() > terms.negativeLog() ? 0.0 : -0.0;
+        }
+        return value;
     }
 
     /**
-     * ln-domain bound of the largest Gaussian term, derived from the actual
-     * weights and exponents so that small-magnitude far-field sums do not
-     * demand the static worst case's precision escalation.
+     * ln-domain bounds of the Gaussian terms in the double domain: the largest
+     * overall, which sizes the adaptive floor, and the largest of each sign,
+     * which decide a wholly underflowed sum's zero.
      */
-    private static int gaussianScaleExponent(final FocusSet foci, final double x,
+    private static GaussianTerms gaussianTerms(final FocusSet foci, final double x,
             final double y, final double sigma) {
-        double largestLogTerm = Double.NEGATIVE_INFINITY;
+        double largest = Double.NEGATIVE_INFINITY;
+        double positive = Double.NEGATIVE_INFINITY;
+        double negative = Double.NEGATIVE_INFINITY;
         for (int index = 0; index < foci.size(); index++) {
             if (!foci.isActive(index)) {
                 continue;
             }
+            final double weight = foci.weight(index);
             final double ratio = foci.distanceRatio(index, x, y, sigma);
-            final double exponent = -0.5 * ratio * ratio;
-            final double logTerm = Math.log(Math.abs(foci.weight(index))) + exponent;
-            if (!Double.isNaN(logTerm)) {
-                largestLogTerm = Math.max(largestLogTerm, logTerm);
+            final double logTerm = Math.log(Math.abs(weight)) - 0.5 * ratio * ratio;
+            if (Double.isNaN(logTerm)) {
+                continue;
+            }
+            largest = Math.max(largest, logTerm);
+            if (weight > 0) {
+                positive = Math.max(positive, logTerm);
+            } else {
+                negative = Math.max(negative, logTerm);
             }
         }
-        return scaleExponentFromLn(largestLogTerm + Math.log(foci.activeCount()),
-                GAUSSIAN_SCALE_EXPONENT);
+        return new GaussianTerms(largest, positive, negative);
+    }
+
+    private record GaussianTerms(double largestLogTerm, double positiveLog, double negativeLog) {
     }
 
     private static BigDecimal powerMeanDecimal(final FocusSet foci, final double x,
