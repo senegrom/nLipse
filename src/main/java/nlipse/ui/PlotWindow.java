@@ -8,7 +8,6 @@ import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.DefaultCellEditor;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -69,7 +68,7 @@ public final class PlotWindow extends JFrame {
 
     public PlotWindow(final PlotSnapshot snapshot, final String version) {
         super("nLipse " + version);
-        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setLayout(new BorderLayout());
         add(canvas, BorderLayout.CENTER);
         add(buildSidePanel(), BorderLayout.EAST);
@@ -150,9 +149,7 @@ public final class PlotWindow extends JFrame {
 
         focusTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         focusTable.setRowHeight(22);
-        final DefaultCellEditor editor = new DefaultCellEditor(new JTextField());
-        editor.setClickCountToStart(2);
-        focusTable.setDefaultEditor(Object.class, editor);
+        focusTable.setDefaultEditor(Object.class, new FiniteNumberCellEditor());
         final JPanel focusPanel = new JPanel(new BorderLayout(5, 5));
         focusPanel.setBorder(BorderFactory.createTitledBorder("Focus points"));
         final JScrollPane tableScroll = new JScrollPane(focusTable);

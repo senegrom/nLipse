@@ -26,6 +26,16 @@ final class FieldMath {
         return values;
     }
 
+    /** A subnormal norm has lost relative precision before any later scaling.
+     * Resolve the complete expression, even when its final value is normal. */
+    static boolean isSubnormalDistance(final double distance) {
+        return distance > 0 && distance < Double.MIN_NORMAL;
+    }
+
+    static boolean distanceNeedsExact(final double distance) {
+        return !Double.isFinite(distance) || isSubnormalDistance(distance);
+    }
+
     static double expFromLog(final double logarithm) {
         if (Double.isNaN(logarithm)) {
             return Double.NaN;

@@ -48,6 +48,7 @@ final class RadialFields {
             boolean positiveTerm = false;
             boolean negativeTerm = false;
             boolean normalizedWeightRoundingSensitive = false;
+            final FieldMath.CompensatedSum normalizedLogErrors = new FieldMath.CompensatedSum();
             for (int index = 0; index < foci.size(); index++) {
                 final double weight = foci.weight(index);
                 if (weight == 0) {
@@ -58,7 +59,7 @@ final class RadialFields {
                 if (Double.isNaN(logarithm)) {
                     return Double.NaN;
                 }
-                if (finitePoint && !Double.isFinite(distance)
+                if (finitePoint && FieldMath.distanceNeedsExact(distance)
                         && Double.isFinite(logarithm)) {
                     exactNeeded = true;
                 }
@@ -75,6 +76,14 @@ final class RadialFields {
                 final double normalizedWeight = weight / weightScale;
                 normalizedWeightRoundingSensitive |= logarithm != 0
                         && FieldMath.isMagnitudeRoundingSensitive(normalizedWeight);
+                if (distance > 0 && Double.isFinite(distance)) {
+                    // The error is incurred before multiplication by the weight.
+                    // This remains nonzero when hypot rounded a near-unit norm
+                    // to 1 and log(distance) consequently rounded to zero.
+                    final double logError = 8 * (Math.ulp(distance) / distance)
+                            + 2 * Math.ulp(logarithm);
+                    normalizedLogErrors.add(Math.abs(normalizedWeight) * logError);
+                }
                 final double term = normalizedWeight * logarithm;
                 if ((term == 0 && logarithm != 0) || !Double.isFinite(term)) {
                     exactNeeded = true;
@@ -96,7 +105,9 @@ final class RadialFields {
             }
             final double normalized = normalizedSum.value();
             final double resultLogarithm = weightScale * normalized;
+            final double amplifiedLogError = weightScale * normalizedLogErrors.value();
             final boolean roundingUncertain = normalizedWeightRoundingSensitive
+                    || amplifiedLogError > Math.max(0x1.0p-40, 8 * Math.ulp(resultLogarithm))
                     || positiveTerm && negativeTerm
                             && FieldMath.cancellationUncertain(normalized,
                                     normalizedMagnitudes.value(), foci.activeCount(),
@@ -136,7 +147,7 @@ final class RadialFields {
                 if (Double.isNaN(candidate)) {
                     return Double.NaN;
                 }
-                exactNeeded |= finitePoint && (!Double.isFinite(distance)
+                exactNeeded |= finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || !Double.isFinite(candidate)
                         || candidate == 0 && distance != 0);
                 roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(candidate);
@@ -166,7 +177,7 @@ final class RadialFields {
                 }
                 final double distance = foci.distance(index, x, y);
                 final double magnitude = foci.magnitudeDistanceApproximate(index, x, y);
-                exactNeeded |= finitePoint && (!Double.isFinite(distance)
+                exactNeeded |= finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || magnitude == 0 && distance != 0);
                 norm = Math.hypot(norm, magnitude);
                 roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(magnitude)
@@ -216,7 +227,7 @@ final class RadialFields {
                     negativeInfinity |= weight < 0;
                     continue;
                 }
-                if (!Double.isFinite(distance)) {
+                if (FieldMath.distanceNeedsExact(distance)) {
                     exactNeeded |= finitePoint;
                     continue;
                 }
@@ -323,7 +334,7 @@ final class RadialFields {
                 if (Double.isNaN(ratio)) {
                     return Double.NaN;
                 }
-                exactNeeded |= finitePoint && !Double.isFinite(ordinaryDistance)
+                exactNeeded |= finitePoint && FieldMath.distanceNeedsExact(ordinaryDistance)
                         && Double.isFinite(foci.logDistance(index, x, y));
                 final double exponent = -0.5 * ratio * ratio;
                 final double kernel = Math.exp(exponent);

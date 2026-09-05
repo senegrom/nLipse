@@ -1,5 +1,7 @@
 package nlipse.render;
 
+import java.math.BigDecimal;
+
 import nlipse.math.DistanceField;
 import nlipse.math.ScalarRanges;
 
@@ -217,16 +219,24 @@ final class MarchingSquares {
             final double shiftedB = Math.scalb(b, -exponent) - scaledLevel;
             final double shiftedC = Math.scalb(c, -exponent) - scaledLevel;
             final double shiftedD = Math.scalb(d, -exponent) - scaledLevel;
-            final double determinant = Math.fma(shiftedA, shiftedC,
-                    -shiftedB * shiftedD);
-            if (determinant > 0) {
-                return highOnTopLeftAndBottomRight ? 1 : -1;
-            }
-            if (determinant < 0) {
-                return highOnTopLeftAndBottomRight ? -1 : 1;
+            final double secondProduct = shiftedB * shiftedD;
+            final double determinant = Math.fma(shiftedA, shiftedC, -secondProduct)
+                    + Math.fma(-shiftedB, shiftedD, secondProduct);
+            // Scaled inputs have magnitude < 2 and shifted inputs < 4.
+            // This conservative absolute bound covers scaling, subtraction,
+            // and both products, including underflow in the scaled inputs.
+            // A single fma alone can give a spurious sign for equal products.
+            if (Math.abs(determinant) > 128 * Math.ulp(1.0)) {
+                return (determinant > 0) == highOnTopLeftAndBottomRight ? 1 : -1;
             }
         }
-        return 0;
+        final BigDecimal exactLevel = new BigDecimal(level);
+        final BigDecimal exactA = new BigDecimal(a).subtract(exactLevel);
+        final BigDecimal exactB = new BigDecimal(b).subtract(exactLevel);
+        final BigDecimal exactC = new BigDecimal(c).subtract(exactLevel);
+        final BigDecimal exactD = new BigDecimal(d).subtract(exactLevel);
+        final int sign = exactA.multiply(exactC).subtract(exactB.multiply(exactD)).signum();
+        return highOnTopLeftAndBottomRight ? sign : -sign;
     }
 
     private static int emit(final int levelIndex, final double x1, final double y1,

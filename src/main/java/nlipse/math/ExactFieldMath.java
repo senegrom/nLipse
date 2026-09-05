@@ -312,7 +312,10 @@ final class ExactFieldMath {
             if (foci.isActive(index)) {
                 largestTermLn = Math.max(largestTermLn,
                         Math.log(Math.abs(foci.weight(index))) + Math.log(
-                                Math.abs(foci.logDistance(index, x, y))));
+                                Math.max(1, Math.abs(foci.logDistance(index, x, y)))));
+                // A rounded zero logarithm is not proof of an exactly unit
+                // distance. Include the weight itself in the cancellation
+                // scale so low-precision rounds cannot falsely accept zero.
             }
         }
         final int scale = scaleExponentFromLn(

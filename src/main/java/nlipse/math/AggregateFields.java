@@ -92,7 +92,8 @@ final class AggregateFields {
                 if (Double.isNaN(term)) {
                     return Double.NaN;
                 }
-                if (finitePoint && term == 0 && distance != 0) {
+                if (finitePoint && (FieldMath.isSubnormalDistance(distance)
+                        || term == 0 && distance != 0)) {
                     return exactValue(x, y);
                 }
                 if (Double.isInfinite(term)) {
@@ -161,7 +162,7 @@ final class AggregateFields {
                 if (Double.isNaN(value)) {
                     return Double.NaN;
                 }
-                if (finitePoint && (!Double.isFinite(distance)
+                if (finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || (value == 0 && distance != 0))) {
                     return ExactFieldMath.quadraticMagnitudeMean(foci, x, y);
                 }
@@ -203,9 +204,10 @@ final class AggregateFields {
                     return Double.NaN;
                 }
                 if (value == 0) {
-                    return 0;
+                    return finitePoint && distance != 0
+                            ? ExactFieldMath.powerMean(foci, x, y, -1) : 0;
                 }
-                exactNeeded |= finitePoint && (!Double.isFinite(distance)
+                exactNeeded |= finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || !Double.isFinite(value));
                 roundingSensitiveNeeded |= FieldMath.isMagnitudeRoundingSensitive(value);
                 values[index] = value;
@@ -260,7 +262,7 @@ final class AggregateFields {
                 if (Double.isNaN(value)) {
                     return Double.NaN;
                 }
-                if (finitePoint && (!Double.isFinite(distance)
+                if (finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || (!Double.isFinite(value) && foci.weight(index) != 0)
                         || (value == 0 && distance != 0 && foci.weight(index) != 0))) {
                     return ExactFieldMath.hyperbola(foci, x, y);
@@ -340,7 +342,7 @@ final class AggregateFields {
                 if (Double.isNaN(candidate)) {
                     return Double.NaN;
                 }
-                if (finitePoint && (!Double.isFinite(distance)
+                if (finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || (candidate == 0 && distance != 0))) {
                     return ExactFieldMath.range(foci, x, y);
                 }
@@ -395,7 +397,7 @@ final class AggregateFields {
                 if (Double.isNaN(logarithm)) {
                     return Double.NaN;
                 }
-                if (finitePoint && (!Double.isFinite(distance)
+                if (finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || !Double.isFinite(magnitude) && Double.isFinite(logarithm)
                         || magnitude == 0 && distance != 0)) {
                     exactNeeded = true;
@@ -464,7 +466,7 @@ final class AggregateFields {
                 if (Double.isNaN(logarithm)) {
                     return Double.NaN;
                 }
-                if (finitePoint && (!Double.isFinite(distance)
+                if (finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || !Double.isFinite(magnitude) && Double.isFinite(logarithm)
                         || magnitude == 0 && distance != 0)) {
                     exactNeeded = true;
@@ -558,7 +560,7 @@ final class AggregateFields {
                 if (Double.isNaN(candidate)) {
                     return Double.NaN;
                 }
-                if (finitePoint && (!Double.isFinite(distance)
+                if (finitePoint && (FieldMath.distanceNeedsExact(distance)
                         || (candidate == 0 && distance != 0))) {
                     return ExactFieldMath.median(foci, x, y);
                 }

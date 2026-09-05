@@ -86,6 +86,9 @@ final class DecimalMath {
         BigDecimal term = ONE;
         BigDecimal sum = ONE;
         for (int index = 1; ; index++) {
+            if ((index & 15) == 1) {
+                AdaptiveDecimal.checkCancelled();
+            }
             term = term.multiply(reduced, work).divide(BigDecimal.valueOf(index), work);
             sum = sum.add(term, work);
             if (term.abs().compareTo(epsilon) <= 0) {
@@ -127,6 +130,9 @@ final class DecimalMath {
         BigDecimal power = z;
         BigDecimal sum = z;
         for (int index = 1; ; index++) {
+            if ((index & 15) == 1) {
+                AdaptiveDecimal.checkCancelled();
+            }
             power = power.multiply(zSquared, context);
             final BigDecimal addend = power.divide(BigDecimal.valueOf(2L * index + 1), context);
             sum = sum.add(addend, context);

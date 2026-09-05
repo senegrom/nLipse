@@ -154,6 +154,9 @@ final class FocusSet {
         if (ordinaryDistance == 0) {
             return 0;
         }
+        if (resolveSensitiveRounding && FieldMath.isSubnormalDistance(ordinaryDistance)) {
+            return ExactFieldMath.magnitudeDistance(this, index, x, y);
+        }
         final double direct = ordinaryDistance * absoluteWeight;
         if (direct != 0 && Double.isFinite(direct)
                 && !FieldMath.isMagnitudeRoundingSensitive(direct)) {
@@ -207,6 +210,14 @@ final class FocusSet {
         if (absoluteWeight == 0 || x == xs[index] && y == ys[index]) {
             return false;
         }
+        final double dx = Math.abs(x - xs[index]);
+        final double dy = Math.abs(y - ys[index]);
+        // Conservatively flag a tiny separation before |w|/scale can amplify
+        // component/norm rounding into an ordinary-sized value.
+        final double separation = Math.max(dx, dy);
+        if (separation > 0 && separation < Double.MIN_NORMAL) {
+            return true;
+        }
         final double relativeWeight = absoluteWeight / positiveScale;
         return relativeWeight == 0 || !Double.isFinite(relativeWeight)
                 || FieldMath.isMagnitudeRoundingSensitive(relativeWeight);
@@ -238,6 +249,18 @@ final class FocusSet {
 
     double distanceRatio(final int index, final double x, final double y,
             final double positiveScale) {
+        // In particular, 1/sigma can overflow for a perfectly valid sigma.
+        // Divide the components before the norm instead of rounding a tiny
+        // unscaled norm to a few subnormal bits first.
+        if (Double.isFinite(x) && Double.isFinite(y)) {
+            final double dx = x - xs[index];
+            final double dy = y - ys[index];
+            final double separation = Math.max(Math.abs(dx), Math.abs(dy));
+            if (positiveScale < Double.MIN_NORMAL
+                    || separation > 0 && separation < Double.MIN_NORMAL) {
+                return Math.hypot(dx / positiveScale, dy / positiveScale);
+            }
+        }
         final double reciprocal = 1.0 / positiveScale;
         if (reciprocal > 0 && Double.isFinite(reciprocal)
                 && Double.isFinite(x) && Double.isFinite(y)) {

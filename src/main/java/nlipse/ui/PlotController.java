@@ -73,9 +73,11 @@ public final class PlotController implements AutoCloseable {
     private final PlotWindow view;
     private final PlotRenderer renderer;
     private final AsyncRenderService renderService;
+    private final AsyncCursorService cursorService;
     private final Timer previewTimer;
     private final Timer fullTimer;
 
+    private boolean closed;
     private boolean suppressSliders;
     private boolean suppressTable;
     private boolean suppressControls;
@@ -102,6 +104,7 @@ public final class PlotController implements AutoCloseable {
         this.view = view;
         this.renderer = renderer;
         this.renderService = renderService;
+        cursorService = new AsyncCursorService();
         fullMin = Math.min(0, model.getDistanceMin());
         fullMax = initialFullMaximum(fullMin, model.getDistanceMax());
         sampledMin = fullMin;
@@ -130,6 +133,12 @@ public final class PlotController implements AutoCloseable {
             }
             final CurveType type = (CurveType) view.curveType.getSelectedItem();
             if (type == null || type == model.getCurveType()) {
+                return;
+            }
+            if (!commitPendingEdits()) {
+                suppressControls = true;
+                view.curveType.setSelectedItem(model.getCurveType());
+                suppressControls = false;
                 return;
             }
             model.setCurveType(type);
@@ -198,6 +207,9 @@ public final class PlotController implements AutoCloseable {
         view.exportSvg.addActionListener(event -> exportSvg());
 
         view.addFocus.addActionListener(event -> {
+            if (!commitPendingEdits()) {
+                return;
+            }
             if (model.getFocusCount() >= PlotConfig.MAX_FOCI) {
                 JOptionPane.showMessageDialog(view,
                         "At most " + PlotConfig.MAX_FOCI + " focus points are supported.",
@@ -215,10 +227,17 @@ public final class PlotController implements AutoCloseable {
         });
         view.removeFocus.addActionListener(event -> removeFocusAt(view.focusTable.getSelectedRow()));
         view.fitDistance.addActionListener(event -> {
+            if (!commitPendingEdits()) {
+                return;
+            }
             markRangeAdjustment(RangeAdjustment.AUTO_FIT);
             requestFullRender(true);
         });
         view.resetView.addActionListener(event -> {
+            if (!commitPendingEdits()) {
+                return;
+            }
+            invalidateCursorInfo();
             model.resetViewport();
             markRangeAdjustment(RangeAdjustment.CLAMP);
             requestFullRender();
@@ -268,6 +287,7 @@ public final class PlotController implements AutoCloseable {
             @Override
             public void componentResized(final ComponentEvent event) {
                 if (canvas.isShowing() && !panning) {
+                    invalidateCursorInfo();
                     requestInteractiveRender();
                 }
             }
@@ -276,8 +296,12 @@ public final class PlotController implements AutoCloseable {
         final MouseAdapter mouse = new MouseAdapter() {
             @Override
             public void mousePressed(final MouseEvent event) {
+                if (!commitPendingEdits()) {
+                    return;
+                }
                 canvas.requestFocusInWindow();
                 if (SwingUtilities.isMiddleMouseButton(event)) {
+                    invalidateCursorInfo();
                     panning = true;
                     panStartX = event.getX();
                     panStartY = event.getY();
@@ -338,8 +362,12 @@ public final class PlotController implements AutoCloseable {
             }
 
             @Override
+            public void mouseExited(final MouseEvent event) {
+                invalidateCursorInfo();
+            }
+
+            @Override
             public void mouseDragged(final MouseEvent event) {
-                updateCursorInfo(event.getX(), event.getY());
                 if (panning && panStartViewport != null
                         && canvas.getWidth() >= 2 && canvas.getHeight() >= 2) {
                     final int offsetX = event.getX() - panStartX;
@@ -363,6 +391,8 @@ public final class PlotController implements AutoCloseable {
                     markRangeAdjustment(RangeAdjustment.CLAMP);
                     requestInteractiveRender();
                 }
+                // Capture the coordinates and field after the drag mutation.
+                updateCursorInfo(event.getX(), event.getY());
             }
         };
         // One adapter, registered for both delivery paths: mouseMoved only
@@ -392,9 +422,15 @@ public final class PlotController implements AutoCloseable {
     private void installWindowListeners() {
         view.addWindowListener(new WindowAdapter() {
             @Override
+            public void windowClosing(final WindowEvent event) {
+                if (commitPendingEdits()) {
+                    saveLastSession();
+                    view.dispose();
+                }
+            }
+
+            @Override
             public void windowClosed(final WindowEvent event) {
-                commitPendingEdits();
-                saveLastSession();
                 close();
             }
         });
@@ -419,8 +455,12 @@ public final class PlotController implements AutoCloseable {
         if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
             return;
         }
+        final Optional<Path> target = approvedSaveTarget(chooser.getSelectedFile().toPath(), "");
+        if (target.isEmpty()) {
+            return;
+        }
         try {
-            PlotConfigIO.save(chooser.getSelectedFile().toPath(), model.snapshot());
+            PlotConfigIO.save(target.orElseThrow(), model.snapshot());
         } catch (final IOException failed) {
             JOptionPane.showMessageDialog(view, failed.getMessage(), "Save failed",
                     JOptionPane.ERROR_MESSAGE);
@@ -499,7 +539,12 @@ public final class PlotController implements AutoCloseable {
         if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
             return;
         }
-        final Path target = withExtension(chooser.getSelectedFile().toPath(), extension);
+        final Optional<Path> approved = approvedSaveTarget(
+                chooser.getSelectedFile().toPath(), extension);
+        if (approved.isEmpty()) {
+            return;
+        }
+        final Path target = approved.orElseThrow();
         final RenderRequest request = new RenderRequest(
                 model.snapshot(), width, height, RenderQuality.FULL);
         final boolean accepted;
@@ -543,12 +588,18 @@ public final class PlotController implements AutoCloseable {
                 JOptionPane.ERROR_MESSAGE);
     }
 
-    private static Path withExtension(final Path target, final String extension) {
-        final String fileName = target.getFileName().toString();
-        if (fileName.toLowerCase(Locale.ROOT).endsWith(extension)) {
-            return target;
+    private Optional<Path> approvedSaveTarget(final Path selected, final String extension) {
+        try {
+            return SaveTargets.approve(selected, extension, target ->
+                    JOptionPane.showConfirmDialog(view,
+                            "Replace the existing file?\n" + target.toAbsolutePath(),
+                            "Confirm replacement", JOptionPane.YES_NO_OPTION,
+                            JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION);
+        } catch (final IllegalArgumentException invalid) {
+            JOptionPane.showMessageDialog(view, invalid.getMessage(), "Invalid destination",
+                    JOptionPane.ERROR_MESSAGE);
+            return Optional.empty();
         }
-        return target.resolveSibling(fileName + extension);
     }
 
     private void bindNudge(final InputMap inputMap, final ActionMap actionMap,
@@ -571,6 +622,9 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void nudge(final double dx, final double dy) {
+        if (!commitPendingEdits()) {
+            return;
+        }
         final int selected = model.getSelectedFocusIndex();
         if (selected < 0 || selected >= model.getFocusCount()) {
             return;
@@ -601,6 +655,7 @@ public final class PlotController implements AutoCloseable {
                 canvas.getWidth(), canvas.getHeight(), scale));
         markRangeAdjustment(RangeAdjustment.CLAMP);
         requestInteractiveRender();
+        updateCursorInfo(event.getX(), event.getY());
     }
 
     private int hitTest(final int pixelX, final int pixelY) {
@@ -634,7 +689,7 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void removeFocusAt(final int index) {
-        if (!model.removeFocus(index)) {
+        if (!commitPendingEdits() || !model.removeFocus(index)) {
             return;
         }
         refreshCursorField();
@@ -643,50 +698,78 @@ public final class PlotController implements AutoCloseable {
         requestFullRender();
     }
 
-    private boolean commitPendingEdits() {
+    /** Validates without discarding invalid text; shared by actions and close. */
+    boolean commitPendingEdits() {
         if (view.focusTable.isEditing()
                 && !view.focusTable.getCellEditor().stopCellEditing()) {
+            view.renderInfo.setText("Correct the highlighted focus value before continuing.");
+            view.focusTable.getEditorComponent().requestFocusInWindow();
             return false;
         }
-        applyFamilyParameter();
-        applyCurveCount();
+        if (!applyFamilyParameter()) {
+            view.familyParameter.requestFocusInWindow();
+            return false;
+        }
+        if (!applyCurveCount()) {
+            view.curveCount.requestFocusInWindow();
+            return false;
+        }
         return true;
     }
 
-    private void applyFamilyParameter() {
+    private boolean applyFamilyParameter() {
+        if (suppressControls) {
+            return true;
+        }
         final CurveType type = model.getCurveType();
         if (!type.usesParameter()) {
+            InputValidation.accept(view.familyParameter);
             view.setCurvePresentation(type, model.getFamilyParameter());
-            return;
+            return true;
         }
         try {
             final double parameter = type.parseParameter(view.familyParameter.getText());
+            InputValidation.accept(view.familyParameter);
             if (Double.doubleToLongBits(parameter)
                     == Double.doubleToLongBits(model.getFamilyParameter())) {
                 view.setCurvePresentation(type, parameter);
-                return;
+                return true;
             }
             model.setFamilyParameter(parameter);
             view.setCurvePresentation(type, parameter);
             refreshCursorField();
             markRangeAdjustment(RangeAdjustment.AUTO_FIT);
             requestFullRender(true);
+            return true;
         } catch (final IllegalArgumentException exception) {
-            view.setCurvePresentation(type, model.getFamilyParameter());
+            InputValidation.reject(view.familyParameter, exception.getMessage());
+            view.renderInfo.setText("Invalid parameter: " + exception.getMessage());
+            return false;
         }
     }
 
-    private void applyCurveCount() {
+    private boolean applyCurveCount() {
+        if (suppressControls) {
+            return true;
+        }
         try {
             final int count = Integer.parseInt(view.curveCount.getText().trim());
+            if (count < 1 || count > PlotConfig.MAX_CURVES) {
+                throw new IllegalArgumentException("Count must be between 1 and "
+                        + PlotConfig.MAX_CURVES);
+            }
             if (count != model.getCurveCount()) {
                 model.setCurveCount(count);
                 requestFullRender();
-            } else {
-                view.curveCount.setText(Integer.toString(count));
             }
+            InputValidation.accept(view.curveCount);
+            view.curveCount.setText(Integer.toString(count));
+            return true;
         } catch (final IllegalArgumentException exception) {
-            view.curveCount.setText(Integer.toString(model.getCurveCount()));
+            final String message = "Enter an integer between 1 and " + PlotConfig.MAX_CURVES + ".";
+            InputValidation.reject(view.curveCount, message);
+            view.renderInfo.setText("Invalid curve count: " + message);
+            return false;
         }
     }
 
@@ -953,27 +1036,60 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void refreshCursorField() {
+        invalidateCursorInfo();
         final PlotSnapshot snapshot = model.snapshot();
         cursorField = DistanceFields.create(snapshot.curveType(), snapshot.foci(),
                 snapshot.familyParameter());
     }
 
+    private void invalidateCursorInfo() {
+        cursorService.cancel();
+        view.cursorInfo.setText("Move over plot for coordinates");
+        view.cursorInfo.setToolTipText(null);
+    }
+
     private void updateCursorInfo(final int pixelX, final int pixelY) {
         final PlotCanvas canvas = view.canvas;
-        if (canvas.getWidth() < 2 || canvas.getHeight() < 2 || cursorField == null) {
+        final int width = canvas.getWidth();
+        final int height = canvas.getHeight();
+        if (closed || width < 2 || height < 2 || cursorField == null) {
             return;
         }
         final Viewport viewport = model.getViewport();
-        final double x = viewport.worldX(pixelX, canvas.getWidth());
-        final double y = viewport.worldY(pixelY, canvas.getHeight());
-        final double value = cursorField.value(x, y);
-        view.cursorInfo.setText(String.format(Locale.ROOT, "(%.5g, %.5g)   f=%.6g", x, y, value));
+        final DistanceField field = cursorField;
+        final double x = viewport.worldX(pixelX, width);
+        final double y = viewport.worldY(pixelY, height);
+        view.cursorInfo.setText(String.format(Locale.ROOT, "(%.5g, %.5g)   f=…", x, y));
+        view.cursorInfo.setToolTipText(null);
+        cursorService.submit(field, x, y, value -> {
+            if (cursorRequestMatches(field, viewport, width, height)) {
+                view.cursorInfo.setText(String.format(Locale.ROOT,
+                        "(%.5g, %.5g)   f=%.6g", x, y, value));
+            }
+        }, failure -> {
+            if (cursorRequestMatches(field, viewport, width, height)) {
+                view.cursorInfo.setText(String.format(Locale.ROOT,
+                        "(%.5g, %.5g)   f=unavailable", x, y));
+                view.cursorInfo.setToolTipText(failure.getMessage());
+            }
+        });
+    }
+
+    private boolean cursorRequestMatches(final DistanceField field, final Viewport viewport,
+            final int width, final int height) {
+        return !closed && field == cursorField && viewport.equals(model.getViewport())
+                && width == view.canvas.getWidth() && height == view.canvas.getHeight();
     }
 
     @Override
     public void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
         previewTimer.stop();
         fullTimer.stop();
+        cursorService.close();
         renderService.close();
     }
 }

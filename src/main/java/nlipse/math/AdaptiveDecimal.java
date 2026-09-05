@@ -3,6 +3,7 @@ package nlipse.math;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.util.concurrent.CancellationException;
 
 /** Adaptive rare-path decimal evaluation with an explicit binary64 rounding guard. */
 final class AdaptiveDecimal {
@@ -46,6 +47,7 @@ final class AdaptiveDecimal {
         BigDecimal current = null;
         int precision = INITIAL_PRECISION;
         while (true) {
+            checkCancelled();
             final MathContext context = new MathContext(precision, RoundingMode.HALF_EVEN);
             current = computation.compute(context);
             if (current == null) {
@@ -69,6 +71,12 @@ final class AdaptiveDecimal {
             previous = current;
             previousRounded = rounded;
             precision = Math.min(MAXIMUM_PRECISION, precision * 2);
+        }
+    }
+
+    static void checkCancelled() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("Field evaluation cancelled");
         }
     }
 
