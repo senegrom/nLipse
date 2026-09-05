@@ -23,6 +23,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Capture source revision for reproducible test diagnostics
+        run: git archive --format=zip HEAD > /tmp/nlipse-source.zip
+
       - name: Set up Java 25
         uses: actions/setup-java@v6
         with:
@@ -59,3 +62,13 @@ jobs:
             echo "Stale AOT metadata was accepted" >&2
             exit 1
           fi
+
+      - name: Upload source and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verification-${{ github.sha }}
+          retention-days: 7
+          path: |
+            /tmp/nlipse-source.zip
+            target/surefire-reports/
