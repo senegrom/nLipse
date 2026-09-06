@@ -423,10 +423,13 @@ public final class PlotController implements AutoCloseable {
         view.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(final WindowEvent event) {
-                if (commitPendingEdits()) {
-                    saveLastSession();
-                    view.dispose();
+                // Closing must always succeed: an unfinished invalid edit is
+                // dropped instead of holding the window open.
+                if (!commitPendingEdits()) {
+                    discardPendingEdits();
                 }
+                saveLastSession();
+                view.dispose();
             }
 
             @Override
@@ -696,6 +699,17 @@ public final class PlotController implements AutoCloseable {
         syncTableFromModel();
         markRangeAdjustment(RangeAdjustment.CLAMP);
         requestFullRender();
+    }
+
+    /** Reverts rejected, uncommitted control text to the model state. */
+    private void discardPendingEdits() {
+        if (view.focusTable.isEditing()) {
+            view.focusTable.getCellEditor().cancelCellEditing();
+        }
+        InputValidation.accept(view.familyParameter);
+        InputValidation.accept(view.curveCount);
+        view.setCurvePresentation(model.getCurveType(), model.getFamilyParameter());
+        view.curveCount.setText(Integer.toString(model.getCurveCount()));
     }
 
     /** Validates without discarding invalid text; shared by actions and close. */
