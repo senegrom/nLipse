@@ -2,8 +2,6 @@ package nlipse.ui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.function.BiConsumer;
 import javax.swing.SwingUtilities;
 import nlipse.model.PlotConfig;
@@ -81,25 +79,12 @@ class PlotSliderInteractionIT {
                     new AsyncRenderService(renderer));
             try {
                 // Isolate slider input from asynchronous, sample-derived domain changes.
-                setDomain(controller, "fullMin", 0);
-                setDomain(controller, "fullMax", 10);
-                final Method sync = PlotController.class.getDeclaredMethod("syncSlidersFromModel");
-                sync.setAccessible(true);
-                sync.invoke(controller);
+                controller.pinSliderDomain(0, 10);
                 action.accept(model, view);
-            } catch (final ReflectiveOperationException failed) {
-                throw new AssertionError(failed);
             } finally {
                 controller.close();
                 view.dispose();
             }
         });
-    }
-
-    private static void setDomain(final PlotController controller, final String name,
-            final double value) throws ReflectiveOperationException {
-        final Field field = PlotController.class.getDeclaredField(name);
-        field.setAccessible(true);
-        field.setDouble(controller, value);
     }
 }

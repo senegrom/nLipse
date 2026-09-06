@@ -993,6 +993,21 @@ public final class PlotController implements AutoCloseable {
         }
     }
 
+    /**
+     * Pins the slider domain to {@code [minimum, maximum]} and resyncs both
+     * sliders from the model, bypassing the sample-derived range resolution
+     * a render would apply. This is the seam Swing tests use to drive slider
+     * input against a known linear mapping; the range logic never calls it.
+     */
+    void pinSliderDomain(final double minimum, final double maximum) {
+        if (!(minimum < maximum)) {
+            throw new IllegalArgumentException("Slider domain requires minimum < maximum");
+        }
+        fullMin = minimum;
+        fullMax = maximum;
+        syncSlidersFromModel();
+    }
+
     private void syncSlidersFromModel() {
         suppressSliders = true;
         view.distanceMin.setValue(distanceToSlider(model.getDistanceMin()));
