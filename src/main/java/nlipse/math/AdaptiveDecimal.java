@@ -5,71 +5,58 @@ import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.concurrent.CancellationException;
 
-/** Adaptive rare-path decimal evaluation with an explicit binary64 rounding guard. */
+/**
+ * Adaptive rare-path decimal evaluation: the precision doubles until the
+ * computed {@link Ball} enclosure lies strictly inside one binary64 rounding
+ * cell, and that cell's double is the result.
+ */
 final class AdaptiveDecimal {
-    // Every evaluation needs at least two rounds before the guard can accept a
-    // result, so the first precision is charged twice. Starting near quad
-    // precision keeps the common near-cancellation case cheap; the doubling
-    // loop still escalates to full binary64 dynamic range when a residual
-    // hides far below the largest intermediate.
+    // Starting near quad precision keeps the common near-cancellation case
+    // cheap; the doubling loop still escalates to full binary64 dynamic range
+    // when a residual hides far below the largest intermediate.
     static final int INITIAL_PRECISION = 34;
     static final int MAXIMUM_PRECISION = 4096;
     private static final int GUARD_DIGITS = 24;
     private static final BigDecimal TWO = BigDecimal.valueOf(2);
-    private static final BigDecimal FOUR = BigDecimal.valueOf(4);
-    private static final BigDecimal EIGHT = BigDecimal.valueOf(8);
 
     private AdaptiveDecimal() {
     }
 
     @FunctionalInterface
-    interface Computation {
-        BigDecimal compute(MathContext context);
-    }
-
-    static double toDouble(final Computation computation) {
-        return toDouble(Integer.MIN_VALUE, computation);
+    interface Enclosure {
+        Ball compute(MathContext context);
     }
 
     /**
-     * Evaluates until the result is provably inside one binary64 rounding cell.
-     *
-     * @param cancellationScaleExponent decimal exponent of the largest intermediate that may
-     *        cancel out, or {@link Integer#MIN_VALUE} when ordinary relative error is enough
+     * Evaluates at doubling precision until the enclosure is provably inside one
+     * binary64 rounding cell. The carried radius is a bound, not an estimate, so
+     * the first precision that resolves the value is accepted; nothing about the
+     * computation's cancellation needs to be known in advance. At the maximum
+     * precision an enclosure still crossing a cell boundary is taken to be that
+     * boundary, which a tie rounds to even.
      */
-    static double toDouble(final int cancellationScaleExponent,
-            final Computation computation) {
+    static double toDouble(final Enclosure computation) {
         if (computation == null) {
             throw new IllegalArgumentException("Adaptive computation is required");
         }
-        BigDecimal previous = null;
-        double previousRounded = Double.NaN;
-        BigDecimal current = null;
         int precision = INITIAL_PRECISION;
         while (true) {
             checkCancelled();
             final MathContext context = new MathContext(precision, RoundingMode.HALF_EVEN);
-            current = computation.compute(context);
-            if (current == null) {
+            final Ball enclosure = computation.compute(context);
+            if (enclosure == null) {
                 throw new IllegalStateException("Adaptive computation returned null");
             }
-            final double rounded = current.doubleValue();
-            if (previous != null
-                    && Double.doubleToLongBits(rounded)
-                            == Double.doubleToLongBits(previousRounded)) {
-                final BigDecimal observedChange = current.subtract(previous).abs();
-                final BigDecimal error = observedChange.multiply(FOUR)
-                        .max(decimalResolution(current, precision, cancellationScaleExponent)
-                                .multiply(EIGHT));
-                if (insideRoundingCell(current, rounded, error)) {
-                    return rounded;
-                }
-            }
-            if (precision >= MAXIMUM_PRECISION) {
+            final double rounded = enclosure.midpoint().doubleValue();
+            if (enclosure.isBounded()
+                    && insideRoundingCell(enclosure.midpoint(), rounded, enclosure.radius())) {
                 return rounded;
             }
-            previous = current;
-            previousRounded = rounded;
+            if (precision >= MAXIMUM_PRECISION) {
+                return enclosure.isBounded()
+                        ? nearestBoundaryOrRounded(enclosure.midpoint(), rounded, enclosure.radius())
+                        : rounded;
+            }
             precision = Math.min(MAXIMUM_PRECISION, precision * 2);
         }
     }
@@ -92,48 +79,69 @@ final class AdaptiveDecimal {
         return new BigDecimal(value);
     }
 
-    private static BigDecimal decimalResolution(final BigDecimal value, final int precision,
-            final int cancellationScaleExponent) {
-        final int valueExponent = value.signum() == 0
-                ? Integer.MIN_VALUE : value.precision() - value.scale() - 1;
-        final int adjustedExponent = Math.max(valueExponent, cancellationScaleExponent);
-        if (adjustedExponent == Integer.MIN_VALUE) {
-            return BigDecimal.ONE.scaleByPowerOfTen(-precision);
-        }
-        return BigDecimal.ONE.scaleByPowerOfTen(adjustedExponent - precision + 2).abs();
-    }
-
     private static boolean insideRoundingCell(final BigDecimal value, final double rounded,
             final BigDecimal error) {
         if (Double.isNaN(rounded)) {
             return false;
         }
         if (rounded == Double.POSITIVE_INFINITY) {
-            final BigDecimal boundary = positiveOverflowBoundary();
-            return value.subtract(boundary).compareTo(error) > 0;
+            return value.subtract(positiveOverflowBoundary()).compareTo(error) > 0;
         }
         if (rounded == Double.NEGATIVE_INFINITY) {
-            final BigDecimal boundary = positiveOverflowBoundary().negate();
-            return boundary.subtract(value).compareTo(error) > 0;
+            return positiveOverflowBoundary().negate().subtract(value).compareTo(error) > 0;
         }
+        return value.subtract(lowerBoundary(rounded)).compareTo(error) > 0
+                && upperBoundary(rounded).subtract(value).compareTo(error) > 0;
+    }
 
+    /**
+     * The fallback once precision is exhausted: an enclosure this narrow that
+     * still reaches a cell boundary is, for every practical purpose, the
+     * boundary itself (an exactly representable tie such as 2^-1075), so the
+     * boundary's own correctly rounded double is returned.
+     */
+    private static double nearestBoundaryOrRounded(final BigDecimal value, final double rounded,
+            final BigDecimal error) {
+        if (Double.isNaN(rounded)) {
+            return rounded;
+        }
+        final BigDecimal lower;
+        final BigDecimal upper;
+        if (rounded == Double.POSITIVE_INFINITY) {
+            lower = positiveOverflowBoundary();
+            upper = null;
+        } else if (rounded == Double.NEGATIVE_INFINITY) {
+            lower = null;
+            upper = positiveOverflowBoundary().negate();
+        } else {
+            lower = lowerBoundary(rounded);
+            upper = upperBoundary(rounded);
+        }
+        if (lower != null && value.subtract(lower).abs().compareTo(error) <= 0) {
+            return lower.doubleValue();
+        }
+        if (upper != null && upper.subtract(value).abs().compareTo(error) <= 0) {
+            return upper.doubleValue();
+        }
+        return rounded;
+    }
+
+    private static BigDecimal lowerBoundary(final double rounded) {
         final BigDecimal centre = exact(rounded);
-        final BigDecimal lowerBoundary;
         if (rounded == -Double.MAX_VALUE) {
             final BigDecimal spacing = exact(Math.nextUp(rounded)).subtract(centre);
-            lowerBoundary = centre.subtract(spacing.divide(TWO));
-        } else {
-            lowerBoundary = midpoint(exact(Math.nextDown(rounded)), centre);
+            return centre.subtract(spacing.divide(TWO));
         }
-        final BigDecimal upperBoundary;
+        return midpoint(exact(Math.nextDown(rounded)), centre);
+    }
+
+    private static BigDecimal upperBoundary(final double rounded) {
+        final BigDecimal centre = exact(rounded);
         if (rounded == Double.MAX_VALUE) {
             final BigDecimal spacing = centre.subtract(exact(Math.nextDown(rounded)));
-            upperBoundary = centre.add(spacing.divide(TWO));
-        } else {
-            upperBoundary = midpoint(centre, exact(Math.nextUp(rounded)));
+            return centre.add(spacing.divide(TWO));
         }
-        return value.subtract(lowerBoundary).compareTo(error) > 0
-                && upperBoundary.subtract(value).compareTo(error) > 0;
+        return midpoint(centre, exact(Math.nextUp(rounded)));
     }
 
     private static BigDecimal positiveOverflowBoundary() {
@@ -145,5 +153,4 @@ final class AdaptiveDecimal {
     private static BigDecimal midpoint(final BigDecimal first, final BigDecimal second) {
         return first.add(second).divide(TWO);
     }
-
 }

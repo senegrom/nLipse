@@ -17,7 +17,7 @@ class AdaptiveCancellationTest {
         try {
             assertThrows(CancellationException.class, () -> AdaptiveDecimal.toDouble(context -> {
                 evaluated.set(true);
-                return BigDecimal.ONE;
+                return Ball.exact(BigDecimal.ONE);
             }));
             assertFalse(evaluated.get());
         } finally {

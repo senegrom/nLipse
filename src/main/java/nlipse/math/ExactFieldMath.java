@@ -2,50 +2,24 @@ package nlipse.math;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
-import java.util.Arrays;
 
-/** Rare-path adaptive-precision arithmetic for overflow and severe cancellation. */
+/**
+ * Rare-path adaptive-precision arithmetic for overflow and severe cancellation.
+ *
+ * <p>Every evaluator computes a {@link Ball} enclosure, so {@link AdaptiveDecimal}
+ * accepts a result on the carried error bound alone: whatever cancelled inside
+ * a sum is reflected in its radius, and no per-family scale of the largest
+ * intermediate has to be estimated up front. The digit reservations that
+ * remain (extra working digits ahead of a large weight or a tiny power) only
+ * shorten the precision ladder; they never decide correctness.
+ */
 final class ExactFieldMath {
-    // Decimal exponents of the largest intermediates that can cancel for finite binary64 input.
-    // They cap the analytic per-call scales, which derive the same bound from the actual
-    // inputs so that ordinary-magnitude evaluations do not pay worst-case precision.
-    private static final int WEIGHTED_DISTANCE_SCALE_EXPONENT = 620;
-    private static final int POTENTIAL_SCALE_EXPONENT = 640;
-    private static final int WEIGHTED_LOG_SCALE_EXPONENT = 320;
-    private static final int POWER_SCALE_EXPONENT = 960;
-    private static final int SMOOTH_SCALE_EXPONENT = 960;
-    private static final int GAUSSIAN_SCALE_EXPONENT = 320;
     private static final double LN_TEN = Math.log(10);
+    /** Cap on the digits reserved ahead of time; the adaptive loop supplies the rest. */
+    private static final int RESERVED_DIGITS_CAP = 400;
     private static final BigDecimal TWO = BigDecimal.valueOf(2);
 
     private ExactFieldMath() {
-    }
-
-    /**
-     * Converts an ln-domain bound on the largest additive intermediate into a
-     * decimal scale exponent for {@link AdaptiveDecimal}. The floor of -330
-     * keeps every adaptive error floor above {@code DecimalMath.exp}'s
-     * zero-truncation bound while staying below the smallest subnormal's
-     * rounding cell; unresolvable bounds fall back to the static worst case.
-     */
-    private static int scaleExponentFromLn(final double largestLnMagnitude, final int cap) {
-        final double decimalExponent = largestLnMagnitude / LN_TEN;
-        if (Double.isNaN(decimalExponent) || !(decimalExponent < cap - 4)) {
-            return cap;
-        }
-        return (int) Math.ceil(Math.max(-330, decimalExponent)) + 4;
-    }
-
-    /** ln-domain bound of the largest weighted distance among active foci. */
-    private static double largestLogMagnitudeDistance(final FocusSet foci,
-            final double x, final double y) {
-        double largest = Double.NEGATIVE_INFINITY;
-        for (int index = 0; index < foci.size(); index++) {
-            if (foci.isActive(index)) {
-                largest = Math.max(largest, foci.logMagnitudeDistance(index, x, y));
-            }
-        }
-        return largest;
     }
 
     static double scaledAbsoluteDifference(final double first, final double second,
@@ -56,28 +30,23 @@ final class ExactFieldMath {
 
     static double magnitudeDistance(final FocusSet foci, final int index,
             final double x, final double y) {
-        return AdaptiveDecimal.toDouble(context ->
-                magnitudeDistance(foci.exactData(), index, point(x, y), context)
-                        .round(context));
+        return AdaptiveDecimal.toDouble(context -> magnitudeDistance(foci.exactData(), index,
+                point(x, y), AdaptiveDecimal.guard(context)));
     }
 
     static double signedDistanceSum(final FocusSet foci, final double x, final double y) {
-        final int count = Math.max(1, foci.activeCount());
-        final int scale = scaleExponentFromLn(
-                largestLogMagnitudeDistance(foci, x, y) + Math.log(2.0 * count * count),
-                WEIGHTED_DISTANCE_SCALE_EXPONENT);
-        return AdaptiveDecimal.toDouble(scale, context -> {
+        return AdaptiveDecimal.toDouble(context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
-            BigDecimal sum = BigDecimal.ZERO;
+            Ball sum = Ball.ZERO;
             for (int index = 0; index < foci.size(); index++) {
                 if (foci.isActive(index)) {
-                    sum = sum.add(distance(exact, index, point, context)
+                    sum = sum.add(distance(exact, index, point, work)
                             .multiply(exact.weight(index), work), work);
                 }
             }
-            return sum.round(context);
+            return sum;
         });
     }
 
@@ -90,13 +59,13 @@ final class ExactFieldMath {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
-            BigDecimal sum = BigDecimal.ZERO;
+            Ball sum = Ball.ZERO;
             for (int index = 0; index < foci.size(); index++) {
                 if (foci.isActive(index)) {
-                    sum = sum.add(magnitudeDistance(exact, index, point, context), work);
+                    sum = sum.add(magnitudeDistance(exact, index, point, work), work);
                 }
             }
-            return sum.divide(BigDecimal.valueOf(foci.activeCount()), context);
+            return sum.divide(BigDecimal.valueOf(foci.activeCount()), work);
         });
     }
 
@@ -106,18 +75,9 @@ final class ExactFieldMath {
             return 0;
         }
         return AdaptiveDecimal.toDouble(context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
-            BigDecimal sumSquares = BigDecimal.ZERO;
-            for (int index = 0; index < foci.size(); index++) {
-                if (foci.isActive(index)) {
-                    final BigDecimal value = magnitudeDistance(exact, index, point, context);
-                    sumSquares = sumSquares.add(value.multiply(value, work), work);
-                }
-            }
-            return sumSquares.divide(BigDecimal.valueOf(foci.activeCount()), work)
-                    .sqrt(work).round(context);
+            return sumOfSquares(foci, point(x, y), work)
+                    .divide(BigDecimal.valueOf(foci.activeCount()), work).sqrt(work);
         });
     }
 
@@ -127,18 +87,22 @@ final class ExactFieldMath {
             return 0;
         }
         return AdaptiveDecimal.toDouble(context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
-            BigDecimal sumSquares = BigDecimal.ZERO;
-            for (int index = 0; index < foci.size(); index++) {
-                if (foci.isActive(index)) {
-                    final BigDecimal value = magnitudeDistance(exact, index, point, context);
-                    sumSquares = sumSquares.add(value.multiply(value, work), work);
-                }
-            }
-            return sumSquares.sqrt(work).round(context);
+            return sumOfSquares(foci, point(x, y), work).sqrt(work);
         });
+    }
+
+    private static Ball sumOfSquares(final FocusSet foci, final DecimalPoint point,
+            final MathContext work) {
+        final ExactFocusData exact = foci.exactData();
+        Ball sumSquares = Ball.ZERO;
+        for (int index = 0; index < foci.size(); index++) {
+            if (foci.isActive(index)) {
+                final Ball value = magnitudeDistance(exact, index, point, work);
+                sumSquares = sumSquares.add(value.multiply(value, work), work);
+            }
+        }
+        return sumSquares;
     }
 
     static double hyperbola(final FocusSet foci, final double x, final double y) {
@@ -146,26 +110,23 @@ final class ExactFieldMath {
         if (size < 2) {
             return 0;
         }
-        final int scale = scaleExponentFromLn(
-                largestLogMagnitudeDistance(foci, x, y) + Math.log(2.0 * size * size),
-                WEIGHTED_DISTANCE_SCALE_EXPONENT);
-        return AdaptiveDecimal.toDouble(scale, context -> {
+        return AdaptiveDecimal.toDouble(context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
-            final BigDecimal[] values = new BigDecimal[size];
+            final Ball[] values = new Ball[size];
             for (int index = 0; index < size; index++) {
-                values[index] = distance(exact, index, point, context)
+                values[index] = distance(exact, index, point, work)
                         .multiply(exact.weight(index), work);
             }
-            BigDecimal sum = BigDecimal.ZERO;
+            Ball sum = Ball.ZERO;
             for (int index = 0; index < size; index++) {
                 for (int previous = 0; previous < index; previous++) {
-                    sum = sum.add(values[index].subtract(values[previous]).abs(), work);
+                    sum = sum.add(values[index].subtract(values[previous], work).abs(), work);
                 }
             }
             final BigDecimal divisor = BigDecimal.valueOf((long) size * (size - 1));
-            return sum.multiply(TWO, work).divide(divisor, context);
+            return sum.multiply(TWO, work).divide(divisor, work);
         });
     }
 
@@ -174,46 +135,24 @@ final class ExactFieldMath {
         if (count < 2) {
             return 0;
         }
-        final int scale = scaleExponentFromLn(
-                largestLogMagnitudeDistance(foci, x, y) + Math.log(2.0 * count * count),
-                WEIGHTED_DISTANCE_SCALE_EXPONENT);
-        return AdaptiveDecimal.toDouble(scale, context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
-            BigDecimal minimum = null;
-            BigDecimal maximum = null;
-            for (int index = 0; index < foci.size(); index++) {
-                if (!foci.isActive(index)) {
-                    continue;
-                }
-                final BigDecimal value = magnitudeDistance(exact, index, point, context);
-                minimum = minimum == null || value.compareTo(minimum) < 0 ? value : minimum;
-                maximum = maximum == null || value.compareTo(maximum) > 0 ? value : maximum;
-            }
-            return maximum.subtract(minimum).round(context);
+        return AdaptiveDecimal.toDouble(context -> {
+            final MathContext work = AdaptiveDecimal.guard(context);
+            final Ball[] values = magnitudeDistances(foci, foci.exactData(), point(x, y), work);
+            return Ball.orderStatistic(values, count - 1)
+                    .subtract(Ball.orderStatistic(values, 0), work);
         });
     }
 
     static double envelope(final FocusSet foci, final double x, final double y,
             final boolean nearest) {
-        if (foci.activeCount() == 0) {
+        final int count = foci.activeCount();
+        if (count == 0) {
             return 0;
         }
         return AdaptiveDecimal.toDouble(context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
-            BigDecimal result = null;
-            for (int index = 0; index < foci.size(); index++) {
-                if (!foci.isActive(index)) {
-                    continue;
-                }
-                final BigDecimal value = magnitudeDistance(exact, index, point, context);
-                if (result == null || nearest && value.compareTo(result) < 0
-                        || !nearest && value.compareTo(result) > 0) {
-                    result = value;
-                }
-            }
-            return result.round(context);
+            final MathContext work = AdaptiveDecimal.guard(context);
+            final Ball[] values = magnitudeDistances(foci, foci.exactData(), point(x, y), work);
+            return Ball.orderStatistic(values, nearest ? 0 : count - 1);
         });
     }
 
@@ -223,22 +162,14 @@ final class ExactFieldMath {
             return 0;
         }
         return AdaptiveDecimal.toDouble(context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
-            final BigDecimal[] values = new BigDecimal[count];
-            int target = 0;
-            for (int index = 0; index < foci.size(); index++) {
-                if (foci.isActive(index)) {
-                    values[target++] = magnitudeDistance(exact, index, point, context);
-                }
-            }
-            Arrays.sort(values);
+            final MathContext work = AdaptiveDecimal.guard(context);
+            final Ball[] values = magnitudeDistances(foci, foci.exactData(), point(x, y), work);
             final int upper = count / 2;
             if ((count & 1) == 1) {
-                return values[upper].round(context);
+                return Ball.orderStatistic(values, upper);
             }
-            return values[upper - 1].add(values[upper])
-                    .divide(TWO, context);
+            return Ball.orderStatistic(values, upper - 1)
+                    .add(Ball.orderStatistic(values, upper), work).divide(TWO, work);
         });
     }
 
@@ -261,29 +192,18 @@ final class ExactFieldMath {
         if (negativeInfinity) {
             return Double.NEGATIVE_INFINITY;
         }
-        final int count = Math.max(1, foci.activeCount());
-        double largestTermLn = Double.NEGATIVE_INFINITY;
-        for (int index = 0; index < foci.size(); index++) {
-            if (foci.isActive(index)) {
-                largestTermLn = Math.max(largestTermLn,
-                        Math.log(Math.abs(foci.weight(index)))
-                                - foci.logDistance(index, x, y));
-            }
-        }
-        final int scale = scaleExponentFromLn(
-                largestTermLn + Math.log(2.0 * count * count), POTENTIAL_SCALE_EXPONENT);
-        return AdaptiveDecimal.toDouble(scale, context -> {
+        return AdaptiveDecimal.toDouble(context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
-            BigDecimal sum = BigDecimal.ZERO;
+            Ball sum = Ball.ZERO;
             for (int index = 0; index < foci.size(); index++) {
                 if (foci.isActive(index)) {
-                    sum = sum.add(exact.weight(index).divide(
-                            distance(exact, index, point, context), work), work);
+                    sum = sum.add(Ball.exact(exact.weight(index))
+                            .divide(distance(exact, index, point, work), work), work);
                 }
             }
-            return sum.round(context);
+            return sum;
         });
     }
 
@@ -306,6 +226,10 @@ final class ExactFieldMath {
         if (infiniteFactor) {
             return Double.POSITIVE_INFINITY;
         }
+        // A large weight multiplies the logarithm's absolute error into the
+        // exponent, where exp amplifies it. Reserving the corresponding digits
+        // for the logarithms lets the first round resolve such sums; the
+        // enclosure would otherwise reach the same precision by escalation.
         final int count = Math.max(1, foci.activeCount());
         double largestTermLn = Double.NEGATIVE_INFINITY;
         for (int index = 0; index < foci.size(); index++) {
@@ -313,32 +237,32 @@ final class ExactFieldMath {
                 largestTermLn = Math.max(largestTermLn,
                         Math.log(Math.abs(foci.weight(index))) + Math.log(
                                 Math.max(1, Math.abs(foci.logDistance(index, x, y)))));
-                // A rounded zero logarithm is not proof of an exactly unit
-                // distance. Include the weight itself in the cancellation
-                // scale so low-precision rounds cannot falsely accept zero.
             }
         }
-        final int scale = scaleExponentFromLn(
-                largestTermLn + Math.log(2.0 * count * count),
-                WEIGHTED_LOG_SCALE_EXPONENT);
-        // The logarithm's absolute error is amplified by exp. Resolve that
-        // error with extra working digits, then round the final exponential,
-        // not the logarithm, to binary64 (notably at overflow and underflow).
+        final int reserved = reservedDigits(largestTermLn + Math.log(2.0 * count * count));
         return AdaptiveDecimal.toDouble(context -> {
-            final MathContext logarithmContext = amplifiedContext(context, Math.max(0, scale));
+            final MathContext work = AdaptiveDecimal.guard(amplifiedContext(context, reserved));
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
-            final MathContext work = AdaptiveDecimal.guard(logarithmContext);
-            BigDecimal sum = BigDecimal.ZERO;
+            Ball sum = Ball.ZERO;
             for (int index = 0; index < foci.size(); index++) {
                 if (foci.isActive(index)) {
-                    final BigDecimal logDistance = DecimalMath.log(
-                            distance(exact, index, point, logarithmContext), work);
-                    sum = sum.add(exact.weight(index).multiply(logDistance, work), work);
+                    sum = sum.add(distance(exact, index, point, work).log(work)
+                            .multiply(exact.weight(index), work), work);
                 }
             }
-            return DecimalMath.exp(sum, context);
+            // Round the final exponential, not the logarithm, to binary64
+            // (notably at overflow and underflow).
+            return sum.exp(context);
         });
+    }
+
+    /** Digits to reserve ahead of an intermediate of the given ln-magnitude, capped. */
+    private static int reservedDigits(final double largestLnMagnitude) {
+        if (!(largestLnMagnitude > 0)) {
+            return 0;
+        }
+        return (int) Math.min(RESERVED_DIGITS_CAP, Math.ceil(largestLnMagnitude / LN_TEN) + 4);
     }
 
     /** Reserves digits lost through multiplication by a large weight or division by a tiny p. */
@@ -364,30 +288,7 @@ final class ExactFieldMath {
         if (power == 2) {
             return quadraticMagnitudeMean(foci, x, y);
         }
-        // Power means never exceed the largest input. For negative powers,
-        // the smallest input times n^(-1/p) supplies a second upper bound.
-        // Taking the tighter bound avoids spurious worst-case precision when
-        // a tiny negative p makes that second bound overflow.
-        double anchorLn = Double.NaN;
-        double maximumLn = Double.NEGATIVE_INFINITY;
-        for (int index = 0; index < foci.size(); index++) {
-            if (!foci.isActive(index)) {
-                continue;
-            }
-            final double logMagnitude = foci.logMagnitudeDistance(index, x, y);
-            maximumLn = Math.max(maximumLn, logMagnitude);
-            if (Double.isNaN(anchorLn)
-                    || (power < 0 ? logMagnitude < anchorLn : logMagnitude > anchorLn)) {
-                anchorLn = logMagnitude;
-            }
-        }
-        final double resultLnUpper = power < 0
-                ? Math.min(maximumLn,
-                        anchorLn + Math.log(Math.max(2, foci.activeCount())) / -power)
-                : maximumLn;
-        final int scale = scaleExponentFromLn(Math.min(715, resultLnUpper) + 28,
-                POWER_SCALE_EXPONENT);
-        return AdaptiveDecimal.toDouble(scale, context -> powerMeanDecimal(foci, x, y, power, context));
+        return AdaptiveDecimal.toDouble(context -> powerMeanEnclosure(foci, x, y, power, context));
     }
 
     static double smoothEnvelope(final FocusSet foci, final double x, final double y,
@@ -396,40 +297,30 @@ final class ExactFieldMath {
         if (count == 0) {
             return 0;
         }
-        // The guarded value is anchor +- tau * log(mean of anchored
-        // exponentials), so the cancelling intermediates are bounded by the
-        // largest weighted distance and the temperature-scaled log of the
-        // focus count.
-        final double correctionLn = Math.log(temperature)
-                + Math.log(Math.log(Math.max(2, count)));
-        final double largestLn = Math.max(
-                largestLogMagnitudeDistance(foci, x, y), correctionLn);
-        final int scale = scaleExponentFromLn(
-                largestLn + Math.log(2.0 * count * count), SMOOTH_SCALE_EXPONENT);
-        return AdaptiveDecimal.toDouble(scale, context -> {
+        return AdaptiveDecimal.toDouble(context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
             final BigDecimal tau = AdaptiveDecimal.exact(temperature);
-            final BigDecimal[] values = magnitudeDistances(foci, exact, point, context);
-            BigDecimal anchor = values[0];
+            final Ball[] values = magnitudeDistances(foci, exact, point, work);
+            // The identity anchor +- tau log(mean exp(+-(v - anchor)/tau)) holds
+            // for any anchor; the extreme one keeps every exponent non-positive.
+            Ball anchor = values[0];
             for (int index = 1; index < values.length; index++) {
-                if (nearest && values[index].compareTo(anchor) < 0
-                        || !nearest && values[index].compareTo(anchor) > 0) {
+                final int comparison = values[index].midpoint().compareTo(anchor.midpoint());
+                if (nearest ? comparison < 0 : comparison > 0) {
                     anchor = values[index];
                 }
             }
-            BigDecimal sum = BigDecimal.ZERO;
-            for (final BigDecimal value : values) {
-                final BigDecimal exponent = nearest
-                        ? anchor.subtract(value).divide(tau, work)
-                        : value.subtract(anchor).divide(tau, work);
-                sum = sum.add(DecimalMath.exp(exponent, work), work);
+            Ball sum = Ball.ZERO;
+            for (final Ball value : values) {
+                final Ball exponent = (nearest ? anchor.subtract(value, work)
+                        : value.subtract(anchor, work)).divide(tau, work);
+                sum = sum.add(exponent.exp(work), work);
             }
-            final BigDecimal mean = sum.divide(BigDecimal.valueOf(values.length), work);
-            final BigDecimal correction = tau.multiply(DecimalMath.log(mean, work), work);
-            return (nearest ? anchor.subtract(correction, work)
-                    : anchor.add(correction, work)).round(context);
+            final Ball mean = sum.divide(BigDecimal.valueOf(values.length), work);
+            final Ball correction = mean.log(work).multiply(tau, work);
+            return nearest ? anchor.subtract(correction, work) : anchor.add(correction, work);
         });
     }
 
@@ -438,48 +329,41 @@ final class ExactFieldMath {
         if (foci.activeCount() == 0) {
             return 0;
         }
-        final GaussianTerms terms = gaussianTerms(foci, x, y, sigma);
-        final double value = AdaptiveDecimal.toDouble(scaleExponentFromLn(
-                terms.largestLogTerm() + Math.log(foci.activeCount()), GAUSSIAN_SCALE_EXPONENT),
-                context -> {
+        final double value = AdaptiveDecimal.toDouble(context -> {
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
-            final BigDecimal sigmaDecimal = AdaptiveDecimal.exact(sigma);
-            final BigDecimal denominator = sigmaDecimal.multiply(sigmaDecimal, work)
-                    .multiply(TWO, work);
-            BigDecimal sum = BigDecimal.ZERO;
+            final Ball sigmaDecimal = Ball.exact(sigma);
+            final Ball denominator = sigmaDecimal.multiply(sigmaDecimal, work).multiply(TWO, work);
+            Ball sum = Ball.ZERO;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
                 }
-                final BigDecimal distance = distance(exact, index, point, context);
-                final BigDecimal exponent = distance.multiply(distance, work)
+                final Ball distance = distance(exact, index, point, work);
+                final Ball exponent = distance.multiply(distance, work)
                         .divide(denominator, work).negate();
-                final BigDecimal kernel = DecimalMath.exp(exponent, work);
-                sum = sum.add(exact.weight(index).multiply(kernel, work), work);
+                sum = sum.add(exponent.exp(work).multiply(exact.weight(index), work), work);
             }
-            return sum.round(context);
+            return sum;
         });
         // Exponentials truncated to decimal zero cannot carry a sign, so a
         // wholly underflowed sum arrives as +0.0 whatever its true sign. When
         // one sign's largest term provably dominates the other sign's total,
         // the correctly rounded zero is that sign's.
-        if (value == 0 && Math.abs(terms.positiveLog() - terms.negativeLog())
-                > Math.log(foci.activeCount()) + 1) {
-            return terms.positiveLog() > terms.negativeLog() ? 0.0 : -0.0;
+        if (value == 0) {
+            final GaussianTerms terms = gaussianTerms(foci, x, y, sigma);
+            if (Math.abs(terms.positiveLog() - terms.negativeLog())
+                    > Math.log(foci.activeCount()) + 1) {
+                return terms.positiveLog() > terms.negativeLog() ? 0.0 : -0.0;
+            }
         }
         return value;
     }
 
-    /**
-     * ln-domain bounds of the Gaussian terms in the double domain: the largest
-     * overall, which sizes the adaptive floor, and the largest of each sign,
-     * which decide a wholly underflowed sum's zero.
-     */
+    /** ln-domain bounds of the largest Gaussian term of each sign, which decide a wholly underflowed sum's zero. */
     private static GaussianTerms gaussianTerms(final FocusSet foci, final double x,
             final double y, final double sigma) {
-        double largest = Double.NEGATIVE_INFINITY;
         double positive = Double.NEGATIVE_INFINITY;
         double negative = Double.NEGATIVE_INFINITY;
         for (int index = 0; index < foci.size(); index++) {
@@ -492,20 +376,19 @@ final class ExactFieldMath {
             if (Double.isNaN(logTerm)) {
                 continue;
             }
-            largest = Math.max(largest, logTerm);
             if (weight > 0) {
                 positive = Math.max(positive, logTerm);
             } else {
                 negative = Math.max(negative, logTerm);
             }
         }
-        return new GaussianTerms(largest, positive, negative);
+        return new GaussianTerms(positive, negative);
     }
 
-    private record GaussianTerms(double largestLogTerm, double positiveLog, double negativeLog) {
+    private record GaussianTerms(double positiveLog, double negativeLog) {
     }
 
-    private static BigDecimal powerMeanDecimal(final FocusSet foci, final double x,
+    private static Ball powerMeanEnclosure(final FocusSet foci, final double x,
             final double y, final double power, final MathContext context) {
         final BigDecimal powerDecimal = AdaptiveDecimal.exact(power);
         // exp(p * delta) may round to 1 at successive adaptive precisions.
@@ -514,82 +397,77 @@ final class ExactFieldMath {
         // do not approximate a nonzero p by the geometric-mean limit.
         final int extraDigits = power == 0 ? 0
                 : Math.max(0, powerDecimal.scale() - powerDecimal.precision() + 1);
-        final MathContext calculation = amplifiedContext(context, extraDigits);
+        final MathContext work = AdaptiveDecimal.guard(amplifiedContext(context, extraDigits));
         final DecimalPoint point = point(x, y);
         final ExactFocusData exact = foci.exactData();
-        final MathContext work = AdaptiveDecimal.guard(calculation);
-        final BigDecimal[] values = magnitudeDistances(foci, exact, point, calculation);
-        for (final BigDecimal value : values) {
-            if (value.signum() == 0) {
-                if (power <= 0) {
-                    return BigDecimal.ZERO;
-                }
+        final Ball[] values = magnitudeDistances(foci, exact, point, work);
+        for (final Ball value : values) {
+            if (value.isExactlyZero() && power <= 0) {
+                return Ball.ZERO;
             }
         }
         if (power == 0) {
-            BigDecimal logSum = BigDecimal.ZERO;
-            for (final BigDecimal value : values) {
-                logSum = logSum.add(DecimalMath.log(value, work), work);
+            Ball logSum = Ball.ZERO;
+            for (final Ball value : values) {
+                logSum = logSum.add(value.log(work), work);
             }
-            return DecimalMath.exp(logSum.divide(BigDecimal.valueOf(values.length), work), context);
+            return logSum.divide(BigDecimal.valueOf(values.length), work).exp(context);
         }
 
-        final BigDecimal[] logarithms = new BigDecimal[values.length];
-        BigDecimal anchor = null;
+        final Ball[] logarithms = new Ball[values.length];
+        Ball anchor = null;
         for (int index = 0; index < values.length; index++) {
-            if (values[index].signum() == 0) {
+            if (values[index].isExactlyZero()) {
                 continue;
             }
-            logarithms[index] = DecimalMath.log(values[index], work);
-            if (anchor == null || power > 0 && logarithms[index].compareTo(anchor) > 0
-                    || power < 0 && logarithms[index].compareTo(anchor) < 0) {
+            logarithms[index] = values[index].log(work);
+            if (anchor == null) {
                 anchor = logarithms[index];
+            } else {
+                final int comparison = logarithms[index].midpoint().compareTo(anchor.midpoint());
+                if (power > 0 ? comparison > 0 : comparison < 0) {
+                    anchor = logarithms[index];
+                }
             }
         }
         if (anchor == null) {
-            return BigDecimal.ZERO;
+            return Ball.ZERO;
         }
-        BigDecimal exponentialSum = BigDecimal.ZERO;
-        for (final BigDecimal logarithm : logarithms) {
+        Ball exponentialSum = Ball.ZERO;
+        for (final Ball logarithm : logarithms) {
             if (logarithm == null) {
                 continue;
             }
-            final BigDecimal exponent = powerDecimal.multiply(
-                    logarithm.subtract(anchor), work);
-            exponentialSum = exponentialSum.add(DecimalMath.exp(exponent, work), work);
+            final Ball exponent = logarithm.subtract(anchor, work).multiply(powerDecimal, work);
+            exponentialSum = exponentialSum.add(exponent.exp(work), work);
         }
-        final BigDecimal mean = exponentialSum.divide(BigDecimal.valueOf(values.length), work);
-        final BigDecimal resultLogarithm = anchor.add(
-                DecimalMath.log(mean, work).divide(powerDecimal, work), work);
-        return DecimalMath.exp(resultLogarithm, context);
+        final Ball mean = exponentialSum.divide(BigDecimal.valueOf(values.length), work);
+        final Ball resultLogarithm = anchor.add(mean.log(work).divide(powerDecimal, work), work);
+        return resultLogarithm.exp(context);
     }
 
-    private static BigDecimal[] magnitudeDistances(final FocusSet foci,
-            final ExactFocusData exact, final DecimalPoint point, final MathContext context) {
-        final BigDecimal[] values = new BigDecimal[foci.activeCount()];
+    private static Ball[] magnitudeDistances(final FocusSet foci,
+            final ExactFocusData exact, final DecimalPoint point, final MathContext work) {
+        final Ball[] values = new Ball[foci.activeCount()];
         int target = 0;
         for (int index = 0; index < foci.size(); index++) {
             if (foci.isActive(index)) {
-                values[target++] = magnitudeDistance(exact, index, point, context);
+                values[target++] = magnitudeDistance(exact, index, point, work);
             }
         }
         return values;
     }
 
-    private static BigDecimal distance(final ExactFocusData exact, final int index,
-            final DecimalPoint point, final MathContext context) {
-        final MathContext work = AdaptiveDecimal.guard(context);
-        final BigDecimal dx = point.x().subtract(exact.x(index));
-        final BigDecimal dy = point.y().subtract(exact.y(index));
-        return dx.multiply(dx, work).add(dy.multiply(dy, work), work)
-                .sqrt(work).round(context);
+    private static Ball distance(final ExactFocusData exact, final int index,
+            final DecimalPoint point, final MathContext work) {
+        final Ball dx = Ball.exact(point.x().subtract(exact.x(index)));
+        final Ball dy = Ball.exact(point.y().subtract(exact.y(index)));
+        return dx.multiply(dx, work).add(dy.multiply(dy, work), work).sqrt(work);
     }
 
-    private static BigDecimal magnitudeDistance(final ExactFocusData exact, final int index,
-            final DecimalPoint point, final MathContext context) {
-        return distance(exact, index, point, context)
-                .multiply(exact.absoluteWeight(index), AdaptiveDecimal.guard(context))
-                .round(context);
+    private static Ball magnitudeDistance(final ExactFocusData exact, final int index,
+            final DecimalPoint point, final MathContext work) {
+        return distance(exact, index, point, work).multiply(exact.absoluteWeight(index), work);
     }
 
     private static DecimalPoint point(final double x, final double y) {
