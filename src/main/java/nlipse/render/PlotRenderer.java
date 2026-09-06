@@ -621,10 +621,14 @@ public final class PlotRenderer implements RenderEngine {
                 level = useLog ? Math.exp(logMin + (logMax - logMin) * fraction)
                         : ScalarRanges.interpolate(min, max, fraction);
             }
-            if (uniqueCount == 0
-                    || Double.doubleToLongBits(level)
-                            != Double.doubleToLongBits(generated[uniqueCount - 1])) {
-                generated[uniqueCount++] = level;
+            // log/exp need not round-trip an endpoint exactly. Clamp before
+            // deduplicating and enforce monotonicity: adjacent binary64 bounds
+            // may have fewer representable levels than the requested count.
+            final double bounded = Math.clamp(level, min, max);
+            final double ordered = uniqueCount == 0 ? bounded
+                    : Math.max(generated[uniqueCount - 1], bounded);
+            if (uniqueCount == 0 || ordered > generated[uniqueCount - 1]) {
+                generated[uniqueCount++] = ordered;
             }
         }
         return uniqueCount == generated.length ? generated : Arrays.copyOf(generated, uniqueCount);

@@ -16,6 +16,7 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.release>25</maven.compiler.release>
         <junit.version>5.11.4</junit.version>
+        <java.awt.headless>true</java.awt.headless>
     </properties>
 
     <dependencies>
@@ -77,7 +78,7 @@
                 </dependencies>
                 <configuration>
                     <systemPropertyVariables>
-                        <java.awt.headless>true</java.awt.headless>
+                        <java.awt.headless>${java.awt.headless}</java.awt.headless>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

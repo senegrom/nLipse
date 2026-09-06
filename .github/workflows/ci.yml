@@ -36,6 +36,11 @@ jobs:
       - name: Build, test and install application
         run: mvn --batch-mode --no-transfer-progress install
 
+      - name: Verify Swing slider interactions
+        run: >-
+          xvfb-run -a mvn --batch-mode --no-transfer-progress
+          -Djava.awt.headless=false -Dtest=PlotSliderInteractionIT test
+
       - name: Build benchmark harness
         run: mvn --batch-mode --no-transfer-progress -f benchmarks/pom.xml package
 

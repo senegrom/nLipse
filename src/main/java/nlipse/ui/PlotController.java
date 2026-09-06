@@ -793,20 +793,18 @@ public final class PlotController implements AutoCloseable {
         }
         final JSlider minimum = view.distanceMin;
         final JSlider maximum = view.distanceMax;
-        if (minimumChanged && minimum.getValue() > maximum.getValue()) {
-            suppressSliders = true;
-            maximum.setValue(minimum.getValue());
-            suppressSliders = false;
-        } else if (!minimumChanged && maximum.getValue() < minimum.getValue()) {
-            suppressSliders = true;
-            minimum.setValue(maximum.getValue());
-            suppressSliders = false;
-        }
-        model.setDistanceRange(sliderToDistance(minimum.getValue()),
-                sliderToDistance(maximum.getValue()));
-        pendingRangeAdjustment = RangeAdjustment.NONE;
-        updateDistanceLabels();
         final JSlider source = minimumChanged ? minimum : maximum;
+        final double changedDistance = sliderToDistance(source.getValue());
+        // The untouched bound is exact model state, not its quantized slider
+        // position. Move it only when the changed bound actually crosses it;
+        // comparing ticks alone misses crossings within the same tick.
+        final double newMinimum = minimumChanged ? changedDistance
+                : Math.min(model.getDistanceMin(), changedDistance);
+        final double newMaximum = minimumChanged
+                ? Math.max(model.getDistanceMax(), changedDistance) : changedDistance;
+        model.setDistanceRange(newMinimum, newMaximum);
+        pendingRangeAdjustment = RangeAdjustment.NONE;
+        syncSlidersFromModel();
         if (source.getValueIsAdjusting()) {
             requestInteractiveRender();
         } else {

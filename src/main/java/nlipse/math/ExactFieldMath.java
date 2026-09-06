@@ -321,21 +321,30 @@ final class ExactFieldMath {
         final int scale = scaleExponentFromLn(
                 largestTermLn + Math.log(2.0 * count * count),
                 WEIGHTED_LOG_SCALE_EXPONENT);
-        final double logarithm = AdaptiveDecimal.toDouble(scale, context -> {
+        // The logarithm's absolute error is amplified by exp. Resolve that
+        // error with extra working digits, then round the final exponential,
+        // not the logarithm, to binary64 (notably at overflow and underflow).
+        return AdaptiveDecimal.toDouble(context -> {
+            final MathContext logarithmContext = amplifiedContext(context, Math.max(0, scale));
             final DecimalPoint point = point(x, y);
             final ExactFocusData exact = foci.exactData();
-            final MathContext work = AdaptiveDecimal.guard(context);
+            final MathContext work = AdaptiveDecimal.guard(logarithmContext);
             BigDecimal sum = BigDecimal.ZERO;
             for (int index = 0; index < foci.size(); index++) {
                 if (foci.isActive(index)) {
                     final BigDecimal logDistance = DecimalMath.log(
-                            distance(exact, index, point, context), work);
+                            distance(exact, index, point, logarithmContext), work);
                     sum = sum.add(exact.weight(index).multiply(logDistance, work), work);
                 }
             }
-            return sum.round(context);
+            return DecimalMath.exp(sum, context);
         });
-        return FieldMath.expFromLog(logarithm);
+    }
+
+    /** Reserves digits lost through multiplication by a large weight or division by a tiny p. */
+    private static MathContext amplifiedContext(final MathContext context, final int extraDigits) {
+        return new MathContext(Math.min(AdaptiveDecimal.MAXIMUM_PRECISION,
+                context.getPrecision() + extraDigits), context.getRoundingMode());
     }
 
     static double powerMean(final FocusSet foci, final double x, final double y,
@@ -355,24 +364,27 @@ final class ExactFieldMath {
         if (power == 2) {
             return quadraticMagnitudeMean(foci, x, y);
         }
-        // The guarded value is an exponential, so log-domain debris becomes
-        // relative error; bounding the result's own ln-magnitude and adding a
-        // generous constant for the anchored log-sum-exp intermediates keeps
-        // the floor sound for every representable power.
+        // Power means never exceed the largest input. For negative powers,
+        // the smallest input times n^(-1/p) supplies a second upper bound.
+        // Taking the tighter bound avoids spurious worst-case precision when
+        // a tiny negative p makes that second bound overflow.
         double anchorLn = Double.NaN;
+        double maximumLn = Double.NEGATIVE_INFINITY;
         for (int index = 0; index < foci.size(); index++) {
             if (!foci.isActive(index)) {
                 continue;
             }
             final double logMagnitude = foci.logMagnitudeDistance(index, x, y);
+            maximumLn = Math.max(maximumLn, logMagnitude);
             if (Double.isNaN(anchorLn)
                     || (power < 0 ? logMagnitude < anchorLn : logMagnitude > anchorLn)) {
                 anchorLn = logMagnitude;
             }
         }
         final double resultLnUpper = power < 0
-                ? anchorLn + Math.log(Math.max(2, foci.activeCount())) / -power
-                : anchorLn;
+                ? Math.min(maximumLn,
+                        anchorLn + Math.log(Math.max(2, foci.activeCount())) / -power)
+                : maximumLn;
         final int scale = scaleExponentFromLn(Math.min(715, resultLnUpper) + 28,
                 POWER_SCALE_EXPONENT);
         return AdaptiveDecimal.toDouble(scale, context -> powerMeanDecimal(foci, x, y, power, context));
@@ -495,10 +507,18 @@ final class ExactFieldMath {
 
     private static BigDecimal powerMeanDecimal(final FocusSet foci, final double x,
             final double y, final double power, final MathContext context) {
+        final BigDecimal powerDecimal = AdaptiveDecimal.exact(power);
+        // exp(p * delta) may round to 1 at successive adaptive precisions.
+        // The later division by p would amplify the lost correction. Reserve
+        // ceil(log10(1/|p|)) digits BEFORE evaluating it, including subnormal p;
+        // do not approximate a nonzero p by the geometric-mean limit.
+        final int extraDigits = power == 0 ? 0
+                : Math.max(0, powerDecimal.scale() - powerDecimal.precision() + 1);
+        final MathContext calculation = amplifiedContext(context, extraDigits);
         final DecimalPoint point = point(x, y);
         final ExactFocusData exact = foci.exactData();
-        final MathContext work = AdaptiveDecimal.guard(context);
-        final BigDecimal[] values = magnitudeDistances(foci, exact, point, context);
+        final MathContext work = AdaptiveDecimal.guard(calculation);
+        final BigDecimal[] values = magnitudeDistances(foci, exact, point, calculation);
         for (final BigDecimal value : values) {
             if (value.signum() == 0) {
                 if (power <= 0) {
@@ -514,7 +534,6 @@ final class ExactFieldMath {
             return DecimalMath.exp(logSum.divide(BigDecimal.valueOf(values.length), work), context);
         }
 
-        final BigDecimal powerDecimal = AdaptiveDecimal.exact(power);
         final BigDecimal[] logarithms = new BigDecimal[values.length];
         BigDecimal anchor = null;
         for (int index = 0; index < values.length; index++) {
@@ -526,6 +545,9 @@ final class ExactFieldMath {
                     || power < 0 && logarithms[index].compareTo(anchor) < 0) {
                 anchor = logarithms[index];
             }
+        }
+        if (anchor == null) {
+            return BigDecimal.ZERO;
         }
         BigDecimal exponentialSum = BigDecimal.ZERO;
         for (final BigDecimal logarithm : logarithms) {

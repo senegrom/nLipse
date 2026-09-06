@@ -100,7 +100,7 @@ class ExactFieldMathDifferentialTest {
             final double sigma = positiveFinite(random, -8, 8);
             assertRoundsTo(gaussian(foci, x, y, sigma), ExactFieldMath.gaussian(set, x, y, sigma),
                     zeroSign(foci, x, y, sigma), label + " gaussian");
-            assertBits(FieldMath.expFromLog(cassiniLog(foci, x, y)),
+            assertBits(cassini(foci, x, y),
                     ExactFieldMath.cassini(set, x, y), label + " cassini");
 
             final double power = powers[random.nextInt(powers.length)];
@@ -245,7 +245,7 @@ class ExactFieldMathDifferentialTest {
         return sum.doubleValue();
     }
 
-    private static double cassiniLog(final List<Focus> foci, final double x, final double y) {
+    private static double cassini(final List<Focus> foci, final double x, final double y) {
         BigDecimal sum = BigDecimal.ZERO;
         for (final Focus focus : foci) {
             if (focus.weight() != 0) {
@@ -254,7 +254,7 @@ class ExactFieldMathDifferentialTest {
                         REFERENCE);
             }
         }
-        return sum.doubleValue();
+        return DecimalMath.exp(sum, REFERENCE).doubleValue();
     }
 
     private static double powerMean(final List<Focus> foci, final double x, final double y,
