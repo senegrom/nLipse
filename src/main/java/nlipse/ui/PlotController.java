@@ -573,9 +573,12 @@ public final class PlotController implements AutoCloseable {
             final RenderResult result) {
         final PlotCanvas canvas = view.canvas;
         result.renderPackage().ifPresent(completed -> {
-            if (completed.snapshot().equals(model.snapshot())
+            final PlotSnapshot current = model.snapshot();
+            if (completed.snapshot().equals(current)
                     && completed.width() == canvas.getWidth()
-                    && completed.height() == canvas.getHeight()) {
+                    && completed.height() == canvas.getHeight()
+                    && completed.snapshot().viewport().hasSameSamplingGrid(
+                            current.viewport(), completed.width(), completed.height())) {
                 renderCompleted(result);
             }
         });

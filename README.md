@@ -90,7 +90,7 @@ Every completed full render also produces one immutable `RenderPackage` containi
 
 The JUnit suite includes deterministic exponent-biased differential tests against independent high-precision or direct references. Seeds are fixed so a failure can be reproduced. They cover algebraic fields, inverse-potential cancellation, transcendental families, power-mean ordering and smooth-envelope bounds.
 
-The separate Java 25 JMH harness measures ordinary batched ellipse, potential and Gaussian sampling as well as deliberately exceptional ellipse and potential evaluations:
+The separate Java 25 JMH harness measures ordinary batched ellipse, potential and Gaussian sampling, deliberately exceptional ellipse and potential evaluations, and end-to-end cold, cached and integer-pixel-pan rendering:
 
 ```bash
 mvn -DskipTests install
@@ -102,4 +102,4 @@ The manually dispatched **JMH benchmark** GitHub workflow accepts an include reg
 
 ## Continuous integration
 
-GitHub Actions runs the complete Maven test suite, builds and smoke-tests the JMH harness, and verifies the JDK 25 AOT-training path for pull requests and every push to `main`.
+GitHub Actions runs the complete Maven test suite on Ubuntu, builds and smoke-tests the JMH harness, and verifies the JDK 25 AOT-training path for pull requests and every push to `main`. A Windows smoke job runs the platform-sensitive persistence tests, creates the AOT cache through the native PowerShell launcher and verifies that the cache can be loaded.

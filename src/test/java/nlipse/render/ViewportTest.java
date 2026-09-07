@@ -2,6 +2,7 @@ package nlipse.render;
 
 import java.util.Random;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -215,6 +216,20 @@ class ViewportTest {
             assertEquals(Double.doubleToLongBits(initial.worldY(pixel, height)),
                     Double.doubleToLongBits(returned.worldY(pixel, height)));
         }
+    }
+
+    @Test
+    void equalBoundsCanStillHaveDifferentSamplingLineage() {
+        final int width = 129;
+        final int height = 97;
+        final Viewport initial = new Viewport(-2.3, 3.1, -1.7, 2.9);
+        final Viewport panned = initial.panPixels(5, -3, width, height);
+        final Viewport reconstructed = new Viewport(
+                panned.xMin(), panned.xMax(), panned.yMin(), panned.yMax());
+
+        assertEquals(panned, reconstructed);
+        assertFalse(panned.hasSameSamplingGrid(reconstructed, width, height));
+        assertTrue(panned.hasSameSamplingGrid(panned, width, height));
     }
 
     @Test

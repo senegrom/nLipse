@@ -133,6 +133,35 @@ class PlotRendererTest {
     }
 
     @Test
+    void equivalentBoundsWithoutSamplingLineageDoNotReuseRendererCaches() {
+        final int width = 129;
+        final int height = 97;
+        final Viewport initial = new Viewport(-2.3, 3.1, -1.7, 2.9);
+        final Viewport panned = initial.panPixels(5, -3, width, height);
+        final Viewport reconstructed = new Viewport(
+                panned.xMin(), panned.xMax(), panned.yMin(), panned.yMax());
+        assertEquals(panned, reconstructed);
+
+        final List<Focus> foci = List.of(new Focus(-1, 0, 1), new Focus(1, 0, 1));
+        final PlotSnapshot withLineage = new PlotSnapshot(
+                CurveType.LIPSE, CurveType.LIPSE.defaultParameter(), foci,
+                1, 3, 4, panned, true, true, true, false, false, -1);
+        final PlotSnapshot withoutLineage = new PlotSnapshot(
+                CurveType.LIPSE, CurveType.LIPSE.defaultParameter(), foci,
+                1, 3, 4, reconstructed, true, true, true, false, false, -1);
+        final PlotRenderer renderer = new PlotRenderer();
+
+        renderer.render(new RenderRequest(withLineage, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+        renderer.render(new RenderRequest(withoutLineage, width, height, RenderQuality.FULL),
+                CancellationToken.NONE);
+
+        assertEquals(2, renderer.getCacheMisses());
+        assertEquals(2, renderer.getContourCacheMisses());
+        assertEquals(2, renderer.getLayerCacheMisses());
+    }
+
+    @Test
     void honoursCancellation() {
         final PlotRenderer renderer = new PlotRenderer();
 

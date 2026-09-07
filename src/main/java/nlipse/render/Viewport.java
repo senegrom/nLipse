@@ -232,6 +232,19 @@ public final class Viewport {
                 pixelWidth, pixelHeight);
     }
 
+    /**
+     * Whether this viewport and another use the same exact sampling lattice at
+     * the given resolution. Equal visible bounds are not sufficient after an
+     * integer-pixel pan, because that pan deliberately preserves its original
+     * lattice lineage for bit-exact sample reuse.
+     */
+    public boolean hasSameSamplingGrid(final Viewport other,
+            final int pixelWidth, final int pixelHeight) {
+        return other != null
+                && samplingLattice(pixelWidth, pixelHeight)
+                        .equals(other.samplingLattice(pixelWidth, pixelHeight));
+    }
+
     private Viewport fromLatticeOrThis(final SamplingLattice shifted) {
         final double newXMin = shifted.worldX(0);
         final double newXMax = shifted.worldX(shifted.pixelWidth() - 1.0);

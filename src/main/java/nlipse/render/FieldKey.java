@@ -9,7 +9,7 @@ record FieldKey(
         CurveType curveType,
         double familyParameter,
         List<Focus> foci,
-        Viewport viewport,
+        SamplingLattice samplingLattice,
         int width,
         int height,
         int sampleStep) {
@@ -25,7 +25,7 @@ record FieldKey(
                 snapshot.curveType(),
                 snapshot.familyParameter(),
                 snapshot.foci(),
-                snapshot.viewport(),
+                snapshot.viewport().samplingLattice(request.width(), request.height()),
                 request.width(),
                 request.height(),
                 request.quality().sampleStep());
@@ -37,6 +37,6 @@ record FieldKey(
 
     FieldKey withSampleStep(final int newSampleStep) {
         return new FieldKey(curveType, familyParameter, foci,
-                viewport, width, height, newSampleStep);
+                samplingLattice, width, height, newSampleStep);
     }
 }

@@ -77,3 +77,50 @@ jobs:
           path: |
             /tmp/nlipse-source.zip
             target/surefire-reports/
+
+  windows-smoke:
+    name: Windows Java 25 smoke
+    runs-on: windows-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Run platform-sensitive tests
+        shell: pwsh
+        run: >-
+          mvn --batch-mode --no-transfer-progress
+          "-Dtest=AtomicFilesTest,PlotConfigIOTest,MainTest" test
+
+      - name: Create AOT cache with PowerShell launcher
+        shell: pwsh
+        run: ./scripts/create-aot-cache.ps1
+
+      - name: Verify Windows AOT cache load
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath target/nlipse.aot)) {
+            throw "AOT cache was not created"
+          }
+          if (-not (Test-Path -LiteralPath target/nlipse.aot.meta)) {
+            throw "AOT metadata was not created"
+          }
+          $javaArguments = @(
+            "-Djava.awt.headless=true",
+            "-XX:+UseCompactObjectHeaders",
+            "-XX:AOTCache=target/nlipse.aot",
+            "-cp", "target/nlipse.jar",
+            "nlipse.app.AotTrainer"
+          )
+          & java @javaArguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "AOT smoke test exited with code $LASTEXITCODE"
+          }
