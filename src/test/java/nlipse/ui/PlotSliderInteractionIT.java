@@ -42,6 +42,19 @@ class PlotSliderInteractionIT {
         });
     }
 
+    /** Pressing and releasing a knob in place fires change events; the exact bound must survive them. */
+    @Test
+    void clickingAKnobWithoutMovingItKeepsTheExactBound() throws Exception {
+        withController(1.23456789, 6.789012345, (model, view) -> {
+            view.distanceMin.setValueIsAdjusting(true);
+            view.distanceMin.setValueIsAdjusting(false);
+            view.distanceMax.setValueIsAdjusting(true);
+            view.distanceMax.setValueIsAdjusting(false);
+            assertEquals(1.23456789, model.getDistanceMin());
+            assertEquals(6.789012345, model.getDistanceMax());
+        });
+    }
+
     @Test
     void crossingMaximumMovesBothBounds() throws Exception {
         withController(1.23456789, 6.789012345, (model, view) -> {

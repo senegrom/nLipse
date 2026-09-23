@@ -94,4 +94,67 @@ class ReviewNumericalRegressionTest {
                 .value(1, 0x1.0p-27);
         org.junit.jupiter.api.Assertions.assertTrue(budget.exhausted());
     }
+
+    /**
+     * Far from three close foci every smooth-envelope ratio rounds to one double,
+     * which routed every pixel to the exact evaluator whatever the allowance: a
+     * 200x200 far-zoom frame took 16 s. The collapse is a budgeted fallback now,
+     * and the estimate lies within the spread of the distances.
+     */
+    @Test
+    void collapsedSmoothEnvelopeRatiosRespectTheInteractiveAllowance() {
+        final List<Focus> foci = List.of(new Focus(0, 0, 1), new Focus(1, 0, 1), new Focus(0, 1, 1));
+        for (final CurveType type : List.of(CurveType.SMOOTH_NEAREST, CurveType.SMOOTH_FARTHEST)) {
+            final ExactBudget budget = ExactBudget.limited(0);
+            final DistanceField field = DistanceFields.create(type, foci, 0.5, budget);
+            final long started = System.nanoTime();
+            for (int row = 0; row < 100; row++) {
+                for (int column = 0; column < 100; column++) {
+                    final double x = 1e17 + column * 1e3;
+                    final double y = 1e17 + row * 1e3;
+                    final double value = field.value(x, y);
+                    final double nearest = Math.hypot(x - 1, y - 1);
+                    final double farthest = Math.hypot(x, y);
+                    org.junit.jupiter.api.Assertions.assertTrue(
+                            value >= Math.nextDown(Math.min(nearest, farthest))
+                                    && value <= Math.nextUp(Math.max(nearest, farthest)),
+                            type + " at (" + x + ", " + y + "): " + value);
+                }
+            }
+            final long millis = (System.nanoTime() - started) / 1_000_000;
+            // About 4 s through the unbudgeted exact route; milliseconds without it.
+            org.junit.jupiter.api.Assertions.assertTrue(millis < 1_500, type + " took " + millis + " ms");
+            org.junit.jupiter.api.Assertions.assertTrue(budget.exhausted(), type + " should report the collapse");
+        }
+    }
+
+    /**
+     * Past d/σ ≈ 1.3e154 the square in the Gaussian exponent overflows. Such a
+     * term still has a sign: an all-negative sum rounds to -0.0, not +0.0.
+     */
+    @Test
+    void gaussianZeroKeepsItsSignWhenTheExponentOverflows() {
+        final DistanceField unit = DistanceFields.create(CurveType.GAUSSIAN, List.of(new Focus(0, 0, -1)), 1);
+        assertEquals(-0.0, unit.value(1e154, 0));
+        assertEquals(-0.0, unit.value(2e154, 0));
+        final DistanceField narrow = DistanceFields.create(CurveType.GAUSSIAN,
+                List.of(new Focus(0, 0, -1)), 1e-160);
+        assertEquals(-0.0, narrow.value(1, 0));
+        final FocusSet set = FocusSet.from(List.of(new Focus(0, 0, -1)));
+        assertEquals(-0.0, ExactFieldMath.gaussian(set, 2e154, 0, 1));
+    }
+
+    /**
+     * The zero's sign follows the dominant term, which the primitive exponent
+     * -½(d/σ)² misjudges once its rounding error (about (d/σ)²·2^-52) exceeds
+     * the one-unit margin: here the exact ln(positive/negative) is +7.44, while
+     * the primitive exponents made the negative term look dominant.
+     */
+    @Test
+    void gaussianZeroSignFollowsTheExactDominantTerm() {
+        final List<Focus> foci = List.of(new Focus(2.9206e-8, 0, 1),
+                new Focus(-2.9206e-8, 0, -Math.exp(20)));
+        assertEquals(0.0, DistanceFields.create(CurveType.GAUSSIAN, foci, 1).value(4.69762048e8, 0));
+        assertEquals(0.0, ExactFieldMath.gaussian(FocusSet.from(foci), 4.69762048e8, 0, 1));
+    }
 }

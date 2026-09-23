@@ -688,9 +688,6 @@ final class AggregateFields {
                 minimum = Math.min(minimum, ratio);
                 maximum = Math.max(maximum, ratio);
             }
-            if (allZero) {
-                return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
-            }
             if ((exactRatioNeeded || roundingSensitiveRatio)
                     && Double.isFinite(x) && Double.isFinite(y)
                     && foci.tryConsumeExact()) {
@@ -702,11 +699,18 @@ final class AggregateFields {
             if (nearest && Double.isInfinite(minimum)) {
                 return limitingEnvelope.value(x, y);
             }
-            if (minimum == maximum) {
-                // Distinct distances can collapse to the same ratio after division by
-                // a huge temperature. Their common large-temperature limit is the
-                // arithmetic mean, not whichever focus happened to be visited first.
-                return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
+            if (allZero || minimum == maximum) {
+                // Every ratio rounded to one double: distinct distances collapse
+                // after division by a huge temperature (or underflow to zero), and
+                // at far zoom every pixel's distances collapse. The true value then
+                // lies between the smallest and largest magnitude distance, within
+                // that collapse spread, and resolving its last digits is a precision
+                // fallback like any other: unbudgeted, it went exact on every pixel
+                // (16 s per far-zoom frame). Exhausted, the hard envelope stands in.
+                if (Double.isFinite(x) && Double.isFinite(y) && foci.tryConsumeExact()) {
+                    return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
+                }
+                return limitingEnvelope.value(x, y);
             }
 
             final double resultRatio;

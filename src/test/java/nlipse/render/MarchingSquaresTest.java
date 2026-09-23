@@ -20,7 +20,7 @@ class MarchingSquaresTest {
         final FieldGrid grid = FieldGrid.sample(field, viewport, 3, 3, 1, CancellationToken.NONE);
         final List<double[]> segments = new ArrayList<>();
 
-        final int count = MarchingSquares.trace(grid, field, viewport, 0,
+        final int count = SingleLevelTrace.trace(grid, field, viewport, 0,
                 CancellationToken.NONE,
                 (x1, y1, x2, y2) -> segments.add(new double[]{x1, y1, x2, y2}));
 
@@ -55,7 +55,7 @@ class MarchingSquaresTest {
                 CancellationToken.NONE);
         final List<double[]> segments = new ArrayList<>();
 
-        final int count = MarchingSquares.trace(grid, field, viewport,
+        final int count = SingleLevelTrace.trace(grid, field, viewport,
                 -Double.MAX_VALUE / 2, CancellationToken.NONE,
                 (x1, y1, x2, y2) -> segments.add(new double[]{x1, y1, x2, y2}));
 
@@ -78,7 +78,7 @@ class MarchingSquaresTest {
         final FieldGrid coarse = full.coarsen(4, viewport);
         calls.set(0);
 
-        final int count = MarchingSquares.trace(coarse, field, viewport, 0,
+        final int count = SingleLevelTrace.trace(coarse, field, viewport, 0,
                 CancellationToken.NONE, (x1, y1, x2, y2) -> { });
 
         assertTrue(count > 0);
@@ -98,7 +98,7 @@ class MarchingSquaresTest {
                 CancellationToken.NONE);
         calls.set(0);
 
-        final int count = MarchingSquares.trace(grid, field, viewport, 0,
+        final int count = SingleLevelTrace.trace(grid, field, viewport, 0,
                 CancellationToken.NONE, (x1, y1, x2, y2) -> { });
 
         assertEquals(2, count);
@@ -113,7 +113,7 @@ class MarchingSquaresTest {
                 CancellationToken.NONE);
         final List<double[]> segments = new ArrayList<>();
 
-        final int count = MarchingSquares.trace(grid, field, viewport, 0,
+        final int count = SingleLevelTrace.trace(grid, field, viewport, 0,
                 CancellationToken.NONE,
                 (x1, y1, x2, y2) -> segments.add(new double[]{x1, y1, x2, y2}));
 
@@ -135,7 +135,7 @@ class MarchingSquaresTest {
                 CancellationToken.NONE);
         calls.set(0);
 
-        final int count = MarchingSquares.trace(grid, field, viewport,
+        final int count = SingleLevelTrace.trace(grid, field, viewport,
                 Double.MAX_VALUE / 2, CancellationToken.NONE,
                 (x1, y1, x2, y2) -> { });
 
@@ -156,7 +156,7 @@ class MarchingSquaresTest {
                 CancellationToken.NONE);
         calls.set(0);
 
-        final int count = MarchingSquares.trace(grid, field, viewport, 0,
+        final int count = SingleLevelTrace.trace(grid, field, viewport, 0,
                 CancellationToken.NONE, (x1, y1, x2, y2) -> { });
 
         assertEquals(2, count);
@@ -169,7 +169,7 @@ class MarchingSquaresTest {
         final DistanceField field = (x, y) -> 0.3 - x * x - y * y;
         final FieldGrid grid = FieldGrid.sample(field, viewport, 5, 5, 4, CancellationToken.NONE);
 
-        final int count = MarchingSquares.trace(grid, field, viewport, 0,
+        final int count = SingleLevelTrace.trace(grid, field, viewport, 0,
                 CancellationToken.NONE, (x1, y1, x2, y2) -> { });
 
         assertTrue(count > 0);

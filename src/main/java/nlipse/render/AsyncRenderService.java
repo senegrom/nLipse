@@ -190,6 +190,11 @@ public final class AsyncRenderService implements AutoCloseable {
         } catch (final InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return item.cancelled || closed ? null : Outcome.failure(interrupted);
+        } catch (final OutOfMemoryError | StackOverflowError exhausted) {
+            // A render too big for this heap fails like any other request. It
+            // must not kill the only worker: every later submit would be
+            // accepted and never run, leaving "Rendering…" on screen for good.
+            return item.cancelled || closed ? null : Outcome.failure(exhausted);
         } catch (final VirtualMachineError fatal) {
             throw fatal;
         } catch (final Throwable failure) {

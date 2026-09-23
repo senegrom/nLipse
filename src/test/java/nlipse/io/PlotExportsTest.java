@@ -43,8 +43,10 @@ class PlotExportsTest {
         assertEquals(48, decoded.getHeight());
         final String xml = Files.readString(svg);
         assertTrue(xml.startsWith("<?xml"));
-        assertTrue(xml.contains("<svg"));
-        assertTrue(xml.contains("<polyline") || xml.contains("<path"));
+        // Same completed render: the vector file has the raster's size and its contours.
+        assertTrue(xml.contains("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"48\""),
+                xml.substring(0, Math.min(200, xml.length())));
+        assertTrue(xml.contains("<path fill=\"none\""), "the SVG carries no contour");
     }
 
     @Test
@@ -68,7 +70,7 @@ class PlotExportsTest {
                 64, 48, RenderQuality.FULL), CancellationToken.NONE);
         final RenderResult limited = new RenderResult(exact.image(), exact.sequence(),
                 exact.quality(), exact.extrema(), exact.renderNanos(), true,
-                exact.renderPackage().orElseThrow());
+                exact.renderPackage());
         final Path png = directory.resolve("limited.png");
         final Path svg = directory.resolve("limited.svg");
         Files.writeString(png, "existing png");

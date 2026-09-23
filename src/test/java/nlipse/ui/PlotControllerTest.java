@@ -109,6 +109,37 @@ class PlotControllerTest {
         assertFalse(resolution.adjustmentDeferred());
     }
 
+    /**
+     * A clamp starts from the requested levels, not the previous display, so
+     * zooming in (which narrows the displayed levels to the visible field) and
+     * back out restores them. Intersecting the display each time ratcheted it:
+     * five wheel notches in and out left 5.188..7.799 of the default 5.188..13.878.
+     */
+    @Test
+    void clampingForAZoomedViewKeepsTheRequestedLevels() {
+        final PlotController.RangeResolution zoomedIn = PlotController.resolveRange(
+                10, 20, 12, 18, 12, 18, PlotController.RangeAdjustment.CLAMP,
+                Optional.of(new FieldExtrema(11, 14, new Point2(0, 0), new Point2(1, 1))), true);
+        assertEquals(12, zoomedIn.levelMin());
+        assertEquals(14, zoomedIn.levelMax());
+
+        final PlotController.RangeResolution zoomedOut = PlotController.resolveRange(
+                11, 14, zoomedIn.levelMin(), zoomedIn.levelMax(), 12, 18,
+                PlotController.RangeAdjustment.CLAMP, Optional.of(EXTREMA), true);
+        assertEquals(12, zoomedOut.levelMin());
+        assertEquals(18, zoomedOut.levelMax());
+        assertTrue(zoomedOut.rangeChanged());
+    }
+
+    @Test
+    void clampRefitsOnlyWhenTheRequestedLevelsMissTheField() {
+        final PlotController.RangeResolution disjoint = PlotController.resolveRange(
+                -5, 5, 1, 2, 1, 2, PlotController.RangeAdjustment.CLAMP,
+                Optional.of(EXTREMA), true);
+        assertEquals(10.5, disjoint.levelMin());
+        assertEquals(19.5, disjoint.levelMax());
+    }
+
     @Test
     void exactExtremaRefreshSliderDomainWithoutChangingManualLevels() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(

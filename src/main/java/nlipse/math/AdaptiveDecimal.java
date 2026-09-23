@@ -67,9 +67,15 @@ final class AdaptiveDecimal {
         }
     }
 
+    /**
+     * The working precision behind a rung: always {@link #GUARD_DIGITS} above it.
+     * {@link #MAXIMUM_PRECISION} caps the ladder's rungs, never the guard: at the
+     * last rung a capped guard left {@code DecimalMath} without guard digits,
+     * and {@link Ball}'s log/exp enclosures (which assume them) missed the true
+     * value by up to thousands of ulps.
+     */
     static MathContext guard(final MathContext context) {
-        return new MathContext(Math.min(MAXIMUM_PRECISION,
-                context.getPrecision() + GUARD_DIGITS), context.getRoundingMode());
+        return new MathContext(context.getPrecision() + GUARD_DIGITS, context.getRoundingMode());
     }
 
     static BigDecimal exact(final double value) {

@@ -37,26 +37,4 @@ public record RenderResult(BufferedImage image, long sequence, RenderQuality qua
                 Optional.empty());
     }
 
-    public RenderResult(final BufferedImage image, final long sequence,
-            final RenderQuality quality, final Optional<FieldExtrema> extrema,
-            final long renderNanos, final RenderPackage renderPackage) {
-        this(image, sequence, quality, extrema, renderNanos, false,
-                requiredPackage(renderPackage));
-    }
-
-    public RenderResult(final BufferedImage image, final long sequence,
-            final RenderQuality quality, final Optional<FieldExtrema> extrema,
-            final long renderNanos, final boolean precisionLimited,
-            final RenderPackage renderPackage) {
-        this(image, sequence, quality, extrema, renderNanos, precisionLimited,
-                requiredPackage(renderPackage));
-    }
-
-    private static Optional<RenderPackage> requiredPackage(
-            final RenderPackage renderPackage) {
-        if (renderPackage == null) {
-            throw new IllegalArgumentException("Render package is required");
-        }
-        return Optional.of(renderPackage);
-    }
 }

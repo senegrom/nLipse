@@ -87,7 +87,14 @@ public final class PlotController implements AutoCloseable {
     private double sampledMax;
     private boolean sampledRangeApproximate;
     private RangeAdjustment pendingRangeAdjustment = RangeAdjustment.CLAMP;
+    /** The level range the user last chose (slider, fit, load); the model holds its clamped display. */
+    private double requestedMin;
+    private double requestedMax;
     private DistanceField cursorField;
+    /** Format of an accepted export still being rendered or written, else null. */
+    private String activeExport;
+    /** The user chose to close once {@link #activeExport} finishes. */
+    private boolean closeAfterExport;
 
     private int draggingFocus = -1;
     private boolean panning;
@@ -109,6 +116,7 @@ public final class PlotController implements AutoCloseable {
         fullMax = initialFullMaximum(fullMin, model.getDistanceMax());
         sampledMin = fullMin;
         sampledMax = fullMax;
+        rememberRequestedRange();
         refreshCursorField();
 
         previewTimer = new Timer(40, event -> submit(RenderQuality.PREVIEW));
@@ -428,8 +436,10 @@ public final class PlotController implements AutoCloseable {
                 if (!commitPendingEdits()) {
                     discardPendingEdits();
                 }
-                saveLastSession();
-                view.dispose();
+                if (activeExport != null && !confirmCloseDuringExport()) {
+                    return;
+                }
+                finishClosing();
             }
 
             @Override
@@ -437,6 +447,55 @@ public final class PlotController implements AutoCloseable {
                 close();
             }
         });
+    }
+
+    /**
+     * An accepted export dies with the window (its worker is a daemon and
+     * closing cancels it), so ask first. Returns whether to close right now;
+     * "close when it finishes" closes from the export's completion instead.
+     */
+    private boolean confirmCloseDuringExport() {
+        final String finish = "Close when it finishes";
+        final String discard = "Close now";
+        final int choice = JOptionPane.showOptionDialog(view,
+                "The " + activeExport + " export is still being written.\n"
+                        + "Closing now discards it.",
+                "Export in progress", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE,
+                null, new Object[]{finish, discard, "Cancel"}, finish);
+        if (choice == 1) {
+            return true;
+        }
+        if (choice == 0) {
+            if (activeExport == null) {
+                return true; // it finished while the question was open
+            }
+            closeAfterExport = true;
+            view.renderInfo.setText("Closing after the " + activeExport + " export finishes…");
+        }
+        return false;
+    }
+
+    private void finishClosing() {
+        saveLastSession();
+        view.dispose();
+    }
+
+    /** Keeps a running export visible in the status line that every render rewrites. */
+    private String exportStatus() {
+        if (activeExport == null) {
+            return "";
+        }
+        return closeAfterExport ? " · closing after the " + activeExport + " export"
+                : " · exporting " + activeExport + "…";
+    }
+
+    /** Clears the running export and closes if the user asked to wait for it. */
+    private void exportSettled() {
+        activeExport = null;
+        if (closeAfterExport && !closed) {
+            closeAfterExport = false;
+            finishClosing();
+        }
     }
 
     private void saveLastSession() {
@@ -566,6 +625,7 @@ public final class PlotController implements AutoCloseable {
                     "Export busy", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
+        activeExport = format;
         view.renderInfo.setText("Exporting " + format + "…");
     }
 
@@ -584,6 +644,7 @@ public final class PlotController implements AutoCloseable {
         });
         view.renderInfo.setText(
                 "Exported " + format + " · " + target.toAbsolutePath());
+        exportSettled();
     }
 
     private void exportFailed(final String format, final Throwable failure) {
@@ -592,6 +653,7 @@ public final class PlotController implements AutoCloseable {
         view.renderInfo.setText("Export failed");
         JOptionPane.showMessageDialog(view, message, "Export " + format + " failed",
                 JOptionPane.ERROR_MESSAGE);
+        exportSettled();
     }
 
     private Optional<Path> approvedSaveTarget(final Path selected, final String extension) {
@@ -698,6 +760,13 @@ public final class PlotController implements AutoCloseable {
         if (!commitPendingEdits() || !model.removeFocus(index)) {
             return;
         }
+        // Delete (or a right-click) can land mid-drag: the dragged focus is gone,
+        // or its index shifted down, so the drag must not move a neighbour.
+        if (draggingFocus == index) {
+            draggingFocus = -1;
+        } else if (draggingFocus > index) {
+            draggingFocus--;
+        }
         refreshCursorField();
         syncTableFromModel();
         markRangeAdjustment(RangeAdjustment.CLAMP);
@@ -797,6 +866,13 @@ public final class PlotController implements AutoCloseable {
         final JSlider minimum = view.distanceMin;
         final JSlider maximum = view.distanceMax;
         final JSlider source = minimumChanged ? minimum : maximum;
+        if (source.getValue() == distanceToSlider(minimumChanged
+                ? model.getDistanceMin() : model.getDistanceMax())) {
+            // Pressing or releasing the knob without moving it: the bound is
+            // unchanged, so neither round it to its tick nor cancel a pending
+            // fit or clamp.
+            return;
+        }
         final double changedDistance = sliderToDistance(source.getValue());
         // The untouched bound is exact model state, not its quantized slider
         // position. Move it only when the changed bound actually crosses it;
@@ -806,6 +882,7 @@ public final class PlotController implements AutoCloseable {
         final double newMaximum = minimumChanged
                 ? Math.max(model.getDistanceMax(), changedDistance) : changedDistance;
         model.setDistanceRange(newMinimum, newMaximum);
+        rememberRequestedRange();
         pendingRangeAdjustment = RangeAdjustment.NONE;
         syncSlidersFromModel();
         if (source.getValueIsAdjusting()) {
@@ -864,20 +941,26 @@ public final class PlotController implements AutoCloseable {
 
         final RangeResolution resolution = resolveRange(
                 fullMin, fullMax, model.getDistanceMin(), model.getDistanceMax(),
-                pendingRangeAdjustment, result.extrema(), trustedExtrema);
+                requestedMin, requestedMax, pendingRangeAdjustment, result.extrema(), trustedExtrema);
         fullMin = resolution.fullMin();
         fullMax = resolution.fullMax();
+        final boolean fitApplied = pendingRangeAdjustment == RangeAdjustment.AUTO_FIT
+                && !resolution.adjustmentDeferred() && extrema != null;
         if (!resolution.adjustmentDeferred()) {
             pendingRangeAdjustment = RangeAdjustment.NONE;
         }
         if (resolution.rangeChanged()) {
             model.setDistanceRange(resolution.levelMin(), resolution.levelMax());
         }
+        if (fitApplied) {
+            // A fit is the user's (or a family switch's) explicit level choice.
+            rememberRequestedRange();
+        }
 
         syncSlidersFromModel();
         view.canvas.setRenderResult(result);
         view.renderInfo.setText(String.format(Locale.ROOT,
-                "%s · %.1f ms · %d×%d · cache %s%s%s",
+                "%s · %.1f ms · %d×%d · cache %s%s%s%s",
                 result.quality() == RenderQuality.FULL ? "Full" : "Preview",
                 result.renderNanos() / 1_000_000.0,
                 result.image().getWidth(), result.image().getHeight(),
@@ -886,7 +969,8 @@ public final class PlotController implements AutoCloseable {
                         ? resolution.adjustmentDeferred()
                                 ? " · precision limited · resolving exact range"
                                 : " · precision limited"
-                        : ""));
+                        : "",
+                exportStatus()));
         if (resolution.rangeChanged()) {
             requestFullRender();
         } else if (requiresExactRangeRetry(result.quality(), resolution)) {
@@ -906,6 +990,23 @@ public final class PlotController implements AutoCloseable {
 
     static RangeResolution resolveRange(final double previousFullMin,
             final double previousFullMax, final double oldMin, final double oldMax,
+            final RangeAdjustment adjustment, final Optional<FieldExtrema> extrema,
+            final boolean trustedExtrema) {
+        return resolveRange(previousFullMin, previousFullMax, oldMin, oldMax, oldMin, oldMax,
+                adjustment, extrema, trustedExtrema);
+    }
+
+    /**
+     * Resolves the displayed level range {@code [oldMin, oldMax]} against newly
+     * sampled field extrema. A {@link RangeAdjustment#CLAMP} derives the
+     * display from the range the user last asked for, {@code [requestedMin,
+     * requestedMax]}, not from the previous display: clamping to the visible
+     * field while zoomed in must not permanently narrow the levels once the
+     * view zooms back out.
+     */
+    static RangeResolution resolveRange(final double previousFullMin,
+            final double previousFullMax, final double oldMin, final double oldMax,
+            final double requestedMin, final double requestedMax,
             final RangeAdjustment adjustment, final Optional<FieldExtrema> extrema,
             final boolean trustedExtrema) {
         if (!trustedExtrema) {
@@ -938,13 +1039,13 @@ public final class PlotController implements AutoCloseable {
         double newMin = oldMin;
         double newMax = oldMax;
         if (adjustment != RangeAdjustment.NONE) {
-            if (adjustment == RangeAdjustment.AUTO_FIT
-                    || oldMax < resolvedFullMin || oldMin > resolvedFullMax || oldMin > oldMax) {
+            if (adjustment == RangeAdjustment.AUTO_FIT || requestedMax < resolvedFullMin
+                    || requestedMin > resolvedFullMax || requestedMin > requestedMax) {
                 newMin = ScalarRanges.interpolate(resolvedFullMin, resolvedFullMax, 0.05);
                 newMax = ScalarRanges.interpolate(resolvedFullMin, resolvedFullMax, 0.95);
             } else {
-                newMin = Math.max(resolvedFullMin, oldMin);
-                newMax = Math.min(resolvedFullMax, oldMax);
+                newMin = Math.max(resolvedFullMin, requestedMin);
+                newMax = Math.min(resolvedFullMax, requestedMax);
                 if (newMin > newMax) {
                     newMin = ScalarRanges.interpolate(resolvedFullMin, resolvedFullMax, 0.05);
                     newMax = ScalarRanges.interpolate(resolvedFullMin, resolvedFullMax, 0.95);
@@ -987,6 +1088,13 @@ public final class PlotController implements AutoCloseable {
         sampledMax = Double.NaN;
         sampledRangeApproximate = true;
         pendingRangeAdjustment = RangeAdjustment.NONE;
+        rememberRequestedRange();
+    }
+
+    /** The model's current levels become the range later clamps start from. */
+    private void rememberRequestedRange() {
+        requestedMin = model.getDistanceMin();
+        requestedMax = model.getDistanceMax();
     }
 
     private void markRangeAdjustment(final RangeAdjustment adjustment) {

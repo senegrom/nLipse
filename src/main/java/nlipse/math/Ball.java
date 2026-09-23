@@ -33,6 +33,10 @@ final class Ball {
     private static final BigDecimal OVERFLOW = new BigDecimal(Double.MAX_VALUE).multiply(BigDecimal.TWO);
     /** Extra decimal digits below {@code exp}'s zero truncation that its true value provably stays under. */
     private static final int EXP_TRUNCATION_DIGITS = 671;
+    /** {@code DecimalMath.exp} truncates below {@code -ln(10)·(guarded precision + 648)}; its guard adds 24. */
+    private static final int EXP_TRUNCATION_CUT_OFFSET = 24 + 648;
+    /** A decimal just above ln 10 = 2.302585…, so cuts computed with it are conservative. */
+    private static final BigDecimal TRUNCATION_LN_TEN = new BigDecimal("2.3026");
     /** Absolute error of {@code DecimalMath.log} beyond its final rounding, as digits below the precision. */
     private static final int LOG_INTERNAL_DIGITS = 13;
 
@@ -206,20 +210,48 @@ final class Ball {
      * {@link #isOverflow() overflow} enclosure, valid only as a final value.
      */
     Ball exp(final MathContext context) {
-        if (!usable() || radius.compareTo(BigDecimal.ONE) > 0) {
+        if (!usable()) {
+            return UNBOUNDED;
+        }
+        if (upper().compareTo(truncationCut(context)) < 0) {
+            // Every enclosed exponent lies below exp's zero truncation, however
+            // wide the ball: the far-field Gaussian's huge exponents need no
+            // escalation just to shrink a radius that cannot matter.
+            return truncatedZero(context);
+        }
+        if (radius.compareTo(BigDecimal.ONE) > 0) {
             return UNBOUNDED;
         }
         final BigDecimal value = DecimalMath.exp(midpoint, context);
         if (value.compareTo(OVERFLOW) >= 0) {
-            return new Ball(value, BigDecimal.ZERO, true);
+            // The sentinel claims the whole enclosure overflows; a wide exponent
+            // ball may still reach finite values below its midpoint.
+            return radius.signum() == 0
+                    || DecimalMath.exp(lower(), context).compareTo(OVERFLOW) >= 0
+                    ? new Ball(value, BigDecimal.ZERO, true) : UNBOUNDED;
         }
         if (value.signum() == 0) {
-            return new Ball(BigDecimal.ZERO,
-                    BigDecimal.ONE.scaleByPowerOfTen(-context.getPrecision() - EXP_TRUNCATION_DIGITS), false);
+            return truncatedZero(context);
         }
         // e^r - 1 <= r (1 + r) for r <= 1 bounds the growth over the exponent's radius.
         final BigDecimal growth = radius.multiply(BigDecimal.ONE.add(radius, RADIUS), RADIUS);
         return new Ball(value, value.abs().multiply(growth, RADIUS).add(ulp(value, context), RADIUS), false);
+    }
+
+    /** The zero {@code DecimalMath.exp} truncates to, with the bound its truncation guarantees. */
+    private static Ball truncatedZero(final MathContext context) {
+        return new Ball(BigDecimal.ZERO,
+                BigDecimal.ONE.scaleByPowerOfTen(-context.getPrecision() - EXP_TRUNCATION_DIGITS), false);
+    }
+
+    /**
+     * An exponent below which {@code DecimalMath.exp} provably truncates to zero:
+     * its cut is {@code -ln(10)·(p + 24 + 648)} at the guarded precision, and
+     * 2.3026 exceeds ln 10, so this bound lies below that cut.
+     */
+    private static BigDecimal truncationCut(final MathContext context) {
+        return TRUNCATION_LN_TEN.multiply(BigDecimal.valueOf(
+                -(long) context.getPrecision() - EXP_TRUNCATION_CUT_OFFSET));
     }
 
     /** The natural logarithm; an enclosure reaching zero or below is unbounded. */

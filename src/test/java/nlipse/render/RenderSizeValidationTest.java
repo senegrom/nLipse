@@ -67,17 +67,6 @@ class RenderSizeValidationTest {
     }
 
     @Test
-    void packageConvenienceConstructorsRejectMissingPackages() {
-        final BufferedImage image = new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB);
-        assertThrows(IllegalArgumentException.class, () -> new RenderResult(
-                image, 0, RenderQuality.FULL, Optional.empty(), 0,
-                (RenderPackage) null));
-        assertThrows(IllegalArgumentException.class, () -> new RenderResult(
-                image, 0, RenderQuality.FULL, Optional.empty(), 0, true,
-                (RenderPackage) null));
-    }
-
-    @Test
     void rejectsNegativeRenderMetadata() {
         final PlotSnapshot snapshot = snapshot();
         assertThrows(IllegalArgumentException.class, () -> new RenderRequest(

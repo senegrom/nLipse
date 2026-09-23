@@ -36,10 +36,11 @@ jobs:
       - name: Build, test and install application
         run: mvn --batch-mode --no-transfer-progress install
 
-      - name: Verify Swing slider interactions
+      - name: Verify Swing interactions
         run: >-
           xvfb-run -a mvn --batch-mode --no-transfer-progress
-          -Djava.awt.headless=false -Dtest=PlotSliderInteractionIT test
+          -Djava.awt.headless=false
+          -Dtest=PlotSliderInteractionIT,PlotControllerInteractionIT,SetupDialogIT test
 
       - name: Build benchmark harness
         run: mvn --batch-mode --no-transfer-progress -f benchmarks/pom.xml package
@@ -113,9 +114,12 @@ jobs:
           if (-not (Test-Path -LiteralPath target/nlipse.aot.meta)) {
             throw "AOT metadata was not created"
           }
+          # AOTMode=on makes an unusable cache fatal; the default (auto) only
+          # logs the error and runs without it, so this step could not fail.
           $javaArguments = @(
             "-Djava.awt.headless=true",
             "-XX:+UseCompactObjectHeaders",
+            "-XX:AOTMode=on",
             "-XX:AOTCache=target/nlipse.aot",
             "-cp", "target/nlipse.jar",
             "nlipse.app.AotTrainer"

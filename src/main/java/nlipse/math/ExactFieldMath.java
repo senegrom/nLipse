@@ -265,28 +265,27 @@ final class ExactFieldMath {
         return (int) Math.min(RESERVED_DIGITS_CAP, Math.ceil(largestLnMagnitude / LN_TEN) + 4);
     }
 
-    /** Reserves digits lost through multiplication by a large weight or division by a tiny p. */
+    /**
+     * Reserves digits lost through multiplication by a large weight or division
+     * by a tiny p. Like the guard, the reservation comes on top of the rung:
+     * capping it at the last rung would drop exactly the digits it reserves.
+     */
     private static MathContext amplifiedContext(final MathContext context, final int extraDigits) {
-        return new MathContext(Math.min(AdaptiveDecimal.MAXIMUM_PRECISION,
-                context.getPrecision() + extraDigits), context.getRoundingMode());
+        return new MathContext(context.getPrecision() + extraDigits, context.getRoundingMode());
     }
 
+    /**
+     * The power mean for a finite power. The fields route p = ±∞, 1 and 2 to
+     * their own evaluators, so only the harmonic (-1), geometric (0) and
+     * general powers reach this one.
+     */
     static double powerMean(final FocusSet foci, final double x, final double y,
             final double power) {
         if (foci.activeCount() == 0) {
             return 0;
         }
-        if (power == Double.POSITIVE_INFINITY) {
-            return envelope(foci, x, y, false);
-        }
-        if (power == Double.NEGATIVE_INFINITY) {
-            return envelope(foci, x, y, true);
-        }
-        if (power == 1) {
-            return arithmeticMagnitudeMean(foci, x, y);
-        }
-        if (power == 2) {
-            return quadraticMagnitudeMean(foci, x, y);
+        if (!Double.isFinite(power)) {
+            throw new IllegalArgumentException("The exact power mean needs a finite power");
         }
         return AdaptiveDecimal.toDouble(context -> powerMeanEnclosure(foci, x, y, power, context));
     }
@@ -352,40 +351,57 @@ final class ExactFieldMath {
         // one sign's largest term provably dominates the other sign's total,
         // the correctly rounded zero is that sign's.
         if (value == 0) {
-            final GaussianTerms terms = gaussianTerms(foci, x, y, sigma);
-            if (Math.abs(terms.positiveLog() - terms.negativeLog())
-                    > Math.log(foci.activeCount()) + 1) {
-                return terms.positiveLog() > terms.negativeLog() ? 0.0 : -0.0;
+            final int sign = underflowedGaussianSign(foci, x, y, sigma);
+            if (sign != 0) {
+                return sign > 0 ? 0.0 : -0.0;
             }
         }
         return value;
     }
 
-    /** ln-domain bounds of the largest Gaussian term of each sign, which decide a wholly underflowed sum's zero. */
-    private static GaussianTerms gaussianTerms(final FocusSet foci, final double x,
+    /**
+     * The sign of a Gaussian sum too small to represent: +1 or -1 when only one
+     * sign occurs, or when one sign's largest term exceeds the other sign's
+     * total ({@code ln n + 1} ln-units of margin); 0 when neither is provable.
+     * With {@code t = ln|w| - d²/(2σ²)} per term it compares {@code 2σ²·t =
+     * 2σ²·ln|w| - d²} in exact decimal arithmetic: the primitive
+     * {@code -½(d/σ)²} errs by about {@code (d/σ)²·2^-52}, which beyond
+     * d/σ ≈ 1e8 exceeds the margin itself, and overflows past d/σ ≈ 1.3e154.
+     */
+    private static int underflowedGaussianSign(final FocusSet foci, final double x,
             final double y, final double sigma) {
-        double positive = Double.NEGATIVE_INFINITY;
-        double negative = Double.NEGATIVE_INFINITY;
+        final BigDecimal twoSigmaSquared = AdaptiveDecimal.exact(sigma).pow(2).multiply(TWO);
+        final BigDecimal pointX = AdaptiveDecimal.exact(x);
+        final BigDecimal pointY = AdaptiveDecimal.exact(y);
+        BigDecimal positive = null;
+        BigDecimal negative = null;
         for (int index = 0; index < foci.size(); index++) {
             if (!foci.isActive(index)) {
                 continue;
             }
             final double weight = foci.weight(index);
-            final double ratio = foci.distanceRatio(index, x, y, sigma);
-            final double logTerm = Math.log(Math.abs(weight)) - 0.5 * ratio * ratio;
-            if (Double.isNaN(logTerm)) {
-                continue;
-            }
+            final BigDecimal dx = pointX.subtract(AdaptiveDecimal.exact(foci.x(index)));
+            final BigDecimal dy = pointY.subtract(AdaptiveDecimal.exact(foci.y(index)));
+            final BigDecimal key = twoSigmaSquared
+                    .multiply(AdaptiveDecimal.exact(Math.log(Math.abs(weight))))
+                    .subtract(dx.multiply(dx)).subtract(dy.multiply(dy));
             if (weight > 0) {
-                positive = Math.max(positive, logTerm);
+                positive = positive == null ? key : positive.max(key);
             } else {
-                negative = Math.max(negative, logTerm);
+                negative = negative == null ? key : negative.max(key);
             }
         }
-        return new GaussianTerms(positive, negative);
-    }
-
-    private record GaussianTerms(double positiveLog, double negativeLog) {
+        if (positive == null || negative == null) {
+            return positive != null ? 1 : negative != null ? -1 : 0;
+        }
+        // ln|w| is a rounded double (within 2e-13 for any finite weight), hence the slack.
+        final BigDecimal margin = twoSigmaSquared.multiply(
+                AdaptiveDecimal.exact(Math.log(foci.activeCount()) + 1 + 1e-12));
+        final BigDecimal difference = positive.subtract(negative);
+        if (difference.compareTo(margin) > 0) {
+            return 1;
+        }
+        return difference.negate().compareTo(margin) > 0 ? -1 : 0;
     }
 
     private static Ball powerMeanEnclosure(final FocusSet foci, final double x,

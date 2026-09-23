@@ -146,7 +146,7 @@ public final class PlotRenderer implements RenderEngine {
 
         token.throwIfCancelled();
         return new RenderResult(image, request.sequence(), request.quality(), completed.extrema(),
-                System.nanoTime() - started, !cacheableArtifacts, completed);
+                System.nanoTime() - started, !cacheableArtifacts, java.util.Optional.of(completed));
     }
 
     /** Ill-conditioned samples normally form a curve, so a per-pass allowance that
@@ -337,10 +337,9 @@ public final class PlotRenderer implements RenderEngine {
         }
 
         contourCacheMisses.incrementAndGet();
-        final ContourGeometry traced = grid.getExtrema().isEmpty()
-                ? ContourGeometry.trace(grid, field, request.snapshot().viewport(),
-                        new double[0], token)
-                : ContourGeometry.trace(grid, field, request.snapshot().viewport(), levels, token);
+        // A grid without finite samples already has no levels to trace.
+        final ContourGeometry traced = ContourGeometry.trace(grid, field,
+                request.snapshot().viewport(), levels, token);
         if (exactBudget.exhausted()) {
             return traced;
         }

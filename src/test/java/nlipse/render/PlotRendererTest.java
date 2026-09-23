@@ -170,6 +170,19 @@ class PlotRendererTest {
                 () -> true));
     }
 
+    /** The token is polled throughout sampling and tracing, not just before the render starts. */
+    @Test
+    void honoursCancellationPartwayThroughTheRender() {
+        final PlotRenderer renderer = new PlotRenderer();
+        // Sampling may run on several threads, all polling the same token.
+        final java.util.concurrent.atomic.AtomicInteger polls = new java.util.concurrent.atomic.AtomicInteger();
+        assertThrows(RenderCancelledException.class, () -> renderer.render(
+                new RenderRequest(snapshot(1, 3, 4, true, 0), 100, 100, RenderQuality.FULL),
+                () -> polls.incrementAndGet() > 20));
+        org.junit.jupiter.api.Assertions.assertTrue(polls.get() > 20,
+                "cancelled before the render began: " + polls.get() + " polls");
+    }
+
     @Test
     void generatesStableUniqueLinearAndLogarithmicLevels() {
         assertEquals(2, PlotRenderer.levels(1, 3, 3, false)[1], 1e-12);

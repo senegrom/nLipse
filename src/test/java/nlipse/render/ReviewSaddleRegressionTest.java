@@ -49,7 +49,7 @@ class ReviewSaddleRegressionTest {
             };
             final FieldGrid grid = FieldGrid.sample(field, viewport, 2, 2, 1, CancellationToken.NONE);
             calls.set(0);
-            assertEquals(2, MarchingSquares.trace(grid, field, viewport, 0,
+            assertEquals(2, SingleLevelTrace.trace(grid, field, viewport, 0,
                     CancellationToken.NONE, (x1, y1, x2, y2) -> { }));
             assertEquals(1, calls.get());
         }

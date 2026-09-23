@@ -11,11 +11,11 @@ import java.awt.Insets;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.DefaultCellEditor;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -41,7 +41,7 @@ public final class SetupDialog extends JDialog {
     private final JLabel curveDescription = new JLabel();
     private final JLabel familyParameterLabel = new JLabel("Parameter:");
     private final JTextField familyParameter = new JTextField(9);
-    private final DefaultTableModel focusModel = new DefaultTableModel(
+    final DefaultTableModel focusModel = new DefaultTableModel(
             new String[]{"X", "Y", "Weight"}, 0) {
         private static final long serialVersionUID = 1L;
 
@@ -50,7 +50,7 @@ public final class SetupDialog extends JDialog {
             return String.class;
         }
     };
-    private final JTable focusTable = new JTable(focusModel);
+    final JTable focusTable = new JTable(focusModel);
     private final JTextField distanceMin = new JTextField(8);
     private final JTextField distanceMax = new JTextField(8);
     private final JTextField curveCount = new JTextField(4);
@@ -66,7 +66,7 @@ public final class SetupDialog extends JDialog {
 
     private transient PlotConfig result;
 
-    private SetupDialog(final Frame owner, final PlotConfig initial) {
+    SetupDialog(final Frame owner, final PlotConfig initial) {
         super(owner, "nLipse Setup", true);
         setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         initialise(initial);
@@ -92,9 +92,8 @@ public final class SetupDialog extends JDialog {
                     EditableNumbers.format(focus.y()), EditableNumbers.format(focus.weight())});
         }
         focusTable.setRowHeight(22);
-        final DefaultCellEditor editor = new DefaultCellEditor(new JTextField());
-        editor.setClickCountToStart(2);
-        focusTable.setDefaultEditor(Object.class, editor);
+        // The main window's editor: an invalid number is marked and never committed.
+        focusTable.setDefaultEditor(Object.class, new FiniteNumberCellEditor());
         focusTable.setPreferredScrollableViewportSize(new Dimension(285, 165));
 
         distanceMin.setText(EditableNumbers.format(initial.distanceMin()));
@@ -160,12 +159,7 @@ public final class SetupDialog extends JDialog {
             }
             focusModel.addRow(new Object[]{"0", "0", "1"});
         });
-        remove.addActionListener(event -> {
-            final int row = focusTable.getSelectedRow();
-            if (row >= 0) {
-                focusModel.removeRow(row);
-            }
-        });
+        remove.addActionListener(event -> removeSelectedFoci());
         focusButtons.add(add);
         focusButtons.add(remove);
         focusPanel.add(focusButtons, BorderLayout.SOUTH);
@@ -218,6 +212,30 @@ public final class SetupDialog extends JDialog {
         root.add(buttons, BorderLayout.SOUTH);
         getRootPane().setDefaultButton(ok);
         setContentPane(root);
+    }
+
+    /**
+     * Removes every selected row. An open cell edit is tied to the table's row
+     * numbering, which the removal shifts: JTable would later write it into
+     * whichever row took that index (or throw past the end). So it is
+     * cancelled when its own row goes, and otherwise committed first.
+     */
+    void removeSelectedFoci() {
+        final int[] rows = focusTable.getSelectedRows();
+        if (rows.length == 0) {
+            return;
+        }
+        if (focusTable.isEditing()) {
+            final int editing = focusTable.getEditingRow();
+            if (Arrays.stream(rows).anyMatch(row -> row == editing)) {
+                focusTable.getCellEditor().cancelCellEditing();
+            } else if (!focusTable.getCellEditor().stopCellEditing()) {
+                return; // invalid text in another row stays marked for the user to fix
+            }
+        }
+        for (int index = rows.length - 1; index >= 0; index--) {
+            focusModel.removeRow(focusTable.convertRowIndexToModel(rows[index]));
+        }
     }
 
     private void updateCurvePresentation(final CurveType selected, final double parameter) {

@@ -161,6 +161,41 @@ class BallTest {
     }
 
     @Test
+    void exponentialOverflowCoversTheWholeExponentEnclosure() {
+        // e^709.7 = 1.65e308 is finite, so a ball reaching down to it may not be a final overflow.
+        final Ball wide = Ball.of(new BigDecimal("710.6"), new BigDecimal("0.9")).exp(LOW);
+        assertFalse(wide.isOverflow(), "" + wide);
+        assertFalse(wide.isBounded(), "" + wide);
+        assertTrue(Ball.of(new BigDecimal("3000"), new BigDecimal("0.9")).exp(LOW).isOverflow());
+    }
+
+    @Test
+    void exponentialOfAWideEnclosureBelowTheTruncationIsABoundedZero() {
+        // However wide, every exponent here truncates: no escalation is needed.
+        final Ball far = Ball.of(new BigDecimal("-1e300"), new BigDecimal("1e290")).exp(LOW);
+        assertTrue(far.isBounded(), "" + far);
+        assertEquals(0, far.midpoint().signum());
+        assertTrue(far.radius().compareTo(new BigDecimal("1e-600")) < 0, "" + far);
+    }
+
+    /**
+     * At the ladder's last rung the working precision used to be capped at the
+     * rung itself, leaving DecimalMath without its guard digits: log and exp
+     * enclosures then missed the true value by up to thousands of ulps.
+     */
+    @Test
+    void transcendentalEnclosuresHoldAtTheLastRung() {
+        final MathContext rung = new MathContext(AdaptiveDecimal.MAXIMUM_PRECISION, RoundingMode.HALF_EVEN);
+        final MathContext reference = new MathContext(AdaptiveDecimal.MAXIMUM_PRECISION + 200,
+                RoundingMode.HALF_EVEN);
+        final BigDecimal argument = new BigDecimal("0.7");
+        assertEncloses(Ball.exact(argument).log(rung), DecimalMath.log(argument, reference), "log(0.7)");
+        assertEncloses(Ball.exact(argument).exp(rung), DecimalMath.exp(argument, reference), "exp(0.7)");
+        final BigDecimal large = new BigDecimal("600.3");
+        assertEncloses(Ball.exact(large).exp(rung), DecimalMath.exp(large, reference), "exp(600.3)");
+    }
+
+    @Test
     void squareRootOfAnEnclosureReachingZeroIsClipped() {
         final Ball nearZero = Ball.of(new BigDecimal("1e-20"), new BigDecimal("1e-18"));
         final Ball root = nearZero.sqrt(LOW);

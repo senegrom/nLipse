@@ -301,6 +301,10 @@ final class RadialFields {
         /** ln-units by which one sign's underflowed mass must dominate, beyond
          *  the focus-count factor, before the zero's sign is provable. */
         private static final double DROPPED_SIGN_LOG_MARGIN = 1;
+        /** Relative error bound of a primitive ln-magnitude {@code ln|w| - ½(d/σ)²}:
+         *  the ratio carries a few ulps, which the square doubles. Beyond d/σ ≈ 1e8
+         *  that error alone exceeds {@link #DROPPED_SIGN_LOG_MARGIN}. */
+        private static final double DROPPED_LOG_RELATIVE_ERROR = 0x1.0p-46;
 
         private final FocusSet foci;
         private final double sigma;
@@ -322,6 +326,8 @@ final class RadialFields {
             boolean negative = false;
             boolean exactNeeded = false;
             double sensitiveMagnitude = 0;
+            boolean droppedPositive = false;
+            boolean droppedNegative = false;
             double droppedPositiveLog = Double.NEGATIVE_INFINITY;
             double droppedNegativeLog = Double.NEGATIVE_INFINITY;
             for (int index = 0; index < foci.size(); index++) {
@@ -347,14 +353,20 @@ final class RadialFields {
                         && (kernelUnderflowed || kernelRoundingSensitive || term == 0)) {
                     term = FieldMath.multiplyFromLog(weight, exponent);
                 }
-                if (term == 0 && finiteExponent) {
-                    // The whole term underflows binary64. Record its magnitude
-                    // bound and decide after the sum whether it can matter.
-                    final double logMagnitude = Math.log(Math.abs(weight)) + exponent;
-                    if (weight > 0) {
-                        droppedPositiveLog = Math.max(droppedPositiveLog, logMagnitude);
-                    } else {
-                        droppedNegativeLog = Math.max(droppedNegativeLog, logMagnitude);
+                if (term == 0) {
+                    // The whole term underflows binary64. Record its sign and
+                    // magnitude bound and decide after the sum whether it can
+                    // matter. Past d/σ ≈ 1.3e154 the square overflows: the term is
+                    // then below every finite bound, but its sign still counts.
+                    droppedPositive |= weight > 0;
+                    droppedNegative |= weight < 0;
+                    if (finiteExponent) {
+                        final double logMagnitude = Math.log(Math.abs(weight)) + exponent;
+                        if (weight > 0) {
+                            droppedPositiveLog = Math.max(droppedPositiveLog, logMagnitude);
+                        } else {
+                            droppedNegativeLog = Math.max(droppedNegativeLog, logMagnitude);
+                        }
                     }
                 }
                 exactNeeded |= kernelUnderflowed && term != 0;
@@ -369,17 +381,23 @@ final class RadialFields {
             }
             final double result = sum.value();
             final double droppedLog = Math.max(droppedPositiveLog, droppedNegativeLog);
-            if (finitePoint && droppedLog != Double.NEGATIVE_INFINITY && !exactNeeded) {
+            if (finitePoint && (droppedPositive || droppedNegative) && !exactNeeded) {
                 final double countLog = Math.log(foci.activeCount());
                 final double droppedBoundLog = droppedLog + countLog;
                 if (result == 0 && !positive && !negative) {
                     // Every term underflowed. The value provably rounds to zero
                     // once the bound clears MIN_VALUE; the sign is provable when
-                    // one sign's largest term dominates the other sign's total.
+                    // only one sign occurs, or when one sign's largest term
+                    // dominates the other sign's total beyond the primitive error
+                    // of both bounds. Otherwise the exact evaluator decides.
+                    final double margin = countLog + DROPPED_SIGN_LOG_MARGIN
+                            + droppedLogError(droppedPositiveLog) + droppedLogError(droppedNegativeLog);
                     if (droppedBoundLog < DROPPED_ZERO_LOG_LIMIT
-                            && Math.abs(droppedPositiveLog - droppedNegativeLog)
-                                    > countLog + DROPPED_SIGN_LOG_MARGIN) {
-                        return droppedPositiveLog > droppedNegativeLog ? 0.0 : -0.0;
+                            && (droppedPositive != droppedNegative
+                                    || Math.abs(droppedPositiveLog - droppedNegativeLog) > margin)) {
+                        final boolean positiveDominates = droppedPositive != droppedNegative
+                                ? droppedPositive : droppedPositiveLog > droppedNegativeLog;
+                        return positiveDominates ? 0.0 : -0.0;
                     }
                     exactNeeded = true;
                 } else if (!(Double.isFinite(result) && result != 0
@@ -402,6 +420,12 @@ final class RadialFields {
                 return ExactFieldMath.gaussian(foci, x, y, sigma);
             }
             return result;
+        }
+
+        /** An absolute error bound of one primitive dropped ln-magnitude; none for an absent sign. */
+        private static double droppedLogError(final double logMagnitude) {
+            return Double.isFinite(logMagnitude)
+                    ? DROPPED_LOG_RELATIVE_ERROR * (Math.abs(logMagnitude) + 800) : 0;
         }
     }
 }

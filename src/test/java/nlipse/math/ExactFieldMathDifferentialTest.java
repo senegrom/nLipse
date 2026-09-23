@@ -144,29 +144,72 @@ class ExactFieldMathDifferentialTest {
     }
 
     /**
+     * Radii from 1e2 to 1e200: past about 1e8 the primitive -½(d/σ)² errs by
+     * more than the dominance margin, and past 1.3e154 its square overflows.
+     * Every sum here underflows, so only the zero's sign is at stake.
+     */
+    @Test
+    void extremeFarFieldGaussianZeroFollowsTheExactDominance() {
+        final Random random = new Random(0x455854524546L);
+        for (int sample = 0; sample < 60; sample++) {
+            final List<Focus> foci = new ArrayList<>();
+            final int count = 1 + random.nextInt(4);
+            for (int index = 0; index < count; index++) {
+                foci.add(new Focus(-2 + 4 * random.nextDouble(), -2 + 4 * random.nextDouble(),
+                        randomFinite(random, -20, 20)));
+            }
+            final double angle = 2 * Math.PI * random.nextDouble();
+            final double radius = Math.pow(10, 2 + 198 * random.nextDouble());
+            final double x = radius * Math.cos(angle);
+            final double y = radius * Math.sin(angle);
+            final double sign = zeroSign(foci, x, y, 1);
+            final String label = "sample " + sample + " at radius " + radius;
+
+            assertRoundsTo(0, ExactFieldMath.gaussian(FocusSet.from(foci), x, y, 1),
+                    sign, label + " exact evaluator");
+            assertRoundsTo(0, DistanceFields.create(CurveType.GAUSSIAN, foci, 1).value(x, y),
+                    sign, label + " field shortcut");
+        }
+    }
+
+    /**
      * The sign a wholly underflowed Gaussian sum's zero must carry: that of
      * the sign whose largest term provably dominates the other sign's total,
      * or 0 when neither does and the contract promises only the value. This
      * cannot come from the reference, whose own exponentials truncate to an
-     * unsigned decimal zero far below the binary64 range.
+     * unsigned decimal zero far below the binary64 range. It is decided in
+     * exact decimal arithmetic on {@code 2σ²·t = 2σ²·ln|w| - d²} (dominance by
+     * more than {@code ln n + 1}), so the rounding of a primitive
+     * {@code -½(d/σ)²} cannot hide in the reference as well.
      */
     private static double zeroSign(final List<Focus> foci, final double x, final double y,
             final double sigma) {
-        double positive = Double.NEGATIVE_INFINITY;
-        double negative = Double.NEGATIVE_INFINITY;
+        final BigDecimal twoSigmaSquared = decimal(sigma).pow(2).multiply(BigDecimal.valueOf(2));
+        BigDecimal positive = null;
+        BigDecimal negative = null;
         for (final Focus focus : foci) {
-            final double ratio = Math.hypot(x - focus.x(), y - focus.y()) / sigma;
-            final double logTerm = Math.log(Math.abs(focus.weight())) - 0.5 * ratio * ratio;
+            if (focus.weight() == 0) {
+                continue;
+            }
+            final BigDecimal dx = decimal(x).subtract(decimal(focus.x()));
+            final BigDecimal dy = decimal(y).subtract(decimal(focus.y()));
+            final BigDecimal key = twoSigmaSquared.multiply(decimal(Math.log(Math.abs(focus.weight()))))
+                    .subtract(dx.multiply(dx)).subtract(dy.multiply(dy));
             if (focus.weight() > 0) {
-                positive = Math.max(positive, logTerm);
+                positive = positive == null ? key : positive.max(key);
             } else {
-                negative = Math.max(negative, logTerm);
+                negative = negative == null ? key : negative.max(key);
             }
         }
-        if (!(Math.abs(positive - negative) > Math.log(foci.size()) + 1)) {
+        if (positive == null || negative == null) {
+            return positive != null ? 1 : negative != null ? -1 : 0;
+        }
+        final BigDecimal margin = twoSigmaSquared.multiply(decimal(Math.log(foci.size()) + 1 + 1e-12));
+        final BigDecimal difference = positive.subtract(negative);
+        if (difference.abs().compareTo(margin) <= 0) {
             return 0;
         }
-        return positive > negative ? 1 : -1;
+        return difference.signum();
     }
 
     private static void assertRoundsTo(final double expected, final double actual,

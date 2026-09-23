@@ -395,6 +395,32 @@ class AsyncRenderServiceTest {
         }
     }
 
+    /** A render too big for the heap fails like any other; it must not kill the only worker. */
+    @Test
+    void outOfMemoryFailsOneRenderAndKeepsTheWorker() throws Exception {
+        final AtomicBoolean first = new AtomicBoolean(true);
+        final RenderEngine engine = (request, token) -> {
+            if (first.getAndSet(false)) {
+                throw new OutOfMemoryError("Java heap space");
+            }
+            return result(request);
+        };
+        final CountDownLatch failed = new CountDownLatch(1);
+        final CountDownLatch rendered = new CountDownLatch(1);
+        final AtomicReference<Throwable> delivered = new AtomicReference<>();
+        try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
+            service.submitInteractive(request(RenderQuality.PREVIEW), ignored -> { }, failure -> {
+                delivered.set(failure);
+                failed.countDown();
+            });
+            assertTrue(failed.await(2, TimeUnit.SECONDS));
+            assertTrue(delivered.get() instanceof OutOfMemoryError, String.valueOf(delivered.get()));
+            service.submitInteractive(request(RenderQuality.PREVIEW),
+                    ignored -> rendered.countDown(), ignored -> { });
+            assertTrue(rendered.await(2, TimeUnit.SECONDS), "the worker died with the failed render");
+        }
+    }
+
     @Test
     void submissionsAfterCloseAreRejected() {
         final AsyncRenderService service = new AsyncRenderService(
