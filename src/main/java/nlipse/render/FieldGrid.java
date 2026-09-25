@@ -429,7 +429,7 @@ final class FieldGrid {
                 return;
             }
             final int middle = (fromRow + toRow) >>> 1;
-            invokeAll(
+            SamplingPool.invokeBoth(
                     new ScanRowsTask(values, columns, fromRow, middle, rowMinima,
                             rowMaxima, rowMinColumns, rowMaxColumns, rowValid, token),
                     new ScanRowsTask(values, columns, middle, toRow, rowMinima,
@@ -484,7 +484,7 @@ final class FieldGrid {
                 return;
             }
             final int middle = (fromRow + toRow) >>> 1;
-            invokeAll(
+            SamplingPool.invokeBoth(
                     new SampleRowsTask(field, worldXs, worldYs, columns, fromRow, middle,
                             values, rowMinima, rowMaxima, rowMinColumns,
                             rowMaxColumns, rowValid, token),

@@ -287,6 +287,23 @@ public final class AsyncRenderService implements AutoCloseable {
         }
     }
 
+    /**
+     * Waits up to the given time for the worker to stop after {@link #close()}.
+     * The worker is a daemon thread, so without this an application that exits
+     * right after closing would not let a cancelled export remove its
+     * temporary file.
+     *
+     * @return whether the worker has stopped
+     */
+    public boolean awaitWorker(final long timeoutMillis) {
+        try {
+            worker.join(timeoutMillis);
+        } catch (final InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        return !worker.isAlive();
+    }
+
     @Override
     public void close() {
         synchronized (monitor) {

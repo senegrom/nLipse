@@ -84,6 +84,11 @@ final class AsyncCursorService implements AutoCloseable {
             Throwable failure = null;
             try {
                 value = request.field().value(request.x(), request.y());
+            } catch (final OutOfMemoryError | StackOverflowError exhausted) {
+                // As in the render service: an evaluation the heap cannot hold (a
+                // big render may have filled it) fails like any other. It must not
+                // kill the only worker, or the readout would never update again.
+                failure = exhausted;
             } catch (final VirtualMachineError fatal) {
                 throw fatal;
             } catch (final Throwable failed) {

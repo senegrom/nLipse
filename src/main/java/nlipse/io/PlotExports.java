@@ -1,10 +1,16 @@
 package nlipse.io;
 
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Objects;
 import javax.imageio.ImageIO;
+import javax.imageio.stream.ImageOutputStream;
+import javax.imageio.stream.MemoryCacheImageOutputStream;
 import nlipse.render.RenderPackage;
 import nlipse.render.RenderQuality;
 import nlipse.render.RenderResult;
@@ -19,8 +25,16 @@ public final class PlotExports {
         requireExportable(result);
         Objects.requireNonNull(target, "target");
         AtomicFiles.replace(target, temporary -> {
-            if (!ImageIO.write(result.image(), "png", temporary.toFile())) {
-                throw new IOException("No PNG writer is installed");
+            // A FileChannel stops at an interrupt, unlike ImageIO's own file output
+            // and the stream of Files.newOutputStream: closing the window during an
+            // export ends the write and removes the temporary file. The in-memory
+            // cache avoids ImageIO's cache file in the system temp directory.
+            try (OutputStream output = Channels.newOutputStream(
+                            FileChannel.open(temporary, StandardOpenOption.WRITE));
+                    ImageOutputStream imageOutput = new MemoryCacheImageOutputStream(output)) {
+                if (!ImageIO.write(result.image(), "png", imageOutput)) {
+                    throw new IOException("No PNG writer is installed");
+                }
             }
         });
     }

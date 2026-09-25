@@ -636,10 +636,19 @@ final class AggregateFields {
     }
 
     private static final class SmoothEnvelopeField implements DistanceField {
+        /**
+         * Below this ratio of magnitude distance to temperature the envelope is
+         * the arithmetic mean to within 2^-63 of the largest distance (the
+         * exact evaluator's mean-and-variance route derives the bound).
+         */
+        private static final double TINY_RATIO = 0x1p-60;
+
         private final FocusSet foci;
         private final double temperature;
         private final boolean nearest;
         private final DistanceField limitingEnvelope;
+        /** The limit as the temperature grows: the mean of the magnitude distances. */
+        private final DistanceField arithmeticMean;
 
         SmoothEnvelopeField(final FocusSet foci, final double temperature,
                 final boolean nearest) {
@@ -647,6 +656,7 @@ final class AggregateFields {
             this.temperature = temperature;
             this.nearest = nearest;
             limitingEnvelope = RadialFields.envelope(foci, nearest);
+            arithmeticMean = new SumField(foci, true, foci.activeCount());
         }
 
         @Override
@@ -666,9 +676,9 @@ final class AggregateFields {
             int count = 0;
             double minimum = Double.POSITIVE_INFINITY;
             double maximum = Double.NEGATIVE_INFINITY;
-            boolean allZero = true;
             boolean exactRatioNeeded = false;
             boolean roundingSensitiveRatio = false;
+            boolean underflowedRatio = false;
             for (int index = 0; index < foci.size(); index++) {
                 if (!foci.isActive(index)) {
                     continue;
@@ -683,10 +693,27 @@ final class AggregateFields {
                     return Double.NaN;
                 }
                 ratios[count++] = ratio;
-                allZero &= ratio == 0;
                 roundingSensitiveRatio |= FieldMath.isMagnitudeRoundingSensitive(ratio);
+                underflowedRatio |= ratio == 0 && foci.distance(index, x, y) != 0;
                 minimum = Math.min(minimum, ratio);
                 maximum = Math.max(maximum, ratio);
+            }
+            if (maximum <= TINY_RATIO) {
+                // Far below the temperature the envelope is the arithmetic mean of
+                // the magnitude distances, corrected by at most ratio/8 of the
+                // largest: under 2^-63 here, inside the mean's own rounding. This
+                // also covers ratios that underflow to zero or turn subnormal, where
+                // the distances themselves may differ widely, so that neither one
+                // collapsed ratio nor the hard envelope may stand for them. Flagged
+                // or underflowed ratios still go exact while the allowance lasts;
+                // that route rounds a tie of the mean the way the envelope leans,
+                // and at these ratios it needs no logarithm.
+                if ((exactRatioNeeded || roundingSensitiveRatio || underflowedRatio)
+                        && Double.isFinite(x) && Double.isFinite(y)
+                        && foci.tryConsumeExact()) {
+                    return ExactFieldMath.smoothEnvelope(foci, x, y, temperature, nearest);
+                }
+                return arithmeticMean.value(x, y);
             }
             if ((exactRatioNeeded || roundingSensitiveRatio)
                     && Double.isFinite(x) && Double.isFinite(y)
@@ -699,12 +726,10 @@ final class AggregateFields {
             if (nearest && Double.isInfinite(minimum)) {
                 return limitingEnvelope.value(x, y);
             }
-            if (allZero || minimum == maximum) {
-                // Every ratio rounded to one double: distinct distances collapse
-                // after division by a huge temperature (or underflow to zero), and
-                // at far zoom every pixel's distances collapse. The true value then
-                // lies between the smallest and largest magnitude distance, within
-                // that collapse spread, and resolving its last digits is a precision
+            if (minimum == maximum) {
+                // Every ratio rounded to one normal double, as at far zoom: the
+                // magnitude distances, and with them the value, lie within about an
+                // ulp of each other. Resolving the last digits is a precision
                 // fallback like any other: unbudgeted, it went exact on every pixel
                 // (16 s per far-zoom frame). Exhausted, the hard envelope stands in.
                 if (Double.isFinite(x) && Double.isFinite(y) && foci.tryConsumeExact()) {

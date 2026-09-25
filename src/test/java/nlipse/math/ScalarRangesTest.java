@@ -3,6 +3,7 @@ package nlipse.math;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import nlipse.render.Viewport;
 import org.junit.jupiter.api.Test;
 
 class ScalarRangesTest {
@@ -42,6 +43,16 @@ class ScalarRangesTest {
                 ScalarRanges.unboundedFraction(Double.NEGATIVE_INFINITY, -1, 1));
         assertEquals(Double.POSITIVE_INFINITY,
                 ScalarRanges.unboundedFraction(Double.POSITIVE_INFINITY, -1, 1));
+    }
+
+    @Test
+    void unboundedFractionHandlesAnOffsetThatWouldOverflow() {
+        final double maximum = Double.MAX_VALUE;
+
+        // The spans are finite, but MAX - (-MAX/2) and -MAX - 0 are not
+        assertEquals(3.0, ScalarRanges.unboundedFraction(maximum, -maximum / 2, 0));
+        assertEquals(-2.0, ScalarRanges.unboundedFraction(-maximum, 0, maximum / 2));
+        assertEquals(300.0, new Viewport(-maximum / 2, 0, -1, 1).pixelX(maximum, 101));
     }
 
     @Test

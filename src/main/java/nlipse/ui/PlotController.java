@@ -53,6 +53,8 @@ public final class PlotController implements AutoCloseable {
     private static final double NUDGE_STEP = 0.1;
     private static final double NUDGE_FINE = 0.01;
     private static final double HIT_RADIUS = 11;
+    /** How long closing waits for a cancelled export to stop writing. */
+    private static final long EXPORT_STOP_WAIT_MILLIS = 3000;
 
     enum RangeAdjustment {
         NONE,
@@ -431,11 +433,8 @@ public final class PlotController implements AutoCloseable {
         view.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(final WindowEvent event) {
-                // Closing must always succeed: an unfinished invalid edit is
-                // dropped instead of holding the window open.
-                if (!commitPendingEdits()) {
-                    discardPendingEdits();
-                }
+                // Ask about a running export before touching the edits: staying
+                // open must keep an edit in progress, even an invalid one.
                 if (activeExport != null && !confirmCloseDuringExport()) {
                     return;
                 }
@@ -471,11 +470,26 @@ public final class PlotController implements AutoCloseable {
             }
             closeAfterExport = true;
             view.renderInfo.setText("Closing after the " + activeExport + " export finishes…");
+        } else if (closeAfterExport) {
+            // Cancel keeps the window, so it also withdraws an earlier
+            // "close when it finishes"
+            closeAfterExport = false;
+            if (activeExport != null) {
+                view.renderInfo.setText("Exporting " + activeExport + "…");
+            }
         }
         return false;
     }
 
+    /**
+     * Closes for good, now or once a waited-for export has settled. Closing must
+     * always succeed: pending edits are committed, and an unfinished invalid
+     * edit is dropped instead of holding the window open.
+     */
     private void finishClosing() {
+        if (!commitPendingEdits()) {
+            discardPendingEdits();
+        }
         saveLastSession();
         view.dispose();
     }
@@ -607,8 +621,13 @@ public final class PlotController implements AutoCloseable {
             return;
         }
         final Path target = approved.orElseThrow();
-        final RenderRequest request = new RenderRequest(
-                model.snapshot(), width, height, RenderQuality.FULL);
+        final RenderRequest request;
+        try {
+            request = new RenderRequest(model.snapshot(), width, height, RenderQuality.FULL);
+        } catch (final IllegalArgumentException tooLarge) {
+            exportFailed(format, tooLarge);
+            return;
+        }
         final boolean accepted;
         try {
             accepted = renderService.submitExport(request,
@@ -882,7 +901,16 @@ public final class PlotController implements AutoCloseable {
         final double newMaximum = minimumChanged
                 ? Math.max(model.getDistanceMax(), changedDistance) : changedDistance;
         model.setDistanceRange(newMinimum, newMaximum);
-        rememberRequestedRange();
+        // Only the dragged bound becomes a new request. The other one stays what
+        // the user last asked for, not its clamped display value, or dragging
+        // one knob after a zoom-in would ratchet the range again.
+        if (minimumChanged) {
+            requestedMin = newMinimum;
+            requestedMax = Math.max(requestedMax, newMaximum);
+        } else {
+            requestedMax = newMaximum;
+            requestedMin = Math.min(requestedMin, newMinimum);
+        }
         pendingRangeAdjustment = RangeAdjustment.NONE;
         syncSlidersFromModel();
         if (source.getValueIsAdjusting()) {
@@ -923,11 +951,17 @@ public final class PlotController implements AutoCloseable {
         if (width < 2 || height < 2 || !view.isDisplayable()) {
             return;
         }
-        view.canvas.setRendering(true);
-        RenderRequest request = new RenderRequest(model.snapshot(), width, height, quality);
-        if (exactRequired) {
-            request = request.requiringExact();
+        final RenderRequest request;
+        try {
+            final RenderRequest plain = new RenderRequest(model.snapshot(), width, height, quality);
+            request = exactRequired ? plain.requiringExact() : plain;
+        } catch (final IllegalArgumentException tooLarge) {
+            // A canvas beyond this heap's pixel limit is refused by the request
+            // itself: say so, rather than leave "Rendering…" up for good
+            renderFailed(tooLarge);
+            return;
         }
+        view.canvas.setRendering(true);
         renderService.submitInteractive(request, this::renderCompleted, this::renderFailed);
     }
 
@@ -959,18 +993,8 @@ public final class PlotController implements AutoCloseable {
 
         syncSlidersFromModel();
         view.canvas.setRenderResult(result);
-        view.renderInfo.setText(String.format(Locale.ROOT,
-                "%s · %.1f ms · %d×%d · cache %s%s%s%s",
-                result.quality() == RenderQuality.FULL ? "Full" : "Preview",
-                result.renderNanos() / 1_000_000.0,
-                result.image().getWidth(), result.image().getHeight(),
-                renderer.cacheSummary(), extrema == null ? " · no finite samples" : "",
-                result.precisionLimited()
-                        ? resolution.adjustmentDeferred()
-                                ? " · precision limited · resolving exact range"
-                                : " · precision limited"
-                        : "",
-                exportStatus()));
+        view.renderInfo.setText(renderStatus(result, resolution.adjustmentDeferred(),
+                exportStatus(), renderer.cacheSummary()));
         if (resolution.rangeChanged()) {
             requestFullRender();
         } else if (requiresExactRangeRetry(result.quality(), resolution)) {
@@ -988,12 +1012,23 @@ public final class PlotController implements AutoCloseable {
         view.renderInfo.setText("Rendering failed");
     }
 
-    static RangeResolution resolveRange(final double previousFullMin,
-            final double previousFullMax, final double oldMin, final double oldMax,
-            final RangeAdjustment adjustment, final Optional<FieldExtrema> extrema,
-            final boolean trustedExtrema) {
-        return resolveRange(previousFullMin, previousFullMax, oldMin, oldMax, oldMin, oldMax,
-                adjustment, extrema, trustedExtrema);
+    /**
+     * The status line after a render. Its markers go before the cache summary,
+     * which alone is wider than the side panel: after it they were always cut off.
+     */
+    static String renderStatus(final RenderResult result, final boolean adjustmentDeferred,
+            final String exportStatus, final String cacheSummary) {
+        return String.format(Locale.ROOT, "%s · %.1f ms · %d×%d%s%s%s · cache %s",
+                result.quality() == RenderQuality.FULL ? "Full" : "Preview",
+                result.renderNanos() / 1_000_000.0,
+                result.image().getWidth(), result.image().getHeight(),
+                result.extrema().isEmpty() ? " · no finite samples" : "",
+                result.precisionLimited()
+                        ? adjustmentDeferred
+                                ? " · precision limited · resolving exact range"
+                                : " · precision limited"
+                        : "",
+                exportStatus, cacheSummary);
     }
 
     /**
@@ -1119,6 +1154,16 @@ public final class PlotController implements AutoCloseable {
         syncSlidersFromModel();
     }
 
+    /** The lower level a later clamp starts from; for Swing tests, like {@link #pinSliderDomain}. */
+    double requestedMinimum() {
+        return requestedMin;
+    }
+
+    /** The upper level a later clamp starts from; for Swing tests, like {@link #pinSliderDomain}. */
+    double requestedMaximum() {
+        return requestedMax;
+    }
+
     private void syncSlidersFromModel() {
         suppressSliders = true;
         view.distanceMin.setValue(distanceToSlider(model.getDistanceMin()));
@@ -1229,5 +1274,10 @@ public final class PlotController implements AutoCloseable {
         fullTimer.stop();
         cursorService.close();
         renderService.close();
+        if (activeExport != null) {
+            // "Close now" cancelled a running export: give its write a moment to
+            // stop and remove its temporary file before the application exits
+            renderService.awaitWorker(EXPORT_STOP_WAIT_MILLIS);
+        }
     }
 }

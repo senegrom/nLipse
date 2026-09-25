@@ -4,15 +4,34 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.image.BufferedImage;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import nlipse.geometry.Point2;
 import nlipse.render.FieldExtrema;
 import nlipse.render.RenderQuality;
+import nlipse.render.RenderResult;
 
 class PlotControllerTest {
     private static final FieldExtrema EXTREMA = new FieldExtrema(10, 20,
             new Point2(0, 0), new Point2(1, 1));
+
+    /**
+     * The cache summary alone is wider than the side panel, so the markers after
+     * it were never visible: an export in progress, a pending close, limited precision.
+     */
+    @Test
+    void statusMarkersComeBeforeTheCacheSummary() {
+        final RenderResult limited = new RenderResult(
+                new BufferedImage(4, 3, BufferedImage.TYPE_INT_ARGB), 0, RenderQuality.FULL,
+                Optional.empty(), 12_300_000, true);
+
+        assertEquals("Full · 12.3 ms · 4×3 · no finite samples · precision limited"
+                        + " · resolving exact range · exporting PNG… · cache grid 1/2",
+                PlotController.renderStatus(limited, true, " · exporting PNG…", "grid 1/2"));
+        assertEquals("Full · 12.3 ms · 4×3 · no finite samples · precision limited · cache grid 1/2",
+                PlotController.renderStatus(limited, false, "", "grid 1/2"));
+    }
 
     @Test
     void retainsEveryRepresentableLevelChange() {
@@ -40,7 +59,7 @@ class PlotControllerTest {
     @Test
     void untrustedExtremaDoNotChangeExactRangeState() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
-                -5, 5, 1, 2, PlotController.RangeAdjustment.AUTO_FIT,
+                -5, 5, 1, 2, 1, 2, PlotController.RangeAdjustment.AUTO_FIT,
                 Optional.of(EXTREMA), false);
 
         assertEquals(-5, resolution.fullMin());
@@ -54,14 +73,14 @@ class PlotControllerTest {
     @Test
     void deferredRangeAdjustmentRetriesAfterASettledLimitedFullRender() {
         final PlotController.RangeResolution deferred = PlotController.resolveRange(
-                -5, 5, 1, 2, PlotController.RangeAdjustment.CLAMP,
+                -5, 5, 1, 2, 1, 2, PlotController.RangeAdjustment.CLAMP,
                 Optional.of(EXTREMA), false);
 
         assertFalse(PlotController.requiresExactRangeRetry(RenderQuality.PREVIEW, deferred));
         assertTrue(PlotController.requiresExactRangeRetry(RenderQuality.FULL, deferred));
 
         final PlotController.RangeResolution noAdjustment = PlotController.resolveRange(
-                -5, 5, 1, 2, PlotController.RangeAdjustment.NONE,
+                -5, 5, 1, 2, 1, 2, PlotController.RangeAdjustment.NONE,
                 Optional.of(EXTREMA), false);
         assertFalse(PlotController.requiresExactRangeRetry(
                 RenderQuality.FULL, noAdjustment));
@@ -70,7 +89,7 @@ class PlotControllerTest {
     @Test
     void exactExtremaApplyDeferredAutoFit() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
-                -5, 5, 1, 2, PlotController.RangeAdjustment.AUTO_FIT,
+                -5, 5, 1, 2, 1, 2, PlotController.RangeAdjustment.AUTO_FIT,
                 Optional.of(EXTREMA), true);
 
         assertEquals(10, resolution.fullMin());
@@ -84,7 +103,7 @@ class PlotControllerTest {
     @Test
     void exactRenderWithoutFiniteSamplesConsumesPendingAdjustmentSafely() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
-                -5, 5, 1, 2, PlotController.RangeAdjustment.CLAMP,
+                -5, 5, 1, 2, 1, 2, PlotController.RangeAdjustment.CLAMP,
                 Optional.empty(), true);
 
         assertEquals(-5, resolution.fullMin());
@@ -98,7 +117,7 @@ class PlotControllerTest {
     @Test
     void exactExtremaDoNotAutoFitManualLevelsWithoutAPendingAdjustment() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
-                -5, 5, -20, -10, PlotController.RangeAdjustment.NONE,
+                -5, 5, -20, -10, -20, -10, PlotController.RangeAdjustment.NONE,
                 Optional.of(EXTREMA), true);
 
         assertEquals(10, resolution.fullMin());
@@ -143,7 +162,7 @@ class PlotControllerTest {
     @Test
     void exactExtremaRefreshSliderDomainWithoutChangingManualLevels() {
         final PlotController.RangeResolution resolution = PlotController.resolveRange(
-                -5, 5, 12, 18, PlotController.RangeAdjustment.NONE,
+                -5, 5, 12, 18, 12, 18, PlotController.RangeAdjustment.NONE,
                 Optional.of(EXTREMA), true);
 
         assertEquals(10, resolution.fullMin());

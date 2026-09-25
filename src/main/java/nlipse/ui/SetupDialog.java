@@ -37,10 +37,10 @@ import nlipse.render.Viewport;
 public final class SetupDialog extends JDialog {
     private static final long serialVersionUID = 1L;
 
-    private final JComboBox<CurveType> curveType = new JComboBox<>(CurveType.values());
+    final JComboBox<CurveType> curveType = new JComboBox<>(CurveType.values());
     private final JLabel curveDescription = new JLabel();
     private final JLabel familyParameterLabel = new JLabel("Parameter:");
-    private final JTextField familyParameter = new JTextField(9);
+    final JTextField familyParameter = new JTextField(9);
     final DefaultTableModel focusModel = new DefaultTableModel(
             new String[]{"X", "Y", "Weight"}, 0) {
         private static final long serialVersionUID = 1L;
@@ -61,10 +61,12 @@ public final class SetupDialog extends JDialog {
     private final JCheckBox showBackground = new JCheckBox("Show background field");
     private final JCheckBox showExtrema = new JCheckBox("Show sampled min/max");
     private final JCheckBox antiAlias = new JCheckBox("Anti-alias lines and markers");
-    private final JCheckBox logSpacing = new JCheckBox("Use logarithmic level spacing");
+    final JCheckBox logSpacing = new JCheckBox("Use logarithmic level spacing");
     private final JCheckBox showLegend = new JCheckBox("Show level legend");
 
     private transient PlotConfig result;
+    /** The family the form currently shows; picking it again keeps its settings. */
+    private CurveType appliedFamily;
 
     SetupDialog(final Frame owner, final PlotConfig initial) {
         super(owner, "nLipse Setup", true);
@@ -84,6 +86,7 @@ public final class SetupDialog extends JDialog {
 
     private void initialise(final PlotConfig initial) {
         curveType.setSelectedItem(initial.curveType());
+        appliedFamily = initial.curveType();
         familyParameter.setText(initial.curveType().usesParameter()
                 ? initial.curveType().formatParameter(initial.familyParameter()) : "not used");
         updateCurvePresentation(initial.curveType(), initial.familyParameter());
@@ -120,7 +123,10 @@ public final class SetupDialog extends JDialog {
         // main window's type switch does the same); the checkbox stays editable.
         curveType.addActionListener(event -> {
             final CurveType selected = (CurveType) curveType.getSelectedItem();
-            if (selected != null) {
+            // The combo also fires when the current family is picked again, which
+            // must not reset a loaded parameter or spacing choice.
+            if (selected != null && selected != appliedFamily) {
+                appliedFamily = selected;
                 logSpacing.setSelected(selected.defaultLogSpacing());
                 familyParameter.setText(selected.usesParameter()
                         ? selected.formatParameter(selected.defaultParameter()) : "not used");

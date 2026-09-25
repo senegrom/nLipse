@@ -81,8 +81,39 @@ class PlotSliderInteractionIT {
         });
     }
 
+    /**
+     * Zoomed in, a clamp narrows the displayed levels to the visible field.
+     * Dragging one knob then made the other bound's clamped value a request as
+     * well, so zooming back out could no longer restore it.
+     */
+    @Test
+    void draggingOneKnobKeepsTheOtherRequestedBound() throws Exception {
+        withController(1.23456789, 6.789012345, (model, view, controller) -> {
+            // What a clamp to a zoomed-in field does: the display only
+            model.setDistanceRange(2, 5);
+            view.distanceMin.setValue(300);
+            assertEquals(3, controller.requestedMinimum());
+            assertEquals(6.789012345, controller.requestedMaximum());
+
+            model.setDistanceRange(3.5, 4);
+            view.distanceMax.setValue(450);
+            assertEquals(3, controller.requestedMinimum());
+            assertEquals(4.5, controller.requestedMaximum());
+        });
+    }
+
+    @FunctionalInterface
+    private interface ControllerAction {
+        void accept(PlotModel model, PlotWindow view, PlotController controller);
+    }
+
     private static void withController(final double minimum, final double maximum,
             final BiConsumer<PlotModel, PlotWindow> action) throws Exception {
+        withController(minimum, maximum, (model, view, controller) -> action.accept(model, view));
+    }
+
+    private static void withController(final double minimum, final double maximum,
+            final ControllerAction action) throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             final PlotModel model = new PlotModel(PlotConfig.defaults());
             model.setDistanceRange(minimum, maximum);
@@ -93,7 +124,7 @@ class PlotSliderInteractionIT {
             try {
                 // Isolate slider input from asynchronous, sample-derived domain changes.
                 controller.pinSliderDomain(0, 10);
-                action.accept(model, view);
+                action.accept(model, view, controller);
             } finally {
                 controller.close();
                 view.dispose();

@@ -324,7 +324,7 @@ final class WorldFieldCache {
                 return;
             }
             final int middle = (from + to) >>> 1;
-            invokeAll(
+            SamplingPool.invokeBoth(
                     new SampleTilesTask(requests, from, middle, lattice, field, token,
                             reusedSamples),
                     new SampleTilesTask(requests, middle, to, lattice, field, token,

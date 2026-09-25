@@ -60,8 +60,10 @@ public final class ScalarRanges {
             return Double.POSITIVE_INFINITY;
         }
         final double range = maximum - minimum;
-        if (Double.isFinite(range)) {
-            return (value - minimum) / range;
+        final double offset = value - minimum;
+        // A far off-range value can overflow the offset even when the span fits
+        if (Double.isFinite(range) && Double.isFinite(offset)) {
+            return offset / range;
         }
         final double scale = Math.max(Math.max(Math.abs(minimum), Math.abs(maximum)),
                 Math.abs(value));

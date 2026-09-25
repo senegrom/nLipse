@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import nlipse.model.CurveType;
 import nlipse.model.Focus;
 import nlipse.model.PlotConfig;
 import org.junit.jupiter.api.Test;
@@ -73,10 +74,36 @@ class SetupDialogIT {
         return Double.parseDouble(String.valueOf(dialog.focusModel.getValueAt(row, column)));
     }
 
+    /**
+     * The combo fires its action when the current family is picked again. That
+     * reset a loaded parameter to the family default, and the spacing choice with it.
+     */
+    @Test
+    void pickingTheCurrentFamilyAgainKeepsItsSettings() throws Exception {
+        final CurveType family = CurveType.POWER_MEAN;
+        withDialog(family, 2.5, dialog -> {
+            dialog.logSpacing.setSelected(!family.defaultLogSpacing());
+            dialog.curveType.setSelectedItem(family);
+            assertEquals(family.formatParameter(2.5), dialog.familyParameter.getText());
+            assertEquals(!family.defaultLogSpacing(), dialog.logSpacing.isSelected());
+
+            dialog.curveType.setSelectedItem(CurveType.LIPSE);
+            dialog.curveType.setSelectedItem(family);
+            assertEquals(family.formatParameter(family.defaultParameter()),
+                    dialog.familyParameter.getText(), "a new family still starts from its defaults");
+        });
+    }
+
     private static void withDialog(final Consumer<SetupDialog> action) throws Exception {
+        final PlotConfig defaults = PlotConfig.defaults();
+        withDialog(defaults.curveType(), defaults.familyParameter(), action);
+    }
+
+    private static void withDialog(final CurveType family, final double parameter,
+            final Consumer<SetupDialog> action) throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             final PlotConfig defaults = PlotConfig.defaults();
-            final PlotConfig config = new PlotConfig(defaults.curveType(), defaults.familyParameter(),
+            final PlotConfig config = new PlotConfig(family, parameter,
                     List.of(new Focus(1, 10, 1), new Focus(2, 20, 1), new Focus(3, 30, 1)),
                     defaults.distanceMin(), defaults.distanceMax(), defaults.curveCount(),
                     defaults.viewport(), defaults.showBackground(), defaults.showExtrema(),

@@ -1,6 +1,8 @@
 package nlipse.math;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.math.BigDecimal;
 import java.util.List;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
@@ -156,5 +158,132 @@ class ReviewNumericalRegressionTest {
                 new Focus(-2.9206e-8, 0, -Math.exp(20)));
         assertEquals(0.0, DistanceFields.create(CurveType.GAUSSIAN, foci, 1).value(4.69762048e8, 0));
         assertEquals(0.0, ExactFieldMath.gaussian(FocusSet.from(foci), 4.69762048e8, 0, 1));
+    }
+
+    /**
+     * Coincident opposite foci cancel exactly. Out here (e^-1800) even the exact
+     * evaluator's exponentials truncate to zero, so only the dominance rule can
+     * sign the result; weighed one by one, the pair's equal and opposite terms
+     * tied for dominance and left the zero unsigned (+0.0), though the only
+     * term that remains is negative.
+     */
+    @Test
+    void gaussianZeroSignIgnoresACancelledPair() {
+        final List<Focus> foci = List.of(new Focus(1, 0, 1), new Focus(1, 0, -1),
+                new Focus(0, 0, -1));
+        assertEquals(-0.0, DistanceFields.create(CurveType.GAUSSIAN, foci, 1).value(61, 0));
+        assertEquals(-0.0, ExactFieldMath.gaussian(FocusSet.from(foci), 61, 0, 1));
+    }
+
+    /**
+     * When every ratio |w|d/τ underflows or turns subnormal, the envelope is the
+     * arithmetic mean of the magnitude distances. With the allowance spent,
+     * 0.12.15 returned the hard envelope there, or ratios quantized to
+     * multiples of the smallest subnormal.
+     */
+    @Test
+    void smoothEnvelopeOfUnderflowedRatiosIsTheMeanWithoutAllowance() {
+        record Case(double temperature, List<Focus> foci, double x, double y, double mean) {
+        }
+        final List<Case> cases = List.of(
+                new Case(1e17, List.of(new Focus(0, 0, 1), new Focus(2e-307, 0, 1)), 0, 0, 1e-307),
+                new Case(1e17, List.of(new Focus(0, 0, 1), new Focus(1e-306, 0, 1),
+                        new Focus(0, 3e-306, 1)), 2e-307, 1e-307, 1.3122403144431869e-306),
+                new Case(1e308, List.of(new Focus(0, 0, 1), new Focus(1e-16, 0, 1),
+                        new Focus(3e-16, 0, 1)), 0, 0, 1.3333333333333334e-16),
+                new Case(1e300, List.of(new Focus(0, 0, 1), new Focus(1e-24, 0, 2)),
+                        5e-25, 0, 7.5e-25),
+                new Case(1e17, List.of(new Focus(0, 0, 1), new Focus(9e-307, 0, 1)),
+                        3e-307, 0, 4.5e-307));
+        for (final Case example : cases) {
+            for (final CurveType type : List.of(CurveType.SMOOTH_NEAREST, CurveType.SMOOTH_FARTHEST)) {
+                final String label = type + " at τ=" + example.temperature() + " " + example.foci();
+                final double value = DistanceFields.create(type, example.foci(),
+                        example.temperature(), ExactBudget.limited(0)).value(example.x(), example.y());
+                assertEquals(example.mean(), value, 4 * Math.ulp(example.mean()), label);
+                // With the allowance such ratios go exact, which also rounds a tie of the mean.
+                assertEquals(ExactFieldMath.smoothEnvelope(FocusSet.from(example.foci()), example.x(),
+                                example.y(), example.temperature(), type == CurveType.SMOOTH_NEAREST),
+                        DistanceFields.create(type, example.foci(), example.temperature())
+                                .value(example.x(), example.y()), label);
+            }
+        }
+    }
+
+    /**
+     * Above τ ≈ 1.4e306 every ratio |w|/τ counts as rounding sensitive, so every
+     * point goes exact, and there the exact envelope's logarithm near 1 cost
+     * 9-22 ms a point. So far below the temperature, mean and variance bound
+     * the envelope instead.
+     */
+    @Test
+    void smoothEnvelopeAtAHugeTemperatureNeedsNoLogarithm() {
+        final List<Focus> foci = List.of(new Focus(0, 0, 1), new Focus(1, 0, 1), new Focus(0, 1, 1));
+        final DistanceField mean = DistanceFields.create(CurveType.POWER_MEAN, foci, 1);
+        final double[] expected = new double[200];
+        for (int index = 0; index < expected.length; index++) {
+            expected[index] = mean.value(0.3 + index * 1e-3, 0.4);
+        }
+        for (final CurveType type : List.of(CurveType.SMOOTH_NEAREST, CurveType.SMOOTH_FARTHEST)) {
+            final DistanceField field = DistanceFields.create(type, foci, 1e307);
+            field.value(0.3, 0.4);
+            final double[] values = new double[expected.length];
+            final long started = System.nanoTime();
+            for (int index = 0; index < values.length; index++) {
+                values[index] = field.value(0.3 + index * 1e-3, 0.4);
+            }
+            final long millis = (System.nanoTime() - started) / 1_000_000;
+            for (int index = 0; index < values.length; index++) {
+                assertEquals(expected[index], values[index], 4 * Math.ulp(expected[index]),
+                        type + " at point " + index);
+            }
+            // Two to four seconds through the logarithm; milliseconds without it.
+            assertTrue(millis < 1_000, type + " took " + millis + " ms");
+        }
+    }
+
+    /**
+     * The mean of 1 and nextUp(1) is exactly the tie between them, and the
+     * envelope leans off it: above for the farthest, below for the nearest.
+     * The mean-and-variance route must keep that lean at any huge temperature.
+     */
+    @Test
+    void exactEnvelopeFarBelowTheTemperatureRoundsATieOfTheMeanTheWayItLeans() {
+        final FocusSet foci = FocusSet.from(List.of(new Focus(Math.nextUp(1.0), 0, 1), new Focus(1, 0, 1)));
+        for (final double temperature : new double[]{1e20, 1e200, Double.MAX_VALUE}) {
+            assertEquals(Math.nextUp(1.0), ExactFieldMath.smoothEnvelope(foci, 0, 0, temperature, false));
+            assertEquals(1.0, ExactFieldMath.smoothEnvelope(foci, 0, 0, temperature, true));
+        }
+    }
+
+    /**
+     * exp(ln MAX) is about 100 ulps below MAX, and the primitive only clamped a
+     * logarithm above ln MAX: a product at the top of the range came back short,
+     * or finite where it overflows. Weights at or above 1022, the earlier
+     * tests', go exact anyway.
+     */
+    @Test
+    void cassiniRoundsCorrectlyAtTheEdgesOfTheRange() {
+        final double root = Math.sqrt(Double.MAX_VALUE);
+        final double[][] overflowSide = {
+                {Double.MAX_VALUE, 1}, {Math.nextDown(Double.MAX_VALUE), 1}, {1.7976931348623e308, 1},
+                {root, 2}, {Math.nextUp(root), 2}, {Math.cbrt(Double.MAX_VALUE), 3}};
+        for (final double[] example : overflowSide) {
+            assertCassiniPower(example[0], (int) example[1]);
+        }
+        // Around 2^-1075, where the product rounds to 0 or to MIN_VALUE
+        for (final int weight : new int[]{2, 3}) {
+            for (int step = -40; step <= 40; step += 8) {
+                assertCassiniPower(Math.exp((-1075 * Math.log(2) + step * 0x1.0p-45) / weight), weight);
+            }
+        }
+    }
+
+    private static void assertCassiniPower(final double distance, final int weight) {
+        // A single focus at the origin: the field is exactly distance^weight.
+        final double expected = new BigDecimal(distance).pow(weight).doubleValue();
+        final DistanceField field = DistanceFields.create(CurveType.CASSIN,
+                List.of(new Focus(0, 0, weight)));
+        assertEquals(expected, field.value(distance, 0), "distance " + distance + ", weight " + weight);
     }
 }

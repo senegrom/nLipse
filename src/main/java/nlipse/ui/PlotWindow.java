@@ -78,10 +78,12 @@ public final class PlotWindow extends JFrame {
     }
 
     private JScrollPane buildSidePanel() {
-        final JPanel side = new JPanel();
+        final JPanel side = new SidePanel();
         side.setLayout(new BoxLayout(side, BoxLayout.Y_AXIS));
         side.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        side.setPreferredSize(new Dimension(390, 800));
+        // The status line is often wider than the panel; its tooltip shows all of it
+        renderInfo.addPropertyChangeListener("text",
+                event -> renderInfo.setToolTipText((String) event.getNewValue()));
 
         final JPanel typePanel = new JPanel();
         typePanel.setLayout(new BoxLayout(typePanel, BoxLayout.Y_AXIS));
@@ -186,6 +188,22 @@ public final class PlotWindow extends JFrame {
 
     private static JPanel rowPanel() {
         return new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+    }
+
+    /**
+     * The side panel keeps a fixed width but its natural height. A fixed
+     * 800-pixel height made the scroll pane stop short: the panel needs about
+     * 1000 pixels, so on smaller screens the lower controls and the status line
+     * were cut off without a way to scroll to them.
+     */
+    static final class SidePanel extends JPanel {
+        private static final long serialVersionUID = 1L;
+        private static final int PANEL_WIDTH = 390;
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(PANEL_WIDTH, super.getPreferredSize().height);
+        }
     }
 
     private void initialise(final PlotSnapshot snapshot) {

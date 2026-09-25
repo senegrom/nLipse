@@ -6,7 +6,9 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import nlipse.model.CurveType;
 import nlipse.model.Focus;
@@ -80,9 +82,11 @@ class ExactFieldMathDifferentialTest {
             final double sigma = positiveFinite(random, -4, 4);
             final List<Focus> kernels = List.of(new Focus(firstDistance, 0, firstWeight),
                     new Focus(firstDistance, 0, -firstWeight * (1 + perturbation)));
-            assertBits(gaussian(kernels, 0, 0, sigma),
+            // Far out the kernels underflow, and the reference's own truncated
+            // exponentials cannot sign the zero: zeroSign does.
+            assertRoundsTo(gaussian(kernels, 0, 0, sigma),
                     ExactFieldMath.gaussian(FocusSet.from(kernels), 0, 0, sigma),
-                    label + " gaussian");
+                    zeroSign(kernels, 0, 0, sigma), label + " gaussian");
         }
     }
 
@@ -180,22 +184,31 @@ class ExactFieldMathDifferentialTest {
      * unsigned decimal zero far below the binary64 range. It is decided in
      * exact decimal arithmetic on {@code 2σ²·t = 2σ²·ln|w| - d²} (dominance by
      * more than {@code ln n + 1}), so the rounding of a primitive
-     * {@code -½(d/σ)²} cannot hide in the reference as well.
+     * {@code -½(d/σ)²} cannot hide in the reference as well. Terms at one exact
+     * squared distance share their kernel, so their weights are added first: a
+     * pair that cancels exactly leaves no term that could sign the zero.
      */
     private static double zeroSign(final List<Focus> foci, final double x, final double y,
             final double sigma) {
         final BigDecimal twoSigmaSquared = decimal(sigma).pow(2).multiply(BigDecimal.valueOf(2));
-        BigDecimal positive = null;
-        BigDecimal negative = null;
+        final Map<BigDecimal, BigDecimal> weights = new LinkedHashMap<>();
         for (final Focus focus : foci) {
-            if (focus.weight() == 0) {
-                continue;
-            }
             final BigDecimal dx = decimal(x).subtract(decimal(focus.x()));
             final BigDecimal dy = decimal(y).subtract(decimal(focus.y()));
-            final BigDecimal key = twoSigmaSquared.multiply(decimal(Math.log(Math.abs(focus.weight()))))
-                    .subtract(dx.multiply(dx)).subtract(dy.multiply(dy));
-            if (focus.weight() > 0) {
+            weights.merge(dx.multiply(dx).add(dy.multiply(dy)).stripTrailingZeros(),
+                    decimal(focus.weight()), BigDecimal::add);
+        }
+        BigDecimal positive = null;
+        BigDecimal negative = null;
+        for (final Map.Entry<BigDecimal, BigDecimal> term : weights.entrySet()) {
+            final BigDecimal weight = term.getValue();
+            if (weight.signum() == 0) {
+                continue;
+            }
+            final BigDecimal key = twoSigmaSquared
+                    .multiply(decimal(Math.log(Math.abs(weight.doubleValue()))))
+                    .subtract(term.getKey());
+            if (weight.signum() > 0) {
                 positive = positive == null ? key : positive.max(key);
             } else {
                 negative = negative == null ? key : negative.max(key);

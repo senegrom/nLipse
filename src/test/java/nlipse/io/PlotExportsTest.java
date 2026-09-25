@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -80,6 +81,26 @@ class PlotExportsTest {
         assertThrows(IOException.class, () -> PlotExports.writeSvg(limited, svg));
         assertEquals("existing png", Files.readString(png));
         assertEquals("existing svg", Files.readString(svg));
+    }
+
+    @Test
+    void interruptedPngWriteLeavesNoFileBehind() throws Exception {
+        // Closing the window interrupts an export in progress. ImageIO's own file
+        // output ignored the interrupt and finished the "discarded" file.
+        final RenderResult result = new PlotRenderer().render(new RenderRequest(snapshot(),
+                64, 48, RenderQuality.FULL), CancellationToken.NONE);
+        final Path png = directory.resolve("interrupted.png");
+
+        Thread.currentThread().interrupt();
+        try {
+            assertThrows(IOException.class, () -> PlotExports.writePng(result, png));
+        } finally {
+            Thread.interrupted();
+        }
+
+        try (Stream<Path> files = Files.list(directory)) {
+            assertEquals(List.of(), files.toList());
+        }
     }
 
     private static PlotSnapshot snapshot() {

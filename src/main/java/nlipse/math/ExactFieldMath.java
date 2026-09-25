@@ -2,6 +2,11 @@ package nlipse.math;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Rare-path adaptive-precision arithmetic for overflow and severe cancellation.
@@ -18,6 +23,11 @@ final class ExactFieldMath {
     /** Cap on the digits reserved ahead of time; the adaptive loop supplies the rest. */
     private static final int RESERVED_DIGITS_CAP = 400;
     private static final BigDecimal TWO = BigDecimal.valueOf(2);
+    /** Largest ratio z/τ at which the smooth envelope is taken from its mean and variance. */
+    private static final BigDecimal TINY_ENVELOPE_RATIO = new BigDecimal(0x1p-60);
+    private static final BigDecimal THREE_HALVES = new BigDecimal("1.5");
+    /** An upper bound of a ratio, to six digits. */
+    private static final MathContext RATIO_BOUND = new MathContext(6, RoundingMode.UP);
 
     private ExactFieldMath() {
     }
@@ -35,16 +45,12 @@ final class ExactFieldMath {
     }
 
     static double signedDistanceSum(final FocusSet foci, final double x, final double y) {
+        final List<DistanceGroup> groups = distanceGroups(foci, point(x, y));
         return AdaptiveDecimal.toDouble(context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
             Ball sum = Ball.ZERO;
-            for (int index = 0; index < foci.size(); index++) {
-                if (foci.isActive(index)) {
-                    sum = sum.add(distance(exact, index, point, work)
-                            .multiply(exact.weight(index), work), work);
-                }
+            for (final DistanceGroup group : groups) {
+                sum = sum.add(group.distance(work).multiply(group.weight(), work), work);
             }
             return sum;
         });
@@ -110,19 +116,35 @@ final class ExactFieldMath {
         if (size < 2) {
             return 0;
         }
+        // Foci with exactly equal weighted distances w·d add exactly nothing to one
+        // another, so each group of equal values enters once, weighted by how many
+        // pairs it stands for, and all-equal values are an exact zero at once.
+        final DecimalPoint point = point(x, y);
+        final ExactFocusData exact = foci.exactData();
+        final Map<ValueKey, ValueGroup> byValue = new LinkedHashMap<>();
+        for (int index = 0; index < size; index++) {
+            final BigDecimal squared = squaredDistance(exact, index, point);
+            final BigDecimal weight = exact.weight(index);
+            final ValueKey key = new ValueKey(weight.signum() * squared.signum(),
+                    weight.multiply(weight).multiply(squared).stripTrailingZeros());
+            byValue.merge(key, new ValueGroup(squared, weight, 1),
+                    (first, second) -> new ValueGroup(first.squaredDistance(), first.weight(),
+                            first.count() + 1));
+        }
+        final List<ValueGroup> groups = new ArrayList<>(byValue.values());
         return AdaptiveDecimal.toDouble(context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
-            final Ball[] values = new Ball[size];
-            for (int index = 0; index < size; index++) {
-                values[index] = distance(exact, index, point, work)
-                        .multiply(exact.weight(index), work);
+            final Ball[] values = new Ball[groups.size()];
+            for (int group = 0; group < values.length; group++) {
+                values[group] = Ball.exact(groups.get(group).squaredDistance()).sqrt(work)
+                        .multiply(groups.get(group).weight(), work);
             }
             Ball sum = Ball.ZERO;
-            for (int index = 0; index < size; index++) {
-                for (int previous = 0; previous < index; previous++) {
-                    sum = sum.add(values[index].subtract(values[previous], work).abs(), work);
+            for (int group = 0; group < values.length; group++) {
+                for (int previous = 0; previous < group; previous++) {
+                    final long pairs = (long) groups.get(group).count() * groups.get(previous).count();
+                    sum = sum.add(values[group].subtract(values[previous], work).abs()
+                            .multiply(BigDecimal.valueOf(pairs), work), work);
                 }
             }
             final BigDecimal divisor = BigDecimal.valueOf((long) size * (size - 1));
@@ -133,6 +155,11 @@ final class ExactFieldMath {
     static double range(final FocusSet foci, final double x, final double y) {
         final int count = foci.activeCount();
         if (count < 2) {
+            return 0;
+        }
+        // Exactly equal magnitude distances (equal w²d²) are an exact zero, which
+        // two separately enclosed order statistics would leave as 0 ± 2r.
+        if (magnitudeDistancesAllEqual(foci, point(x, y))) {
             return 0;
         }
         return AdaptiveDecimal.toDouble(context -> {
@@ -192,16 +219,12 @@ final class ExactFieldMath {
         if (negativeInfinity) {
             return Double.NEGATIVE_INFINITY;
         }
+        final List<DistanceGroup> groups = distanceGroups(foci, point(x, y));
         return AdaptiveDecimal.toDouble(context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
             Ball sum = Ball.ZERO;
-            for (int index = 0; index < foci.size(); index++) {
-                if (foci.isActive(index)) {
-                    sum = sum.add(Ball.exact(exact.weight(index))
-                            .divide(distance(exact, index, point, work), work), work);
-                }
+            for (final DistanceGroup group : groups) {
+                sum = sum.add(Ball.exact(group.weight()).divide(group.distance(work), work), work);
             }
             return sum;
         });
@@ -302,6 +325,10 @@ final class ExactFieldMath {
             final MathContext work = AdaptiveDecimal.guard(context);
             final BigDecimal tau = AdaptiveDecimal.exact(temperature);
             final Ball[] values = magnitudeDistances(foci, exact, point, work);
+            final Ball farBelowTemperature = tinyRatioEnvelope(values, tau, nearest, work);
+            if (farBelowTemperature != null) {
+                return farBelowTemperature;
+            }
             // The identity anchor +- tau log(mean exp(+-(v - anchor)/tau)) holds
             // for any anchor; the extreme one keeps every exponent non-positive.
             Ball anchor = values[0];
@@ -323,26 +350,68 @@ final class ExactFieldMath {
         });
     }
 
+    /**
+     * The smooth envelope far below the temperature, from the mean and variance
+     * of the magnitude distances z alone. Near 1 the logarithm of the general
+     * route loses digits so fast that there it climbed to 544-digit rungs, at
+     * 9-22 ms a point.
+     *
+     * <p>With u = z/τ, every |u - ū| is at most ρ ≥ max z/τ, and for ρ ≤ 1
+     * the log-moment ln E[exp(±(u - ū))] lies within [1 - ρ, 1 + 2ρ] times
+     * Var(u)/2 (from e^v ≥ 1 + v + v²/2 + v³/6 and e^v - 1 - v ≤ (v²/2)e^|v|).
+     * So the envelope is mean(z) ± (1 + ε)·Var(z)/(2τ) with -ρ ≤ ε ≤ 2ρ: an
+     * enclosure a relative ρ² wide at ρ ≤ 2^-60, and strictly off the mean
+     * whenever the distances differ, which rounds a tie of the mean the way
+     * the envelope leans.
+     *
+     * @return the enclosure, or {@code null} when a ratio may exceed 2^-60
+     */
+    private static Ball tinyRatioEnvelope(final Ball[] values, final BigDecimal tau,
+            final boolean nearest, final MathContext work) {
+        BigDecimal largest = BigDecimal.ZERO;
+        for (final Ball value : values) {
+            if (!value.isBounded()) {
+                return null;
+            }
+            largest = largest.max(value.midpoint().abs().add(value.radius()));
+        }
+        final BigDecimal ratio = largest.divide(tau, RATIO_BOUND);
+        if (ratio.compareTo(TINY_ENVELOPE_RATIO) > 0) {
+            return null;
+        }
+        final BigDecimal count = BigDecimal.valueOf(values.length);
+        Ball sum = Ball.ZERO;
+        for (final Ball value : values) {
+            sum = sum.add(value, work);
+        }
+        final Ball mean = sum.divide(count, work);
+        Ball squares = Ball.ZERO;
+        for (final Ball value : values) {
+            final Ball deviation = value.subtract(mean, work);
+            squares = squares.add(deviation.multiply(deviation, work), work);
+        }
+        final Ball halfVarianceOverTau = squares.divide(count.multiply(TWO), work).divide(tau, work);
+        // 1 + ε for ε in [-ρ, 2ρ]: midpoint 1 + ρ/2, radius 3ρ/2
+        final Ball factor = Ball.of(BigDecimal.ONE.add(ratio.divide(TWO)), ratio.multiply(THREE_HALVES));
+        final Ball correction = halfVarianceOverTau.multiply(factor, work);
+        return nearest ? mean.subtract(correction, work) : mean.add(correction, work);
+    }
+
     static double gaussian(final FocusSet foci, final double x, final double y,
             final double sigma) {
         if (foci.activeCount() == 0) {
             return 0;
         }
+        final List<DistanceGroup> groups = distanceGroups(foci, point(x, y));
         final double value = AdaptiveDecimal.toDouble(context -> {
-            final DecimalPoint point = point(x, y);
-            final ExactFocusData exact = foci.exactData();
             final MathContext work = AdaptiveDecimal.guard(context);
             final Ball sigmaDecimal = Ball.exact(sigma);
             final Ball denominator = sigmaDecimal.multiply(sigmaDecimal, work).multiply(TWO, work);
             Ball sum = Ball.ZERO;
-            for (int index = 0; index < foci.size(); index++) {
-                if (!foci.isActive(index)) {
-                    continue;
-                }
-                final Ball distance = distance(exact, index, point, work);
-                final Ball exponent = distance.multiply(distance, work)
+            for (final DistanceGroup group : groups) {
+                final Ball exponent = Ball.exact(group.squaredDistance())
                         .divide(denominator, work).negate();
-                sum = sum.add(exponent.exp(work).multiply(exact.weight(index), work), work);
+                sum = sum.add(exponent.exp(work).multiply(group.weight(), work), work);
             }
             return sum;
         });
@@ -351,7 +420,7 @@ final class ExactFieldMath {
         // one sign's largest term provably dominates the other sign's total,
         // the correctly rounded zero is that sign's.
         if (value == 0) {
-            final int sign = underflowedGaussianSign(foci, x, y, sigma);
+            final int sign = underflowedGaussianSign(groups, sigma);
             if (sign != 0) {
                 return sign > 0 ? 0.0 : -0.0;
             }
@@ -367,25 +436,19 @@ final class ExactFieldMath {
      * 2σ²·ln|w| - d²} in exact decimal arithmetic: the primitive
      * {@code -½(d/σ)²} errs by about {@code (d/σ)²·2^-52}, which beyond
      * d/σ ≈ 1e8 exceeds the margin itself, and overflows past d/σ ≈ 1.3e154.
+     * The terms are the merged distance groups, so a cancelled pair cannot
+     * decide the sign of what remains.
      */
-    private static int underflowedGaussianSign(final FocusSet foci, final double x,
-            final double y, final double sigma) {
+    private static int underflowedGaussianSign(final List<DistanceGroup> groups,
+            final double sigma) {
         final BigDecimal twoSigmaSquared = AdaptiveDecimal.exact(sigma).pow(2).multiply(TWO);
-        final BigDecimal pointX = AdaptiveDecimal.exact(x);
-        final BigDecimal pointY = AdaptiveDecimal.exact(y);
         BigDecimal positive = null;
         BigDecimal negative = null;
-        for (int index = 0; index < foci.size(); index++) {
-            if (!foci.isActive(index)) {
-                continue;
-            }
-            final double weight = foci.weight(index);
-            final BigDecimal dx = pointX.subtract(AdaptiveDecimal.exact(foci.x(index)));
-            final BigDecimal dy = pointY.subtract(AdaptiveDecimal.exact(foci.y(index)));
+        for (final DistanceGroup group : groups) {
             final BigDecimal key = twoSigmaSquared
-                    .multiply(AdaptiveDecimal.exact(Math.log(Math.abs(weight))))
-                    .subtract(dx.multiply(dx)).subtract(dy.multiply(dy));
-            if (weight > 0) {
+                    .multiply(AdaptiveDecimal.exact(logMagnitude(group.weight())))
+                    .subtract(group.squaredDistance());
+            if (group.weight().signum() > 0) {
                 positive = positive == null ? key : positive.max(key);
             } else {
                 negative = negative == null ? key : negative.max(key);
@@ -396,7 +459,7 @@ final class ExactFieldMath {
         }
         // ln|w| is a rounded double (within 2e-13 for any finite weight), hence the slack.
         final BigDecimal margin = twoSigmaSquared.multiply(
-                AdaptiveDecimal.exact(Math.log(foci.activeCount()) + 1 + 1e-12));
+                AdaptiveDecimal.exact(Math.log(groups.size()) + 1 + 1e-12));
         final BigDecimal difference = positive.subtract(negative);
         if (difference.compareTo(margin) > 0) {
             return 1;
@@ -490,6 +553,97 @@ final class ExactFieldMath {
         return new DecimalPoint(AdaptiveDecimal.exact(x), AdaptiveDecimal.exact(y));
     }
 
+    /** The squared distance of a focus from the point, exactly. */
+    private static BigDecimal squaredDistance(final ExactFocusData exact, final int index,
+            final DecimalPoint point) {
+        final BigDecimal dx = point.x().subtract(exact.x(index));
+        final BigDecimal dy = point.y().subtract(exact.y(index));
+        return dx.multiply(dx).add(dy.multiply(dy));
+    }
+
+    /**
+     * The active foci of a weight-linear sum, grouped by their exact squared
+     * distance from the point with each group's weights added exactly; groups
+     * whose weights cancel are left out. Each distance then enters the sum once,
+     * so an exact cancellation (coincident foci of opposite weight, or a point
+     * on the mirror line of an antisymmetric pair) is exactly absent. Enclosed
+     * term by term it left 0 ± 2r, which the adaptive loop resolves only once
+     * the radius is below 2^-1075, at 544 or 1088 digits: milliseconds a point.
+     */
+    private static List<DistanceGroup> distanceGroups(final FocusSet foci,
+            final DecimalPoint point) {
+        final ExactFocusData exact = foci.exactData();
+        final Map<BigDecimal, DistanceGroup> byDistance = new LinkedHashMap<>();
+        for (int index = 0; index < foci.size(); index++) {
+            if (!foci.isActive(index)) {
+                continue;
+            }
+            final BigDecimal squared = squaredDistance(exact, index, point);
+            // Keyed without trailing zeros, so that equal values are equal keys
+            byDistance.merge(squared.stripTrailingZeros(),
+                    new DistanceGroup(squared, exact.weight(index)),
+                    (first, second) -> new DistanceGroup(first.squaredDistance(),
+                            first.weight().add(second.weight())));
+        }
+        final List<DistanceGroup> groups = new ArrayList<>(byDistance.size());
+        for (final DistanceGroup group : byDistance.values()) {
+            if (group.weight().signum() != 0) {
+                groups.add(group);
+            }
+        }
+        return groups;
+    }
+
+    /** Whether every active focus has exactly the same magnitude distance |w|·d. */
+    private static boolean magnitudeDistancesAllEqual(final FocusSet foci,
+            final DecimalPoint point) {
+        final ExactFocusData exact = foci.exactData();
+        BigDecimal first = null;
+        for (int index = 0; index < foci.size(); index++) {
+            if (!foci.isActive(index)) {
+                continue;
+            }
+            final BigDecimal weight = exact.weight(index);
+            final BigDecimal square = weight.multiply(weight)
+                    .multiply(squaredDistance(exact, index, point));
+            if (first == null) {
+                first = square;
+            } else if (square.compareTo(first) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * ln|w| of a nonzero exact weight as a double, within about 2e-13 even when a
+     * merged weight lies beyond the double range. A weight that is one double
+     * gets exactly {@code Math.log(Math.abs(w))}.
+     */
+    private static double logMagnitude(final BigDecimal weight) {
+        final double magnitude = Math.abs(weight.doubleValue());
+        if (Double.isFinite(magnitude)) {
+            return Math.log(magnitude);
+        }
+        final int exponent = weight.precision() - weight.scale() - 1;
+        return Math.log(weight.abs().movePointLeft(exponent).doubleValue()) + exponent * LN_TEN;
+    }
+
     private record DecimalPoint(BigDecimal x, BigDecimal y) {
+    }
+
+    /** Foci at one exact squared distance, with their weights summed exactly. */
+    private record DistanceGroup(BigDecimal squaredDistance, BigDecimal weight) {
+        Ball distance(final MathContext work) {
+            return Ball.exact(squaredDistance).sqrt(work);
+        }
+    }
+
+    /** A weighted distance w·d, exactly: its sign and its square w²d² without trailing zeros. */
+    private record ValueKey(int sign, BigDecimal square) {
+    }
+
+    /** Foci with one exact weighted distance; the first stands for all of them. */
+    private record ValueGroup(BigDecimal squaredDistance, BigDecimal weight, int count) {
     }
 }

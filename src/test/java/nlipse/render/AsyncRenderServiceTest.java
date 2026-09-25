@@ -221,6 +221,33 @@ class AsyncRenderServiceTest {
         }
     }
 
+    /**
+     * Closing interrupts an export's write. The worker is a daemon, so closing
+     * waits for it: an exit right away would skip the temporary file's removal.
+     */
+    @Test
+    void closeInterruptsAnExportWriteAndWaitsForTheWorkerToStop() throws Exception {
+        final CountDownLatch writing = new CountDownLatch(1);
+        final AtomicBoolean writeInterrupted = new AtomicBoolean();
+        final AsyncRenderService service = new AsyncRenderService(
+                (request, token) -> result(request), Runnable::run);
+        assertTrue(service.submitExport(request(RenderQuality.FULL), result -> {
+            writing.countDown();
+            try {
+                Thread.sleep(10_000);
+            } catch (final InterruptedException stopped) {
+                writeInterrupted.set(true);
+                throw stopped;
+            }
+        }, ignored -> { }, ignored -> { }));
+        assertTrue(writing.await(2, TimeUnit.SECONDS));
+
+        service.close();
+
+        assertTrue(service.awaitWorker(5_000), "the worker is still running");
+        assertTrue(writeInterrupted.get());
+    }
+
     @Test
     void cancellingInteractiveWorkDoesNotCancelAnExport() throws Exception {
         final CountDownLatch exportStarted = new CountDownLatch(1);

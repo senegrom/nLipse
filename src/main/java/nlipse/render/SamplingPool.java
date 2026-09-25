@@ -26,6 +26,23 @@ final class SamplingPool {
         POOL.invoke(action);
     }
 
+    /**
+     * Runs both halves of a split task and returns, or throws, only once both
+     * have finished. {@code ForkJoinTask.invokeAll} rethrows the first failure,
+     * a cancellation for instance, without waiting for a sibling already
+     * running: that half could then go on writing samples into shared tiles
+     * after the render had decided whether to keep them.
+     */
+    static void invokeBoth(final RecursiveAction first, final RecursiveAction second) {
+        second.fork();
+        try {
+            first.invoke();
+        } finally {
+            second.quietlyJoin();
+        }
+        second.join();
+    }
+
     private static int configuredParallelism() {
         final int processors = Runtime.getRuntime().availableProcessors();
         final int defaultParallelism = Math.min(32, Math.max(1, processors - 1));

@@ -3,6 +3,8 @@ package nlipse.math;
 /** Shared floating-point helpers for field implementations. */
 final class FieldMath {
     static final double LOG_MAX_VALUE = Math.log(Double.MAX_VALUE);
+    /** ln 2^-1075: below it a result rounds to zero, above it to at least MIN_VALUE. */
+    static final double LOG_UNDERFLOW_THRESHOLD = -1075 * Math.log(2);
     static final double CENTRED_LIMIT = 0.5;
     /** Route mixed-sign results with fewer than roughly 24 reliable bits through
      *  the adaptive exact evaluator. */

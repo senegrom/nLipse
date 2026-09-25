@@ -9,6 +9,9 @@ import java.nio.file.StandardCopyOption;
 
 /** Same-directory temporary writes followed by atomic destination replacement where supported. */
 public final class AtomicFiles {
+    /** Code points of the target's name that the temporary file's name keeps. */
+    private static final int TEMPORARY_NAME_STEM = 40;
+
     @FunctionalInterface
     public interface TemporaryWriter {
         void write(Path temporary) throws IOException;
@@ -32,9 +35,13 @@ public final class AtomicFiles {
         if (parent == null) {
             throw new IOException("Target file has no parent directory: " + target);
         }
-        final String fileName = absolute.getFileName().toString();
-        final String prefix = fileName.length() >= 3 ? fileName : "nlipse-" + fileName;
-        final Path temporary = Files.createTempFile(parent, "." + prefix + '-', ".tmp");
+        // The temporary name starts like the target's, but not with all of it: a
+        // long name plus the random suffix would pass the 255-character limit
+        final String stem = absolute.getFileName().toString().codePoints()
+                .limit(TEMPORARY_NAME_STEM)
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
+                .toString();
+        final Path temporary = Files.createTempFile(parent, "." + stem + '-', ".tmp");
         boolean moved = false;
         Throwable primaryFailure = null;
         try {

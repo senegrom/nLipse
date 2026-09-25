@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -103,6 +105,26 @@ class AsyncCursorServiceTest {
             service.submit((x, y) -> 3, 0, 0, displayed::set, failure::set);
             take(callbacks).run();
             assertEquals(3.0, displayed.get().doubleValue());
+        }
+    }
+
+    @Test
+    void exhaustedEvaluationDoesNotKillTheWorker() throws Exception {
+        // A render can fill the heap while the cursor evaluates. The service has
+        // one worker: had the error killed it, the readout would never update again.
+        final LinkedBlockingQueue<Runnable> callbacks = new LinkedBlockingQueue<>();
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final AtomicReference<Double> displayed = new AtomicReference<>();
+        try (var service = new AsyncCursorService(callbacks::add)) {
+            for (final Error exhausted : List.of(new OutOfMemoryError("simulated"),
+                    new StackOverflowError("simulated"))) {
+                service.submit((x, y) -> { throw exhausted; }, 0, 0, displayed::set, failure::set);
+                take(callbacks).run();
+                assertSame(exhausted, failure.get());
+            }
+            service.submit((x, y) -> 4, 0, 0, displayed::set, failure::set);
+            take(callbacks).run();
+            assertEquals(4.0, displayed.get().doubleValue());
         }
     }
 

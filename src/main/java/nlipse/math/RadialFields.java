@@ -112,11 +112,21 @@ final class RadialFields {
                             && FieldMath.cancellationUncertain(normalized,
                                     normalizedMagnitudes.value(), foci.activeCount(),
                                     FieldMath.EXACT_CANCELLATION_RATIO);
-            if (finitePoint && (exactNeeded || !Double.isFinite(resultLogarithm)
-                    || roundingUncertain && foci.tryConsumeExact())) {
+            final double result = FieldMath.expFromLog(resultLogarithm);
+            // Near the overflow or underflow threshold even the class of the result
+            // is in doubt: one ulp of a logarithm near ln MAX is some 500 ulps of the
+            // value, and Math.exp(ln MAX) lies 100 ulps below MAX. Like any other
+            // overflow this is resolved exactly, whatever the budget.
+            final double rangeSlack = amplifiedLogError + 8 * Math.ulp(resultLogarithm);
+            final boolean nearRangeLimit =
+                    Math.abs(resultLogarithm - FieldMath.LOG_MAX_VALUE) <= rangeSlack
+                    || Math.abs(resultLogarithm - FieldMath.LOG_UNDERFLOW_THRESHOLD) <= rangeSlack;
+            if (finitePoint && (exactNeeded || !Double.isFinite(resultLogarithm) || nearRangeLimit
+                    || (roundingUncertain || FieldMath.isMagnitudeRoundingSensitive(result))
+                            && foci.tryConsumeExact())) {
                 return ExactFieldMath.cassini(foci, x, y);
             }
-            return FieldMath.expFromLog(resultLogarithm);
+            return result;
         }
     }
 

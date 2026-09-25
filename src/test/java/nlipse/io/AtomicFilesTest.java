@@ -60,10 +60,21 @@ class AtomicFilesTest {
         assertEquals("old", Files.readString(target, StandardCharsets.UTF_8));
     }
 
+    @Test
+    void longTargetNamesStillSave() throws Exception {
+        // 244 characters is a valid name; the whole of it in the temporary
+        // file's name, plus the random suffix, was not
+        final Path target = temporaryDirectory.resolve("a".repeat(240) + ".txt");
+
+        AtomicFiles.writeString(target, "saved", StandardCharsets.UTF_8);
+
+        assertEquals("saved", Files.readString(target, StandardCharsets.UTF_8));
+        assertFalse(hasTemporarySibling(target));
+    }
+
     private static boolean hasTemporarySibling(final Path target) throws IOException {
         try (Stream<Path> siblings = Files.list(target.toAbsolutePath().getParent())) {
-            final String prefix = "." + target.getFileName() + '-';
-            return siblings.anyMatch(path -> path.getFileName().toString().startsWith(prefix));
+            return siblings.anyMatch(path -> path.getFileName().toString().endsWith(".tmp"));
         }
     }
 }
