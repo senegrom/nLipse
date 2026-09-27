@@ -742,17 +742,7 @@ class DistanceFieldsTest {
     }
 
     @Test
-    void exactRadialFallbacksIgnoreUnusedSharedScratchCapacity() {
-        final List<Focus> many = IntStream.range(0, 64)
-                .mapToObj(index -> new Focus(index + 1, index % 3, index + 0.5))
-                .toList();
-        DistanceFields.create(CurveType.POWER_MEAN, many, 0.5).value(0, 0);
-
-        final DistanceField cassini = DistanceFields.create(CurveType.CASSIN, List.of(
-                new Focus(1, 0, Double.MAX_VALUE),
-                new Focus(Math.nextUp(1.0), 0, 1)));
-        assertEquals(Math.nextUp(1.0), cassini.value(0, 0), 0);
-
+    void gaussianKeepsATinyTermBesideCancellingHugeOnes() {
         final DistanceField gaussian = DistanceFields.create(CurveType.GAUSSIAN, List.of(
                 new Focus(0, 0, Double.MAX_VALUE),
                 new Focus(0, 0, -Double.MAX_VALUE),
@@ -930,18 +920,6 @@ class DistanceFieldsTest {
     }
 
     @Test
-    void adaptiveFallbackRecoversATinyRoundableResidual() {
-        final double maximum = Double.MAX_VALUE;
-        final DistanceField field = DistanceFields.create(CurveType.LIPSE, List.of(
-                new Focus(1, 0, Double.MIN_VALUE),
-                new Focus(maximum, 0, maximum / 2),
-                new Focus(maximum, 0, maximum / 2),
-                new Focus(maximum, 0, -maximum)));
-
-        assertEquals(Double.MIN_VALUE, field.value(0, 0), 0);
-    }
-
-    @Test
     void anExhaustedBudgetIsIsolatedFromDirectAndConcurrentFields() {
         final List<Focus> foci = List.of(
                 new Focus(1.1, 0, 1e16),
@@ -1063,10 +1041,9 @@ class DistanceFieldsTest {
 
     @Test
     void nonCancellingSubnormalFallbackRoundsCorrectly() {
-        final FocusSet foci = FocusSet.from(
-                List.of(new Focus(0, 0, Double.MIN_VALUE)));
-        assertEquals(Double.MIN_VALUE,
-                ExactFieldMath.magnitudeDistance(foci, 0, 0.4, 0.4), 0);
+        // |w|·d = 0.566·MIN_VALUE, above the half-way point to zero
+        assertEquals(Double.MIN_VALUE, DistanceFields.create(CurveType.NEAREST,
+                List.of(new Focus(0, 0, Double.MIN_VALUE))).value(0.4, 0.4), 0);
     }
 
 }

@@ -3,9 +3,12 @@ package nlipse.io;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.ThreadLocalRandom;
 
 /** Same-directory temporary writes followed by atomic destination replacement where supported. */
 public final class AtomicFiles {
@@ -41,10 +44,11 @@ public final class AtomicFiles {
                 .limit(TEMPORARY_NAME_STEM)
                 .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
                 .toString();
-        final Path temporary = Files.createTempFile(parent, "." + stem + '-', ".tmp");
+        final Path temporary = createSibling(parent, "." + stem + '-');
         boolean moved = false;
         Throwable primaryFailure = null;
         try {
+            keepPermissions(absolute, temporary);
             writer.write(temporary);
             try {
                 Files.move(temporary, absolute,
@@ -68,6 +72,35 @@ public final class AtomicFiles {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * A new empty file beside the target. {@code Files.createTempFile} would make
+     * it owner-only on POSIX systems, and the move keeps that, so every saved or
+     * exported file became private; a plain new file gets the umask's permissions.
+     */
+    private static Path createSibling(final Path parent, final String prefix) throws IOException {
+        while (true) {
+            final Path candidate = parent.resolve(
+                    prefix + Long.toUnsignedString(ThreadLocalRandom.current().nextLong(), 36) + ".tmp");
+            try {
+                return Files.createFile(candidate);
+            } catch (final FileAlreadyExistsException taken) {
+                // Another writer's name; draw again
+            }
+        }
+    }
+
+    /** A replaced file keeps its POSIX permissions; replacing must not narrow or widen them. */
+    private static void keepPermissions(final Path target, final Path temporary) throws IOException {
+        if (!temporary.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+            return;
+        }
+        try {
+            Files.setPosixFilePermissions(temporary, Files.getPosixFilePermissions(target));
+        } catch (final NoSuchFileException newTarget) {
+            // A new file keeps the umask's permissions
         }
     }
 }

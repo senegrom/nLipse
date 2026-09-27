@@ -132,58 +132,24 @@ final class FocusSet {
         return maximum + 0.5 * Math.log1p(Math.exp(2 * (minimum - maximum)));
     }
 
-    double magnitudeDistance(final int index, final double x, final double y) {
-        return magnitudeDistance(index, x, y, true);
-    }
-
+    /**
+     * |w|·d by one direct product; only a product that underflows or overflows
+     * at a finite point scales the components before the norm instead. Callers
+     * that need the correctly rounded value resolve it themselves.
+     */
     double magnitudeDistanceApproximate(final int index, final double x, final double y) {
-        return magnitudeDistance(index, x, y, false);
-    }
-
-    private double magnitudeDistance(final int index, final double x, final double y,
-            final boolean resolveSensitiveRounding) {
         final double absoluteWeight = Math.abs(weights[index]);
         if (absoluteWeight == 0) {
             return 0;
         }
         final double ordinaryDistance = distance(index, x, y);
-        if (!Double.isFinite(x) || !Double.isFinite(y)) {
-            return ordinaryDistance * absoluteWeight;
-        }
-
-        if (ordinaryDistance == 0) {
-            return 0;
-        }
-        if (resolveSensitiveRounding && FieldMath.isSubnormalDistance(ordinaryDistance)) {
-            return ExactFieldMath.magnitudeDistance(this, index, x, y);
-        }
         final double direct = ordinaryDistance * absoluteWeight;
-        if (direct != 0 && Double.isFinite(direct)
-                && !FieldMath.isMagnitudeRoundingSensitive(direct)) {
+        if (!Double.isFinite(x) || !Double.isFinite(y) || ordinaryDistance == 0
+                || direct != 0 && Double.isFinite(direct)) {
             return direct;
         }
-
-        final double scaledX = scaledAbsoluteDifference(x, xs[index], absoluteWeight);
-        final double scaledY = scaledAbsoluteDifference(y, ys[index], absoluteWeight);
-        final double scaled = Math.hypot(scaledX, scaledY);
-        if (!resolveSensitiveRounding) {
-            return direct != 0 && Double.isFinite(direct) ? direct : scaled;
-        }
-        // A primitive zero or infinity cannot establish the correctly rounded
-        // result at a finite point, so these structural failures bypass the
-        // interactive precision allowance.
-        if (direct == 0 || !Double.isFinite(direct) || !Double.isFinite(scaled)) {
-            return ExactFieldMath.magnitudeDistance(this, index, x, y);
-        }
-        if ((FieldMath.isMagnitudeRoundingSensitive(direct)
-                || FieldMath.isMagnitudeRoundingSensitive(scaled))
-                && tryConsumeExact()) {
-            return ExactFieldMath.magnitudeDistance(this, index, x, y);
-        }
-        // Scaling the completed norm once avoids the extra component-rounding
-        // step. The component-scaled value is used only to classify the extreme
-        // boundary above.
-        return direct;
+        return Math.hypot(scaledAbsoluteDifference(x, xs[index], absoluteWeight),
+                scaledAbsoluteDifference(y, ys[index], absoluteWeight));
     }
 
     double signedDistanceApproximate(final int index, final double x, final double y) {

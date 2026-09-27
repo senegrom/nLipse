@@ -35,9 +35,12 @@ class PlotControllerTest {
 
     @Test
     void retainsEveryRepresentableLevelChange() {
-        assertFalse(PlotController.sameDouble(0, Double.MIN_VALUE));
-        assertFalse(PlotController.sameDouble(1, Math.nextUp(1.0)));
-        assertTrue(PlotController.sameDouble(-0.0, 0.0));
+        // A clamp moving a level by one ulp changes it; -0.0 and 0.0 are one level
+        assertTrue(PlotController.resolveRange(-5, 5, 12, 18, 12, Math.nextUp(18.0),
+                PlotController.RangeAdjustment.CLAMP, Optional.of(EXTREMA), true).rangeChanged());
+        final FieldExtrema aroundZero = new FieldExtrema(-10, 10, new Point2(0, 0), new Point2(1, 1));
+        assertFalse(PlotController.resolveRange(-5, 5, -0.0, 5, 0.0, 5,
+                PlotController.RangeAdjustment.CLAMP, Optional.of(aroundZero), true).rangeChanged());
     }
 
     @Test

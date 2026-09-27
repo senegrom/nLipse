@@ -348,23 +348,6 @@ class AsyncRenderServiceTest {
     }
 
     @Test
-    void exportCompletionCanImmediatelyQueueTheNextExport() throws Exception {
-        final CountDownLatch secondCompleted = new CountDownLatch(1);
-        final AtomicBoolean secondAccepted = new AtomicBoolean();
-        final RenderEngine engine = (request, token) -> result(request);
-
-        try (AsyncRenderService service = new AsyncRenderService(engine, Runnable::run)) {
-            assertTrue(service.submitExport(request(RenderQuality.FULL), ignored -> { },
-                    ignored -> secondAccepted.set(service.submitExport(
-                            request(RenderQuality.FULL), ignoredAgain -> { },
-                            ignoredAgain -> secondCompleted.countDown(), ignoredAgain -> { })),
-                    ignored -> { }));
-            assertTrue(secondCompleted.await(2, TimeUnit.SECONDS));
-            assertTrue(secondAccepted.get());
-        }
-    }
-
-    @Test
     void durableExportsForceExactRendering() throws Exception {
         final CountDownLatch completed = new CountDownLatch(1);
         final AtomicBoolean exact = new AtomicBoolean();

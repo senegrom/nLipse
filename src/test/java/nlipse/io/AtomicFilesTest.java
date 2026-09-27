@@ -3,11 +3,15 @@ package nlipse.io;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -70,6 +74,26 @@ class AtomicFilesTest {
 
         assertEquals("saved", Files.readString(target, StandardCharsets.UTF_8));
         assertFalse(hasTemporarySibling(target));
+    }
+
+    /**
+     * On POSIX systems a new file gets the umask's permissions and a replaced one
+     * keeps its own: the owner-only temporary file made every save private.
+     */
+    @Test
+    void savedFilesKeepOrdinaryPermissions() throws Exception {
+        assumeTrue(temporaryDirectory.getFileSystem().supportedFileAttributeViews().contains("posix"));
+        final Path control = Files.createFile(temporaryDirectory.resolve("control.txt"));
+        final Path created = temporaryDirectory.resolve("created.txt");
+        AtomicFiles.writeString(created, "new", StandardCharsets.UTF_8);
+        assertEquals(Files.getPosixFilePermissions(control), Files.getPosixFilePermissions(created));
+
+        final Path shared = temporaryDirectory.resolve("shared.txt");
+        Files.writeString(shared, "old", StandardCharsets.UTF_8);
+        final Set<PosixFilePermission> groupWritable = PosixFilePermissions.fromString("rw-rw-r--");
+        Files.setPosixFilePermissions(shared, groupWritable);
+        AtomicFiles.writeString(shared, "new", StandardCharsets.UTF_8);
+        assertEquals(groupWritable, Files.getPosixFilePermissions(shared));
     }
 
     private static boolean hasTemporarySibling(final Path target) throws IOException {

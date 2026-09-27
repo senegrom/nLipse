@@ -17,13 +17,16 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Consumer;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.InputMap;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.JSlider;
+import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -165,52 +168,14 @@ public final class PlotController implements AutoCloseable {
         view.distanceMin.addChangeListener(event -> distanceSliderChanged(true));
         view.distanceMax.addChangeListener(event -> distanceSliderChanged(false));
 
-        view.familyParameter.addActionListener(event -> applyFamilyParameter());
-        view.familyParameter.addFocusListener(new FocusAdapter() {
-            @Override
-            public void focusLost(final FocusEvent event) {
-                applyFamilyParameter();
-            }
-        });
+        commitOnEnterOrFocusLoss(view.familyParameter, this::applyFamilyParameter);
+        commitOnEnterOrFocusLoss(view.curveCount, this::applyCurveCount);
 
-        view.curveCount.addActionListener(event -> applyCurveCount());
-        view.curveCount.addFocusListener(new FocusAdapter() {
-            @Override
-            public void focusLost(final FocusEvent event) {
-                applyCurveCount();
-            }
-        });
-
-        view.logSpacing.addActionListener(event -> {
-            if (!suppressControls) {
-                model.setLogSpacing(view.logSpacing.isSelected());
-                requestFullRender();
-            }
-        });
-        view.showBackground.addActionListener(event -> {
-            if (!suppressControls) {
-                model.setShowBackground(view.showBackground.isSelected());
-                requestFullRender();
-            }
-        });
-        view.showExtrema.addActionListener(event -> {
-            if (!suppressControls) {
-                model.setShowExtrema(view.showExtrema.isSelected());
-                requestFullRender();
-            }
-        });
-        view.antiAlias.addActionListener(event -> {
-            if (!suppressControls) {
-                model.setAntiAlias(view.antiAlias.isSelected());
-                requestFullRender();
-            }
-        });
-        view.showLegend.addActionListener(event -> {
-            if (!suppressControls) {
-                model.setShowLegend(view.showLegend.isSelected());
-                requestFullRender();
-            }
-        });
+        bindToggle(view.logSpacing, model::setLogSpacing);
+        bindToggle(view.showBackground, model::setShowBackground);
+        bindToggle(view.showExtrema, model::setShowExtrema);
+        bindToggle(view.antiAlias, model::setAntiAlias);
+        bindToggle(view.showLegend, model::setShowLegend);
         view.saveSetup.addActionListener(event -> saveSetup());
         view.loadSetup.addActionListener(event -> loadSetup());
         view.exportImage.addActionListener(event -> exportImage());
@@ -590,6 +555,13 @@ public final class PlotController implements AutoCloseable {
 
     private void exportPlot(final String format, final String dialogTitle,
             final String suggestedName, final String extension, final ExportWriter writer) {
+        if (activeExport != null) {
+            // Say so before the file chooser, not after it and a replace prompt
+            JOptionPane.showMessageDialog(view,
+                    "Another export is already active. Let it finish before starting a new one.",
+                    "Export busy", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
         if (!commitPendingEdits()) {
             return;
         }
@@ -621,11 +593,12 @@ public final class PlotController implements AutoCloseable {
             return;
         }
         final Path target = approved.orElseThrow();
+        // Until the service accepts it, a failing export has no state to settle
         final RenderRequest request;
         try {
             request = new RenderRequest(model.snapshot(), width, height, RenderQuality.FULL);
         } catch (final IllegalArgumentException tooLarge) {
-            exportFailed(format, tooLarge);
+            showExportError(format, tooLarge);
             return;
         }
         final boolean accepted;
@@ -635,13 +608,11 @@ public final class PlotController implements AutoCloseable {
                     result -> exportCompleted(format, target, result),
                     failure -> exportFailed(format, failure));
         } catch (final IllegalStateException closed) {
-            exportFailed(format, closed);
+            showExportError(format, closed);
             return;
         }
         if (!accepted) {
-            JOptionPane.showMessageDialog(view,
-                    "Another export is already active. Let it finish before starting a new one.",
-                    "Export busy", JOptionPane.INFORMATION_MESSAGE);
+            showExportError(format, new IllegalStateException("Another export is already active."));
             return;
         }
         activeExport = format;
@@ -667,12 +638,16 @@ public final class PlotController implements AutoCloseable {
     }
 
     private void exportFailed(final String format, final Throwable failure) {
+        showExportError(format, failure);
+        exportSettled();
+    }
+
+    private void showExportError(final String format, final Throwable failure) {
         final String message = failure.getMessage() == null
                 ? failure.getClass().getSimpleName() : failure.getMessage();
         view.renderInfo.setText("Export failed");
         JOptionPane.showMessageDialog(view, message, "Export " + format + " failed",
                 JOptionPane.ERROR_MESSAGE);
-        exportSettled();
     }
 
     private Optional<Path> approvedSaveTarget(final Path selected, final String extension) {
@@ -693,6 +668,27 @@ public final class PlotController implements AutoCloseable {
             final int keyCode, final int modifiers, final double dx, final double dy) {
         bind(inputMap, actionMap, keyCode, modifiers,
                 "nudge-" + keyCode + '-' + modifiers, () -> nudge(dx, dy));
+    }
+
+    /** A render option: unless the controls are being synced, the model follows the box and the plot re-renders. */
+    private void bindToggle(final JCheckBox box, final Consumer<Boolean> setter) {
+        box.addActionListener(event -> {
+            if (!suppressControls) {
+                setter.accept(box.isSelected());
+                requestFullRender();
+            }
+        });
+    }
+
+    /** A text setting takes effect on Enter and when it loses the focus. */
+    private static void commitOnEnterOrFocusLoss(final JTextField field, final Runnable commit) {
+        field.addActionListener(event -> commit.run());
+        field.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusLost(final FocusEvent event) {
+                commit.run();
+            }
+        });
     }
 
     private static void bind(final InputMap inputMap, final ActionMap actionMap,
@@ -1087,7 +1083,9 @@ public final class PlotController implements AutoCloseable {
                 }
             }
         }
-        final boolean changed = !sameDouble(oldMin, newMin) || !sameDouble(oldMax, newMax);
+        // Configured levels are exact model state, not noisy measurements: any
+        // representable change can alter a contour and must be retained.
+        final boolean changed = oldMin != newMin || oldMax != newMax;
         return new RangeResolution(resolvedFullMin, resolvedFullMax, newMin, newMax,
                 changed, false);
     }
@@ -1100,12 +1098,6 @@ public final class PlotController implements AutoCloseable {
     static boolean requiresExactRangeRetry(final RenderQuality quality,
             final RangeResolution resolution) {
         return quality == RenderQuality.FULL && resolution.adjustmentDeferred();
-    }
-
-    static boolean sameDouble(final double first, final double second) {
-        // Configured levels are exact model state, not noisy measurements. Any
-        // representable change can alter a contour and must be retained.
-        return first == second;
     }
 
     static double initialFullMaximum(final double fullMinimum,

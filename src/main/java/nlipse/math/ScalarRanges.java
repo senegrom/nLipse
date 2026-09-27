@@ -69,16 +69,8 @@ public final class ScalarRanges {
                 Math.abs(value));
         final double scaledMinimum = minimum / scale;
         final double scaledRange = maximum / scale - scaledMinimum;
-        final double result = (value / scale - scaledMinimum) / scaledRange;
-        if (!Double.isNaN(result)) {
-            return result;
-        }
-        if (value < minimum) {
-            return Double.NEGATIVE_INFINITY;
-        }
-        if (value > maximum) {
-            return Double.POSITIVE_INFINITY;
-        }
-        return 0.5;
+        // Never 0/0 for finite arguments: both parts vanish only when offset and
+        // range are both finite, which the direct branch above takes
+        return (value / scale - scaledMinimum) / scaledRange;
     }
 }

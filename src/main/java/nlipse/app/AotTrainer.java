@@ -123,14 +123,7 @@ public final class AotTrainer {
 
     private static PlotSnapshot magnitudeFamily(final CurveType type,
             final double minimum, final double maximum) {
-        return new PlotSnapshot(type, type.defaultParameter(),
-                List.of(
-                        new Focus(-1.7, -0.2, 1),
-                        new Focus(1.5, 0.1, 0.65),
-                        new Focus(0.2, 1.8, -1.25),
-                        new Focus(0, -1.5, 0)),
-                minimum, maximum, 22, new Viewport(-4, 4, -3, 3),
-                true, true, true, false, true, -1);
+        return parameterFamily(type, type.defaultParameter(), minimum, maximum);
     }
 
     private static PlotSnapshot parameterFamily(final CurveType type, final double parameter,

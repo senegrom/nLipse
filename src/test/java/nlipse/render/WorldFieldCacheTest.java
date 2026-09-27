@@ -68,7 +68,7 @@ class WorldFieldCacheTest {
         final int width = 129;
         final int height = 97;
         final Viewport initial = new Viewport(-2, 2, -1.5, 1.5);
-        final double halfPixel = initial.width() / (width - 1.0) * 0.5;
+        final double halfPixel = (initial.xMax() - initial.xMin()) / (width - 1.0) * 0.5;
         final Viewport shifted = new Viewport(initial.xMin() + halfPixel,
                 initial.xMax() + halfPixel, initial.yMin(), initial.yMax());
         final AtomicInteger evaluations = new AtomicInteger();

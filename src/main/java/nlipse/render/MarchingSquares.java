@@ -82,11 +82,8 @@ final class MarchingSquares {
             final double x0, final double y0, final double x1, final double y1,
             final double a, final double b, final double c, final double d,
             final double knownCentre, final int depth) {
-        if (!Double.isFinite(a) || !Double.isFinite(b)
-                || !Double.isFinite(c) || !Double.isFinite(d)) {
-            return 0;
-        }
-
+        // Corners are finite: traceLevels skips cells with non-finite ones, and
+        // recursion only follows centre and edge samples it has checked.
         final int mask = mask(a, b, c, d, level);
         if ((mask == 0 || mask == 15) && grid.getStep() > 1
                 && depth == 0 && x1 - x0 > 1 && y1 - y0 > 1) {

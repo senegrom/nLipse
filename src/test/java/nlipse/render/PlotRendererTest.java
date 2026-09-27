@@ -279,15 +279,15 @@ class PlotRendererTest {
 
     @Test
     void legendSubsamplingKeepsBothEndpointsAndTheRowCap() {
-        assertArrayEquals(new int[]{0, 1, 2}, PlotRenderer.legendLevelIndices(3));
-        final int[] subsampled = PlotRenderer.legendLevelIndices(200);
+        assertArrayEquals(new int[]{0, 1, 2}, PlotRenderer.legendLevelIndices(3, Integer.MAX_VALUE));
+        final int[] subsampled = PlotRenderer.legendLevelIndices(200, Integer.MAX_VALUE);
         assertEquals(12, subsampled.length);
         assertEquals(0, subsampled[0]);
         assertEquals(199, subsampled[subsampled.length - 1]);
         for (int index = 1; index < subsampled.length; index++) {
             assertTrue(subsampled[index] > subsampled[index - 1]);
         }
-        assertEquals(0, PlotRenderer.legendLevelIndices(0).length);
+        assertEquals(0, PlotRenderer.legendLevelIndices(0, Integer.MAX_VALUE).length);
         assertArrayEquals(new int[]{0, 50, 100, 149, 199},
                 PlotRenderer.legendLevelIndices(200, 5));
         assertArrayEquals(new int[]{199}, PlotRenderer.legendLevelIndices(200, 1));

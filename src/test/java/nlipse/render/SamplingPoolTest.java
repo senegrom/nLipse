@@ -1,5 +1,6 @@
 package nlipse.render;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -50,6 +51,34 @@ class SamplingPoolTest {
         }
         assertNotNull(thrown.get(), "the failure must propagate");
         assertTrue(finishedWhenThrown.get(), "invokeBoth threw while its sibling was still running");
+    }
+
+    /**
+     * A failure must not start work: waiting for an unstarted sibling ran it,
+     * so a failed render first sampled the rest of its viewport.
+     */
+    @Test
+    @Timeout(10)
+    void aFailedHalfSkipsASiblingThatHasNotStarted() {
+        final AtomicBoolean siblingRan = new AtomicBoolean();
+        final AtomicReference<RuntimeException> thrown = new AtomicReference<>();
+        // One worker: nothing can steal the forked sibling before the failure
+        final ForkJoinPool pool = new ForkJoinPool(1);
+        try {
+            pool.invoke(new Body(() -> {
+                try {
+                    SamplingPool.invokeBoth(new Body(() -> {
+                        throw new IllegalStateException("failed");
+                    }), new Body(() -> siblingRan.set(true)));
+                } catch (final IllegalStateException failure) {
+                    thrown.set(failure);
+                }
+            }));
+        } finally {
+            pool.shutdownNow();
+        }
+        assertNotNull(thrown.get(), "the failure must propagate");
+        assertFalse(siblingRan.get(), "an unstarted sibling must not run after a failure");
     }
 
     private static void await(final CountDownLatch latch) {

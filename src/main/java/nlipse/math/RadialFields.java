@@ -13,8 +13,9 @@ final class RadialFields {
         return new EnvelopeField(foci, nearest);
     }
 
-    static DistanceField quadratic(final FocusSet foci) {
-        return new QuadraticField(foci);
+    /** √(Σ(|w|d)² / divisor): the quadratic norm for 1, the root mean square for the focus count. */
+    static DistanceField quadratic(final FocusSet foci, final int divisor) {
+        return new QuadraticField(foci, divisor);
     }
 
     static DistanceField potential(final FocusSet foci) {
@@ -110,8 +111,7 @@ final class RadialFields {
                     || amplifiedLogError > Math.max(0x1.0p-40, 8 * Math.ulp(resultLogarithm))
                     || positiveTerm && negativeTerm
                             && FieldMath.cancellationUncertain(normalized,
-                                    normalizedMagnitudes.value(), foci.activeCount(),
-                                    FieldMath.EXACT_CANCELLATION_RATIO);
+                                    normalizedMagnitudes.value(), foci.activeCount());
             final double result = FieldMath.expFromLog(resultLogarithm);
             // Near the overflow or underflow threshold even the class of the result
             // is in doubt: one ulp of a logarithm near ln MAX is some 500 ulps of the
@@ -170,9 +170,11 @@ final class RadialFields {
 
     private static final class QuadraticField implements DistanceField {
         private final FocusSet foci;
+        private final int divisor;
 
-        QuadraticField(final FocusSet foci) {
+        QuadraticField(final FocusSet foci, final int divisor) {
             this.foci = foci;
+            this.divisor = divisor;
         }
 
         @Override
@@ -193,11 +195,13 @@ final class RadialFields {
                 roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(magnitude)
                         || FieldMath.isMagnitudeRoundingSensitive(norm);
             }
-            if (exactNeeded || finitePoint && !Double.isFinite(norm)) {
-                return ExactFieldMath.quadraticMagnitudeNorm(foci, x, y);
+            // Dividing by √1 is exact, so the norm comes through unchanged
+            final double result = norm / Math.sqrt(divisor);
+            if (exactNeeded || finitePoint && (!Double.isFinite(result) || result == 0 && norm != 0)) {
+                return ExactFieldMath.quadraticMagnitudeRoot(foci, x, y, divisor);
             }
             return finitePoint && roundingSensitive && foci.tryConsumeExact()
-                    ? ExactFieldMath.quadraticMagnitudeNorm(foci, x, y) : norm;
+                    ? ExactFieldMath.quadraticMagnitudeRoot(foci, x, y, divisor) : result;
         }
     }
 
@@ -289,7 +293,7 @@ final class RadialFields {
             final double magnitude = magnitudeSum.value();
             final boolean illConditioned = positiveTerm && negativeTerm
                     && FieldMath.cancellationUncertain(normalized, magnitude,
-                            termCount, FieldMath.EXACT_CANCELLATION_RATIO);
+                            termCount);
             if (finitePoint && illConditioned && foci.tryConsumeExact()) {
                 return ExactFieldMath.potential(foci, x, y);
             }
@@ -424,7 +428,7 @@ final class RadialFields {
             final boolean uncertain = roundingSensitive
                     || positive && negative
                             && FieldMath.cancellationUncertain(result, magnitudes.value(),
-                                    foci.activeCount(), FieldMath.EXACT_CANCELLATION_RATIO);
+                                    foci.activeCount());
             if (finitePoint && (exactNeeded || !Double.isFinite(result)
                     || uncertain && foci.tryConsumeExact())) {
                 return ExactFieldMath.gaussian(foci, x, y, sigma);

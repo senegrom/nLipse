@@ -52,14 +52,6 @@ public final class Viewport {
         return yMax;
     }
 
-    public double width() {
-        return xMax - xMin;
-    }
-
-    public double height() {
-        return yMax - yMin;
-    }
-
     public double worldX(final double pixelX, final int pixelWidth) {
         requireResolution(pixelWidth);
         if (lattice != null && lattice.pixelWidth() == pixelWidth) {

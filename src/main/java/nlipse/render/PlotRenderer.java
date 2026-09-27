@@ -641,12 +641,8 @@ public final class PlotRenderer implements RenderEngine {
         return Color.getHSBColor(hue, 0.85f, 0.72f);
     }
 
-    /** Level indices shown in the legend: every level up to the cap, then an
-     *  even subsample that always keeps both endpoints. */
-    static int[] legendLevelIndices(final int levelCount) {
-        return legendLevelIndices(levelCount, LEGEND_MAX_ROWS);
-    }
-
+    /** Level indices shown in the legend: every level up to the row cap, then
+     *  an even subsample that always keeps both endpoints. */
     static int[] legendLevelIndices(final int levelCount, final int maximumRows) {
         final int rows = Math.min(levelCount, Math.clamp(maximumRows, 0, LEGEND_MAX_ROWS));
         if (rows <= 0) {
@@ -840,16 +836,9 @@ public final class PlotRenderer implements RenderEngine {
         }
     }
 
+    /** Built per request from freshly computed levels, which go straight into a RenderPackage (it copies them). */
     private record RenderArtifacts(FieldGrid grid, BufferedImage layer,
             ContourGeometry contours, double[] levels) {
-        RenderArtifacts {
-            levels = levels.clone();
-        }
-
-        @Override
-        public double[] levels() {
-            return levels.clone();
-        }
     }
 
 }

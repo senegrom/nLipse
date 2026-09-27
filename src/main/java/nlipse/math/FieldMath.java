@@ -8,7 +8,7 @@ final class FieldMath {
     static final double CENTRED_LIMIT = 0.5;
     /** Route mixed-sign results with fewer than roughly 24 reliable bits through
      *  the adaptive exact evaluator. */
-    static final double EXACT_CANCELLATION_RATIO = 0x1.0p-24;
+    private static final double EXACT_CANCELLATION_RATIO = 0x1.0p-24;
     private static final ThreadLocal<double[]> SCRATCH =
             ThreadLocal.withInitial(() -> new double[0]);
 
@@ -87,8 +87,7 @@ final class FieldMath {
      * trust the floating-point result without the exceptional evaluator.
      */
     static boolean cancellationUncertain(final double result,
-            final double magnitudeScale, final int termCount,
-            final double relativeLimit) {
+            final double magnitudeScale, final int termCount) {
         if (!Double.isFinite(result) || !Double.isFinite(magnitudeScale)) {
             return true;
         }
@@ -96,9 +95,7 @@ final class FieldMath {
             return false;
         }
         final double ulpBound = Math.ulp(magnitudeScale) * Math.max(8, termCount * 4);
-        final double relativeBound = relativeLimit <= 0
-                ? 0 : magnitudeScale * relativeLimit;
-        return Math.abs(result) <= Math.max(ulpBound, relativeBound);
+        return Math.abs(result) <= Math.max(ulpBound, magnitudeScale * EXACT_CANCELLATION_RATIO);
     }
 
     static final class CompensatedSum {

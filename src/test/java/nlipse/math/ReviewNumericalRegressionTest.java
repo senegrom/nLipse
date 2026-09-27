@@ -257,6 +257,40 @@ class ReviewNumericalRegressionTest {
     }
 
     /**
+     * The mean-and-variance band has a width no rung shrinks. With a rounding
+     * boundary inside it the ladder climbed to 4096 digits and then rounded to
+     * the boundary's even neighbour, the wrong one here. Scaled by 2^958, |w|/τ
+     * is rounding sensitive and the field itself takes that route.
+     */
+    @Test
+    void envelopeWithARoundingBoundaryInsideTheTinyRatioBand() {
+        final double tau = 0x1p61;
+        final FocusSet farthest = FocusSet.from(List.of(new Focus(-1, 0, 1), new Focus(-0x1p-53, 0, 1)));
+        assertEquals(0x1.0000000000001p-1,
+                ExactFieldMath.smoothEnvelope(farthest, -(1 - 0x1p-52) * 0x1p-64, 0, tau, false));
+        final FocusSet nearest = FocusSet.from(List.of(new Focus(-1, 0, 1), new Focus(-3 * 0x1p-53, 0, 1)));
+        assertEquals(0x1.0000000000001p-1,
+                ExactFieldMath.smoothEnvelope(nearest, (1 - 3 * 0x1p-52) * 0x1p-64, 0, tau, true));
+        final List<Focus> scaled = List.of(new Focus(Math.scalb(-1.0, 958), 0, 1),
+                new Focus(Math.scalb(-0x1p-53, 958), 0, 1));
+        assertEquals(0x1.0000000000001p957, DistanceFields.create(CurveType.SMOOTH_FARTHEST, scaled,
+                Math.scalb(tau, 958)).value(Math.scalb(-(1 - 0x1p-52) * 0x1p-64, 958), 0));
+    }
+
+    /**
+     * Two positive foci at one distance merge into one term, and the merged
+     * term's larger key cleared the dominance margin less easily than the
+     * single foci did: a zero that 0.12.15 signed came back +0.0.
+     */
+    @Test
+    void gaussianZeroSignSurvivesMergingSameSignFoci() {
+        final List<Focus> near = List.of(new Focus(0, 1, 1), new Focus(0, -1, 1), new Focus(0.017502, 0, -1));
+        assertEquals(-0.0, ExactFieldMath.gaussian(FocusSet.from(near), 100, 0, 1));
+        final List<Focus> far = List.of(new Focus(0, 1, 1), new Focus(0, -1, 1), new Focus(1.75e-9, 0, -1));
+        assertEquals(-0.0, DistanceFields.create(CurveType.GAUSSIAN, far, 1).value(1e9, 0));
+    }
+
+    /**
      * exp(ln MAX) is about 100 ulps below MAX, and the primitive only clamped a
      * logarithm above ln MAX: a product at the top of the range came back short,
      * or finite where it overflows. Weights at or above 1022, the earlier

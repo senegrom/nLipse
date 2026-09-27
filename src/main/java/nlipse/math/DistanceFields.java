@@ -35,7 +35,7 @@ public final class DistanceFields {
             case HYPERB -> AggregateFields.hyperbola(focusSet);
             case NEAREST -> RadialFields.envelope(focusSet, true);
             case FARTHEST -> RadialFields.envelope(focusSet, false);
-            case QUADRATIC -> RadialFields.quadratic(focusSet);
+            case QUADRATIC -> RadialFields.quadratic(focusSet, 1);
             case RANGE -> AggregateFields.range(focusSet);
             case POTENTIAL -> RadialFields.potential(focusSet);
             case POWER_MEAN -> AggregateFields.powerMean(focusSet, parameter);

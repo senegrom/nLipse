@@ -74,7 +74,7 @@ public final class PlotWindow extends JFrame {
         add(buildSidePanel(), BorderLayout.EAST);
         setMinimumSize(new Dimension(720, 500));
         setExtendedState(Frame.MAXIMIZED_BOTH);
-        initialise(snapshot);
+        syncControls(snapshot);
     }
 
     private JScrollPane buildSidePanel() {
@@ -204,10 +204,6 @@ public final class PlotWindow extends JFrame {
         public Dimension getPreferredSize() {
             return new Dimension(PANEL_WIDTH, super.getPreferredSize().height);
         }
-    }
-
-    private void initialise(final PlotSnapshot snapshot) {
-        syncControls(snapshot);
     }
 
     /** Align every non-slider control with the model (after a setup load).

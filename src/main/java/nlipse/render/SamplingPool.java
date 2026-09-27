@@ -27,18 +27,22 @@ final class SamplingPool {
     }
 
     /**
-     * Runs both halves of a split task and returns, or throws, only once both
-     * have finished. {@code ForkJoinTask.invokeAll} rethrows the first failure,
-     * a cancellation for instance, without waiting for a sibling already
-     * running: that half could then go on writing samples into shared tiles
-     * after the render had decided whether to keep them.
+     * Runs both halves of a split task and returns, or throws, only once no
+     * half is still running. {@code ForkJoinTask.invokeAll} rethrows the first
+     * failure, a cancellation for instance, without waiting for a sibling
+     * already running: that half could then go on writing samples into shared
+     * tiles after the render had decided whether to keep them. A sibling that
+     * has not started is skipped instead, as there.
      */
     static void invokeBoth(final RecursiveAction first, final RecursiveAction second) {
         second.fork();
         try {
             first.invoke();
-        } finally {
-            second.quietlyJoin();
+        } catch (final RuntimeException | Error failure) {
+            if (!second.tryUnfork()) {
+                second.quietlyJoin();
+            }
+            throw failure;
         }
         second.join();
     }

@@ -61,6 +61,16 @@ final class AdaptiveDecimal {
         }
     }
 
+    /**
+     * Whether the enclosure already decides its double, as {@link #toDouble}
+     * would accept it at this rung. A shortcut enclosure whose error does not
+     * shrink with precision uses this to step aside when it cannot decide.
+     */
+    static boolean decides(final Ball enclosure) {
+        return enclosure.isBounded() && insideRoundingCell(enclosure.midpoint(),
+                enclosure.midpoint().doubleValue(), enclosure.radius());
+    }
+
     static void checkCancelled() {
         if (Thread.currentThread().isInterrupted()) {
             throw new CancellationException("Field evaluation cancelled");

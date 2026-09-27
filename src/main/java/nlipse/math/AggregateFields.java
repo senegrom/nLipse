@@ -39,7 +39,7 @@ final class AggregateFields {
             return new SumField(foci, true, foci.activeCount());
         }
         if (power == 2) {
-            return new RmsField(foci);
+            return RadialFields.quadratic(foci, foci.activeCount());
         }
         if (power == -1) {
             return new HarmonicMeanField(foci);
@@ -56,6 +56,13 @@ final class AggregateFields {
 
     static DistanceField smoothEnvelope(final FocusSet foci,
             final double temperature, final boolean nearest) {
+        if (foci.activeCount() == 0) {
+            return (x, y) -> 0;
+        }
+        if (foci.activeCount() == 1) {
+            // One distance is its own smooth envelope, at any temperature
+            return RadialFields.envelope(foci, nearest);
+        }
         return new SmoothEnvelopeField(foci, temperature, nearest);
     }
 
@@ -127,7 +134,7 @@ final class AggregateFields {
             final double result = rawSum / divisor;
             if (finitePoint && !magnitudes && positiveFinite && negativeFinite
                     && FieldMath.cancellationUncertain(rawSum, magnitudeSum.value(),
-                            finiteTermCount, FieldMath.EXACT_CANCELLATION_RATIO)
+                            finiteTermCount)
                     && foci.tryConsumeExact()) {
                 return exactValue(x, y);
             }
@@ -138,44 +145,6 @@ final class AggregateFields {
             return magnitudes
                     ? ExactFieldMath.arithmeticMagnitudeMean(foci, x, y)
                     : ExactFieldMath.signedDistanceSum(foci, x, y);
-        }
-    }
-
-    private static final class RmsField implements DistanceField {
-        private final FocusSet foci;
-
-        RmsField(final FocusSet foci) {
-            this.foci = foci;
-        }
-
-        @Override
-        public double value(final double x, final double y) {
-            double norm = 0;
-            final boolean finitePoint = Double.isFinite(x) && Double.isFinite(y);
-            boolean roundingSensitive = false;
-            for (int index = 0; index < foci.size(); index++) {
-                if (!foci.isActive(index)) {
-                    continue;
-                }
-                final double distance = foci.distance(index, x, y);
-                final double value = foci.magnitudeDistanceApproximate(index, x, y);
-                if (Double.isNaN(value)) {
-                    return Double.NaN;
-                }
-                if (finitePoint && (FieldMath.distanceNeedsExact(distance)
-                        || (value == 0 && distance != 0))) {
-                    return ExactFieldMath.quadraticMagnitudeMean(foci, x, y);
-                }
-                norm = Math.hypot(norm, value);
-                roundingSensitive |= FieldMath.isMagnitudeRoundingSensitive(value)
-                        || FieldMath.isMagnitudeRoundingSensitive(norm);
-            }
-            final double result = norm / Math.sqrt(foci.activeCount());
-            if (finitePoint && (!Double.isFinite(result) || result == 0 && norm != 0)) {
-                return ExactFieldMath.quadraticMagnitudeMean(foci, x, y);
-            }
-            return finitePoint && roundingSensitive && foci.tryConsumeExact()
-                    ? ExactFieldMath.quadraticMagnitudeMean(foci, x, y) : result;
         }
     }
 
@@ -275,20 +244,20 @@ final class AggregateFields {
                 return 0;
             }
             if (!Double.isFinite(scale)) {
-                return finitePoint ? ExactFieldMath.hyperbola(foci, x, y)
-                        : pairwiseMean(values, size, 1);
+                // Only at an infinite point: a finite one went exact above
+                return pairwiseMean(values, size);
             }
             for (int index = 0; index < size; index++) {
                 values[index] /= scale;
             }
             final double normalized = size < HYPERBOLA_SORT_THRESHOLD
-                    ? pairwiseMean(values, size, 1)
+                    ? pairwiseMean(values, size)
                     : sortedPairwiseMean(values, size);
             final double result = scale * normalized;
             final int pairCount = size * (size - 1) / 2;
             if (finitePoint && (roundingSensitive
                     || FieldMath.cancellationUncertain(normalized, 1.0,
-                            pairCount, FieldMath.EXACT_CANCELLATION_RATIO))
+                            pairCount))
                     && foci.tryConsumeExact()) {
                 return ExactFieldMath.hyperbola(foci, x, y);
             }
@@ -296,15 +265,14 @@ final class AggregateFields {
                     : ExactFieldMath.hyperbola(foci, x, y);
         }
 
-        private static double pairwiseMean(final double[] values, final int size,
-                final double scale) {
+        private static double pairwiseMean(final double[] values, final int size) {
             final FieldMath.CompensatedSum sum = new FieldMath.CompensatedSum();
             for (int index = 0; index < size; index++) {
                 for (int previous = 0; previous < index; previous++) {
                     sum.add(Math.abs(values[index] - values[previous]));
                 }
             }
-            return scale * 2 * sum.value() / ((double) size * (size - 1));
+            return 2 * sum.value() / ((double) size * (size - 1));
         }
 
         private static double sortedPairwiseMean(final double[] values, final int size) {
@@ -358,8 +326,7 @@ final class AggregateFields {
                 return ExactFieldMath.range(foci, x, y);
             }
             if (finitePoint && Double.isFinite(maximum)
-                    && FieldMath.cancellationUncertain(result, maximum, 2,
-                            FieldMath.EXACT_CANCELLATION_RATIO)
+                    && FieldMath.cancellationUncertain(result, maximum, 2)
                     && foci.tryConsumeExact()) {
                 return ExactFieldMath.range(foci, x, y);
             }
@@ -427,8 +394,7 @@ final class AggregateFields {
                     || roundingSensitiveNeeded && foci.tryConsumeExact()
                     || positiveLogarithm && negativeLogarithm
                             && FieldMath.cancellationUncertain(logarithmSum,
-                                    logarithmMagnitudes.value(), foci.activeCount(),
-                                    FieldMath.EXACT_CANCELLATION_RATIO)
+                                    logarithmMagnitudes.value(), foci.activeCount())
                             && foci.tryConsumeExact())) {
                 return ExactFieldMath.powerMean(foci, x, y, 0);
             }
@@ -661,17 +627,6 @@ final class AggregateFields {
 
         @Override
         public double value(final double x, final double y) {
-            if (foci.activeCount() == 0) {
-                return 0;
-            }
-            if (foci.activeCount() == 1) {
-                for (int index = 0; index < foci.size(); index++) {
-                    if (foci.isActive(index)) {
-                        return foci.magnitudeDistance(index, x, y);
-                    }
-                }
-            }
-
             final double[] ratios = FieldMath.scratch(foci.size());
             int count = 0;
             double minimum = Double.POSITIVE_INFINITY;
@@ -767,11 +722,9 @@ final class AggregateFields {
                     : result;
         }
 
+        /** Called only past the tiny-ratio branch, so {@code maximum} exceeds 2^-60. */
         private static double stableNonNegativeMean(final double[] values,
                 final int count, final double maximum) {
-            if (maximum == 0) {
-                return 0;
-            }
             final FieldMath.CompensatedSum sum = new FieldMath.CompensatedSum();
             for (int index = 0; index < count; index++) {
                 sum.add(values[index] / maximum);
