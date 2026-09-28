@@ -38,8 +38,9 @@ class MarchingSquaresTest {
         final FieldGrid grid = FieldGrid.sample(field, viewport, 5, 3, 1, CancellationToken.NONE);
         final double[] levels = {-1, 0, 1};
 
-        final int[] counts = MarchingSquares.traceLevels(grid, field, viewport, levels,
-                CancellationToken.NONE, (levelIndex, x1, y1, x2, y2) -> { });
+        final int[] counts = new int[levels.length];
+        MarchingSquares.traceLevels(grid, field, viewport, levels,
+                CancellationToken.NONE, (levelIndex, x1, y1, x2, y2) -> counts[levelIndex]++);
 
         assertArrayEquals(new int[]{2, 2, 2}, counts);
         assertThrows(IllegalArgumentException.class, () -> MarchingSquares.traceLevels(

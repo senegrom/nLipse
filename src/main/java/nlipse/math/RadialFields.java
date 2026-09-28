@@ -272,6 +272,8 @@ final class RadialFields {
             if (scale == 0) {
                 return 0;
             }
+            // From here the point is finite: at an infinite one every distance
+            // is infinite, so no term survives and the scale stays zero.
 
             final FieldMath.CompensatedSum normalizedSum = new FieldMath.CompensatedSum();
             final FieldMath.CompensatedSum magnitudeSum = new FieldMath.CompensatedSum();
@@ -283,7 +285,7 @@ final class RadialFields {
                 }
                 final double normalizedTerm = term / scale;
                 if (normalizedTerm == 0) {
-                    return finitePoint ? ExactFieldMath.potential(foci, x, y) : 0;
+                    return ExactFieldMath.potential(foci, x, y);
                 }
                 normalizedSum.add(normalizedTerm);
                 magnitudeSum.add(Math.abs(normalizedTerm));
@@ -294,11 +296,11 @@ final class RadialFields {
             final boolean illConditioned = positiveTerm && negativeTerm
                     && FieldMath.cancellationUncertain(normalized, magnitude,
                             termCount);
-            if (finitePoint && illConditioned && foci.tryConsumeExact()) {
+            if (illConditioned && foci.tryConsumeExact()) {
                 return ExactFieldMath.potential(foci, x, y);
             }
             final double result = scale * normalized;
-            return !finitePoint || Double.isFinite(result) && (result != 0 || normalized == 0)
+            return Double.isFinite(result) && (result != 0 || normalized == 0)
                     ? result : ExactFieldMath.potential(foci, x, y);
         }
     }
@@ -370,17 +372,17 @@ final class RadialFields {
                 if (term == 0) {
                     // The whole term underflows binary64. Record its sign and
                     // magnitude bound and decide after the sum whether it can
-                    // matter. Past d/σ ≈ 1.3e154 the square overflows: the term is
-                    // then below every finite bound, but its sign still counts.
+                    // matter. Past d/σ ≈ 1.9e154 the square overflows: the log then
+                    // lies below ln|w| - MAX_VALUE, an upper bound whose error
+                    // allowance keeps a near tie with a finite exponent undecided.
                     droppedPositive |= weight > 0;
                     droppedNegative |= weight < 0;
-                    if (finiteExponent) {
-                        final double logMagnitude = Math.log(Math.abs(weight)) + exponent;
-                        if (weight > 0) {
-                            droppedPositiveLog = Math.max(droppedPositiveLog, logMagnitude);
-                        } else {
-                            droppedNegativeLog = Math.max(droppedNegativeLog, logMagnitude);
-                        }
+                    final double logMagnitude = Math.log(Math.abs(weight))
+                            + (finiteExponent ? exponent : -Double.MAX_VALUE);
+                    if (weight > 0) {
+                        droppedPositiveLog = Math.max(droppedPositiveLog, logMagnitude);
+                    } else {
+                        droppedNegativeLog = Math.max(droppedNegativeLog, logMagnitude);
                     }
                 }
                 exactNeeded |= kernelUnderflowed && term != 0;

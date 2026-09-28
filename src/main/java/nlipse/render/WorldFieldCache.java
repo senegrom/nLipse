@@ -7,7 +7,6 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.atomic.AtomicLong;
 import nlipse.math.DistanceField;
 
@@ -89,8 +88,9 @@ final class WorldFieldCache {
             }
 
             if (SamplingPool.parallelism() > 1 && requests.size() > TILES_PER_TASK) {
-                SamplingPool.invoke(new SampleTilesTask(requests, 0, requests.size(),
-                        lattice, field, token, reusedSamples));
+                SamplingPool.invokeRange(0, requests.size(), TILES_PER_TASK, token,
+                        (from, to) -> sampleTiles(requests, from, to, lattice, field, token,
+                                reusedSamples));
             } else {
                 sampleTiles(requests, 0, requests.size(), lattice, field, token,
                         reusedSamples);
@@ -254,13 +254,14 @@ final class WorldFieldCache {
         }
     }
 
-    private record LatticeKey(FieldIdentity identity, long originXBits, long rootXMaxBits,
-            long originYBits, long rootYMinBits, long stepXBits, long stepYBits,
+    /** A lattice without its pan offset; a record compares doubles bit by bit. */
+    private record LatticeKey(FieldIdentity identity, double originX, double rootXMax,
+            double originY, double rootYMin, double stepX, double stepY,
             int pixelWidth, int pixelHeight) {
         static LatticeKey from(final FieldIdentity identity, final SamplingLattice lattice) {
-            return new LatticeKey(identity, lattice.originXBits(), lattice.rootXMaxBits(),
-                    lattice.originYBits(), lattice.rootYMinBits(), lattice.stepXBits(),
-                    lattice.stepYBits(), lattice.pixelWidth(), lattice.pixelHeight());
+            return new LatticeKey(identity, lattice.originX(), lattice.rootXMax(),
+                    lattice.originY(), lattice.rootYMin(), lattice.stepX(),
+                    lattice.stepY(), lattice.pixelWidth(), lattice.pixelHeight());
         }
     }
 
@@ -289,46 +290,6 @@ final class WorldFieldCache {
                 throw new IllegalStateException("A world-space tile contains an unsampled value");
             }
             System.arraycopy(values, sourceOffset, target, targetOffset, length);
-        }
-    }
-
-    private static final class SampleTilesTask extends RecursiveAction {
-        private static final long serialVersionUID = 1L;
-
-        private final transient List<TileRequest> requests;
-        private final int from;
-        private final int to;
-        private final transient Lattice lattice;
-        private final transient DistanceField field;
-        private final transient CancellationToken token;
-        private final AtomicLong reusedSamples;
-
-        SampleTilesTask(final List<TileRequest> requests, final int from, final int to,
-                final Lattice lattice, final DistanceField field, final CancellationToken token,
-                final AtomicLong reusedSamples) {
-            this.requests = requests;
-            this.from = from;
-            this.to = to;
-            this.lattice = lattice;
-            this.field = field;
-            this.token = token;
-            this.reusedSamples = reusedSamples;
-        }
-
-        @Override
-        protected void compute() {
-            token.throwIfCancelled();
-            if (to - from <= TILES_PER_TASK) {
-                sampleTiles(requests, from, to, lattice, field, token,
-                        reusedSamples);
-                return;
-            }
-            final int middle = (from + to) >>> 1;
-            SamplingPool.invokeBoth(
-                    new SampleTilesTask(requests, from, middle, lattice, field, token,
-                            reusedSamples),
-                    new SampleTilesTask(requests, middle, to, lattice, field, token,
-                            reusedSamples));
         }
     }
 }

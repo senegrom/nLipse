@@ -3,6 +3,7 @@ package nlipse.render;
 import java.util.Random;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -199,10 +200,11 @@ class ViewportTest {
         final Viewport panned = initial.panPixels(37, -19, width, height);
         final SamplingLattice shifted = panned.samplingLattice(width, height);
 
-        assertEquals(root.originXBits(), shifted.originXBits());
-        assertEquals(root.originYBits(), shifted.originYBits());
-        assertEquals(root.stepXBits(), shifted.stepXBits());
-        assertEquals(root.stepYBits(), shifted.stepYBits());
+        // assertEquals on two doubles compares their bits
+        assertEquals(root.originX(), shifted.originX());
+        assertEquals(root.originY(), shifted.originY());
+        assertEquals(root.stepX(), shifted.stepX());
+        assertEquals(root.stepY(), shifted.stepY());
         assertEquals(-37, shifted.offsetX());
         assertEquals(19, shifted.offsetY());
 
@@ -241,10 +243,10 @@ class ViewportTest {
         final SamplingLattice fractional = fractionalPan.samplingLattice(129, 97);
         final SamplingLattice resized = integerPan.samplingLattice(257, 193);
 
-        assertTrue(root.originXBits() != fractional.originXBits());
+        assertNotEquals(root.originX(), fractional.originX());
         assertEquals(0, fractional.offsetX());
         assertEquals(0, fractional.offsetY());
-        assertTrue(root.stepXBits() != resized.stepXBits());
+        assertNotEquals(root.stepX(), resized.stepX());
         assertEquals(0, resized.offsetX());
         assertEquals(0, resized.offsetY());
     }

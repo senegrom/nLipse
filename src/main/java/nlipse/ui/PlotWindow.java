@@ -206,7 +206,8 @@ public final class PlotWindow extends JFrame {
         }
     }
 
-    /** Align every non-slider control with the model (after a setup load).
+    /** Align every control but the sliders and the focus table with the model
+     *  (after a setup load); the controller fills the table under its own flag.
      *  Callers must hold the controller's suppress flags: the combo and
      *  checkbox listeners fire on programmatic changes too. */
     void syncControls(final PlotSnapshot snapshot) {
@@ -218,7 +219,6 @@ public final class PlotWindow extends JFrame {
         showExtrema.setSelected(snapshot.showExtrema());
         antiAlias.setSelected(snapshot.antiAlias());
         showLegend.setSelected(snapshot.showLegend());
-        setFocusRows(snapshot.foci(), snapshot.selectedFocusIndex());
     }
 
     void setCurvePresentation(final CurveType type, final double parameter) {

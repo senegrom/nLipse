@@ -12,17 +12,16 @@ final class SingleLevelTrace {
     private SingleLevelTrace() {
     }
 
+    /** Traces one level and returns how many segments it emitted. */
     static int trace(final FieldGrid grid, final DistanceField field,
             final Viewport viewport, final double level, final CancellationToken token,
             final SegmentConsumer consumer) {
-        if (consumer == null) {
-            throw new IllegalArgumentException("Segment consumer is required");
-        }
-        if (!Double.isFinite(level)) {
-            return 0;
-        }
-        final int[] counts = MarchingSquares.traceLevels(grid, field, viewport, new double[]{level},
-                token, (ignored, x1, y1, x2, y2) -> consumer.accept(x1, y1, x2, y2));
-        return counts[0];
+        final int[] count = new int[1];
+        MarchingSquares.traceLevels(grid, field, viewport, new double[]{level}, token,
+                (ignored, x1, y1, x2, y2) -> {
+                    count[0]++;
+                    consumer.accept(x1, y1, x2, y2);
+                });
+        return count[0];
     }
 }

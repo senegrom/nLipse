@@ -18,6 +18,9 @@ final class AdaptiveDecimal {
     static final int MAXIMUM_PRECISION = 4096;
     private static final int GUARD_DIGITS = 24;
     private static final BigDecimal TWO = BigDecimal.valueOf(2);
+    /** MAX_VALUE plus half its spacing: everything beyond rounds to infinity. */
+    private static final BigDecimal OVERFLOW_BOUNDARY = exact(Double.MAX_VALUE).add(
+            exact(Double.MAX_VALUE).subtract(exact(Math.nextDown(Double.MAX_VALUE))).divide(TWO));
 
     private AdaptiveDecimal() {
     }
@@ -33,9 +36,24 @@ final class AdaptiveDecimal {
      * the first precision that resolves the value is accepted; nothing about the
      * computation's cancellation needs to be known in advance. At the maximum
      * precision an enclosure still crossing a cell boundary is taken to be that
-     * boundary, which a tie rounds to even.
+     * boundary, which a tie rounds to even. A result that rounds to zero is
+     * decided by value: its sign is the midpoint's.
      */
     static double toDouble(final Enclosure computation) {
+        return evaluate(computation, false);
+    }
+
+    /**
+     * As {@link #toDouble}, for a sum that may be negative: a result that rounds
+     * to zero also gets the sign of the value it rounds, -0.0 for a negative one.
+     * An enclosure that reaches both zero and negative values keeps climbing; at
+     * the maximum precision it is taken to be zero itself, which is +0.0.
+     */
+    static double toSignedDouble(final Enclosure computation) {
+        return evaluate(computation, true);
+    }
+
+    private static double evaluate(final Enclosure computation, final boolean signedZero) {
         if (computation == null) {
             throw new IllegalArgumentException("Adaptive computation is required");
         }
@@ -48,11 +66,16 @@ final class AdaptiveDecimal {
                 throw new IllegalStateException("Adaptive computation returned null");
             }
             final double rounded = enclosure.midpoint().doubleValue();
-            if (enclosure.isBounded()
-                    && insideRoundingCell(enclosure.midpoint(), rounded, enclosure.radius())) {
-                return rounded;
-            }
-            if (precision >= MAXIMUM_PRECISION) {
+            final boolean last = precision >= MAXIMUM_PRECISION;
+            if (decides(enclosure)) {
+                if (!signedZero || rounded != 0) {
+                    return rounded;
+                }
+                final int sign = zeroSign(enclosure);
+                if (sign != 0 || last) {
+                    return sign < 0 ? -0.0 : 0.0;
+                }
+            } else if (last) {
                 return enclosure.isBounded()
                         ? nearestBoundaryOrRounded(enclosure.midpoint(), rounded, enclosure.radius())
                         : rounded;
@@ -67,8 +90,8 @@ final class AdaptiveDecimal {
      * shrink with precision uses this to step aside when it cannot decide.
      */
     static boolean decides(final Ball enclosure) {
-        return enclosure.isBounded() && insideRoundingCell(enclosure.midpoint(),
-                enclosure.midpoint().doubleValue(), enclosure.radius());
+        return enclosure.isBounded() && cell(enclosure.midpoint().doubleValue())
+                .contains(enclosure.midpoint(), enclosure.radius());
     }
 
     static void checkCancelled() {
@@ -95,19 +118,16 @@ final class AdaptiveDecimal {
         return new BigDecimal(value);
     }
 
-    private static boolean insideRoundingCell(final BigDecimal value, final double rounded,
-            final BigDecimal error) {
-        if (Double.isNaN(rounded)) {
-            return false;
+    /**
+     * The sign of the zero that an enclosure inside the zero cell rounds to: +1
+     * when no enclosed value is negative (an exact zero is +0.0 too), -1 when
+     * every enclosed value is, 0 while it still reaches both.
+     */
+    private static int zeroSign(final Ball enclosure) {
+        if (enclosure.midpoint().subtract(enclosure.radius()).signum() >= 0) {
+            return 1;
         }
-        if (rounded == Double.POSITIVE_INFINITY) {
-            return value.subtract(positiveOverflowBoundary()).compareTo(error) > 0;
-        }
-        if (rounded == Double.NEGATIVE_INFINITY) {
-            return positiveOverflowBoundary().negate().subtract(value).compareTo(error) > 0;
-        }
-        return value.subtract(lowerBoundary(rounded)).compareTo(error) > 0
-                && upperBoundary(rounded).subtract(value).compareTo(error) > 0;
+        return enclosure.midpoint().add(enclosure.radius()).signum() < 0 ? -1 : 0;
     }
 
     /**
@@ -118,55 +138,37 @@ final class AdaptiveDecimal {
      */
     private static double nearestBoundaryOrRounded(final BigDecimal value, final double rounded,
             final BigDecimal error) {
-        if (Double.isNaN(rounded)) {
-            return rounded;
+        final Cell cell = cell(rounded);
+        if (cell.lower() != null && value.subtract(cell.lower()).abs().compareTo(error) <= 0) {
+            return cell.lower().doubleValue();
         }
-        final BigDecimal lower;
-        final BigDecimal upper;
-        if (rounded == Double.POSITIVE_INFINITY) {
-            lower = positiveOverflowBoundary();
-            upper = null;
-        } else if (rounded == Double.NEGATIVE_INFINITY) {
-            lower = null;
-            upper = positiveOverflowBoundary().negate();
-        } else {
-            lower = lowerBoundary(rounded);
-            upper = upperBoundary(rounded);
-        }
-        if (lower != null && value.subtract(lower).abs().compareTo(error) <= 0) {
-            return lower.doubleValue();
-        }
-        if (upper != null && upper.subtract(value).abs().compareTo(error) <= 0) {
-            return upper.doubleValue();
+        if (cell.upper() != null && cell.upper().subtract(value).abs().compareTo(error) <= 0) {
+            return cell.upper().doubleValue();
         }
         return rounded;
     }
 
-    private static BigDecimal lowerBoundary(final double rounded) {
-        final BigDecimal centre = exact(rounded);
-        if (rounded == -Double.MAX_VALUE) {
-            final BigDecimal spacing = exact(Math.nextUp(rounded)).subtract(centre);
-            return centre.subtract(spacing.divide(TWO));
+    /** The values that round to one double: between two boundaries, a null one unbounded. */
+    private record Cell(BigDecimal lower, BigDecimal upper) {
+        /** Whether every value within {@code error} of {@code value} lies strictly inside. */
+        boolean contains(final BigDecimal value, final BigDecimal error) {
+            return (lower == null || value.subtract(lower).compareTo(error) > 0)
+                    && (upper == null || upper.subtract(value).compareTo(error) > 0);
         }
-        return midpoint(exact(Math.nextDown(rounded)), centre);
     }
 
-    private static BigDecimal upperBoundary(final double rounded) {
-        final BigDecimal centre = exact(rounded);
-        if (rounded == Double.MAX_VALUE) {
-            final BigDecimal spacing = centre.subtract(exact(Math.nextDown(rounded)));
-            return centre.add(spacing.divide(TWO));
+    private static Cell cell(final double rounded) {
+        if (rounded == Double.POSITIVE_INFINITY) {
+            return new Cell(OVERFLOW_BOUNDARY, null);
         }
-        return midpoint(centre, exact(Math.nextUp(rounded)));
-    }
-
-    private static BigDecimal positiveOverflowBoundary() {
-        final BigDecimal maximum = exact(Double.MAX_VALUE);
-        final BigDecimal spacing = maximum.subtract(exact(Math.nextDown(Double.MAX_VALUE)));
-        return maximum.add(spacing.divide(TWO));
-    }
-
-    private static BigDecimal midpoint(final BigDecimal first, final BigDecimal second) {
-        return first.add(second).divide(TWO);
+        if (rounded == Double.NEGATIVE_INFINITY) {
+            return new Cell(null, OVERFLOW_BOUNDARY.negate());
+        }
+        final BigDecimal centre = exact(rounded);
+        return new Cell(
+                rounded == -Double.MAX_VALUE ? OVERFLOW_BOUNDARY.negate()
+                        : exact(Math.nextDown(rounded)).add(centre).divide(TWO),
+                rounded == Double.MAX_VALUE ? OVERFLOW_BOUNDARY
+                        : centre.add(exact(Math.nextUp(rounded))).divide(TWO));
     }
 }

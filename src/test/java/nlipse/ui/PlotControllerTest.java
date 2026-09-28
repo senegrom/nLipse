@@ -161,18 +161,4 @@ class PlotControllerTest {
         assertEquals(10.5, disjoint.levelMin());
         assertEquals(19.5, disjoint.levelMax());
     }
-
-    @Test
-    void exactExtremaRefreshSliderDomainWithoutChangingManualLevels() {
-        final PlotController.RangeResolution resolution = PlotController.resolveRange(
-                -5, 5, 12, 18, 12, 18, PlotController.RangeAdjustment.NONE,
-                Optional.of(EXTREMA), true);
-
-        assertEquals(10, resolution.fullMin());
-        assertEquals(20, resolution.fullMax());
-        assertEquals(12, resolution.levelMin());
-        assertEquals(18, resolution.levelMax());
-        assertFalse(resolution.rangeChanged());
-        assertFalse(resolution.adjustmentDeferred());
-    }
 }

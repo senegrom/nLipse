@@ -135,13 +135,12 @@ final class FocusSet {
     /**
      * |w|·d by one direct product; only a product that underflows or overflows
      * at a finite point scales the components before the norm instead. Callers
-     * that need the correctly rounded value resolve it themselves.
+     * that need the correctly rounded value resolve it themselves. This and the
+     * other weighted primitives below except the signed one take an active
+     * index only; every field skips inactive foci before calling them.
      */
     double magnitudeDistanceApproximate(final int index, final double x, final double y) {
         final double absoluteWeight = Math.abs(weights[index]);
-        if (absoluteWeight == 0) {
-            return 0;
-        }
         final double ordinaryDistance = distance(index, x, y);
         final double direct = ordinaryDistance * absoluteWeight;
         if (!Double.isFinite(x) || !Double.isFinite(y) || ordinaryDistance == 0
@@ -159,21 +158,16 @@ final class FocusSet {
     }
 
     double logMagnitudeDistance(final int index, final double x, final double y) {
-        final double absoluteWeight = Math.abs(weights[index]);
-        if (absoluteWeight == 0) {
-            return Double.NEGATIVE_INFINITY;
-        }
         final double magnitude = magnitudeDistanceApproximate(index, x, y);
         if (magnitude > 0 && Double.isFinite(magnitude)) {
             return Math.log(magnitude);
         }
-        return logDistance(index, x, y) + Math.log(absoluteWeight);
+        return logDistance(index, x, y) + Math.log(Math.abs(weights[index]));
     }
 
     boolean magnitudeDistanceRatioNeedsExact(final int index,
             final double x, final double y, final double positiveScale) {
-        final double absoluteWeight = Math.abs(weights[index]);
-        if (absoluteWeight == 0 || x == xs[index] && y == ys[index]) {
+        if (x == xs[index] && y == ys[index]) {
             return false;
         }
         final double dx = Math.abs(x - xs[index]);
@@ -184,18 +178,14 @@ final class FocusSet {
         if (separation > 0 && separation < Double.MIN_NORMAL) {
             return true;
         }
-        final double relativeWeight = absoluteWeight / positiveScale;
+        final double relativeWeight = Math.abs(weights[index]) / positiveScale;
         return relativeWeight == 0 || !Double.isFinite(relativeWeight)
                 || FieldMath.isMagnitudeRoundingSensitive(relativeWeight);
     }
 
     double magnitudeDistanceRatio(final int index, final double x, final double y,
             final double positiveScale) {
-        final double absoluteWeight = Math.abs(weights[index]);
-        if (absoluteWeight == 0) {
-            return 0;
-        }
-        final double relativeWeight = absoluteWeight / positiveScale;
+        final double relativeWeight = Math.abs(weights[index]) / positiveScale;
         if (relativeWeight > 0 && Double.isFinite(relativeWeight)
                 && Double.isFinite(x) && Double.isFinite(y)) {
             final double scaledX = scaledAbsoluteDifference(x, xs[index], relativeWeight);

@@ -662,7 +662,8 @@ final class AggregateFields {
                 // collapsed ratio nor the hard envelope may stand for them. Flagged
                 // or underflowed ratios still go exact while the allowance lasts;
                 // that route rounds a tie of the mean the way the envelope leans,
-                // and at these ratios it needs no logarithm.
+                // and takes logarithms only when a rounding boundary falls inside
+                // its mean-and-variance band.
                 if ((exactRatioNeeded || roundingSensitiveRatio || underflowedRatio)
                         && Double.isFinite(x) && Double.isFinite(y)
                         && foci.tryConsumeExact()) {

@@ -1,6 +1,7 @@
 package nlipse.io;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.charset.Charset;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileAlreadyExistsException;
@@ -48,8 +49,14 @@ public final class AtomicFiles {
         boolean moved = false;
         Throwable primaryFailure = null;
         try {
-            keepPermissions(absolute, temporary);
             writer.write(temporary);
+            // Only after writing: a read-only target's mode would lock the writer out
+            keepPermissions(absolute, temporary);
+            if (Thread.currentThread().isInterrupted()) {
+                // A cancelled write keeps the old file, also from a writer that
+                // ignores interrupts, as Files.writeString does
+                throw new InterruptedIOException("Writing " + target + " was interrupted");
+            }
             try {
                 Files.move(temporary, absolute,
                         StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);

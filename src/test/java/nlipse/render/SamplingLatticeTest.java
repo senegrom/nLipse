@@ -38,7 +38,8 @@ class SamplingLatticeTest {
         final SamplingLattice lattice = SamplingLattice.fromViewport(
                 0, Double.MIN_VALUE, 0, Double.MIN_VALUE, 3, 3);
 
-        assertEquals(Double.doubleToLongBits(0.0), lattice.stepXBits());
-        assertEquals(Double.doubleToLongBits(-0.0), lattice.stepYBits());
+        // assertEquals on two doubles compares their bits, so the zeros' signs too
+        assertEquals(0.0, lattice.stepX());
+        assertEquals(-0.0, lattice.stepY());
     }
 }

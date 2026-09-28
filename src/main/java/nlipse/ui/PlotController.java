@@ -496,7 +496,7 @@ public final class PlotController implements AutoCloseable {
         if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
             return;
         }
-        final Optional<Path> target = approvedSaveTarget(chooser.getSelectedFile().toPath(), "");
+        final Optional<Path> target = approvedSaveTarget(chooser.getSelectedFile(), "");
         if (target.isEmpty()) {
             return;
         }
@@ -517,10 +517,10 @@ public final class PlotController implements AutoCloseable {
         if (chooser.showOpenDialog(view) != JFileChooser.APPROVE_OPTION) {
             return;
         }
-        final Path file = chooser.getSelectedFile().toPath();
         final PlotConfig config;
         try {
-            config = PlotConfigIO.load(file);
+            // A typed name that is no valid path fails here too: InvalidPathException
+            config = PlotConfigIO.load(chooser.getSelectedFile().toPath());
         } catch (final IOException | IllegalArgumentException failed) {
             JOptionPane.showMessageDialog(view, failed.getMessage(), "Load failed",
                     JOptionPane.ERROR_MESSAGE);
@@ -587,8 +587,7 @@ public final class PlotController implements AutoCloseable {
         if (chooser.showSaveDialog(view) != JFileChooser.APPROVE_OPTION) {
             return;
         }
-        final Optional<Path> approved = approvedSaveTarget(
-                chooser.getSelectedFile().toPath(), extension);
+        final Optional<Path> approved = approvedSaveTarget(chooser.getSelectedFile(), extension);
         if (approved.isEmpty()) {
             return;
         }
@@ -650,9 +649,10 @@ public final class PlotController implements AutoCloseable {
                 JOptionPane.ERROR_MESSAGE);
     }
 
-    private Optional<Path> approvedSaveTarget(final Path selected, final String extension) {
+    /** The chooser takes names that are no valid path, such as plot|1.png on Windows. */
+    private Optional<Path> approvedSaveTarget(final File selected, final String extension) {
         try {
-            return SaveTargets.approve(selected, extension, target ->
+            return SaveTargets.approve(selected.toPath(), extension, target ->
                     JOptionPane.showConfirmDialog(view,
                             "Replace the existing file?\n" + target.toAbsolutePath(),
                             "Confirm replacement", JOptionPane.YES_NO_OPTION,

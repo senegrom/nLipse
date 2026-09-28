@@ -39,9 +39,6 @@ final class FieldMath {
     }
 
     static double expFromLog(final double logarithm) {
-        if (Double.isNaN(logarithm)) {
-            return Double.NaN;
-        }
         if (logarithm > LOG_MAX_VALUE) {
             return Double.POSITIVE_INFINITY;
         }
@@ -50,13 +47,8 @@ final class FieldMath {
         return Math.exp(logarithm);
     }
 
+    /** {@code signedFactor · e^logarithm} for a nonzero factor and a finite logarithm. */
     static double multiplyFromLog(final double signedFactor, final double logarithm) {
-        if (signedFactor == 0) {
-            return 0;
-        }
-        if (Double.isNaN(logarithm)) {
-            return Double.NaN;
-        }
         final double magnitude = expFromLog(Math.log(Math.abs(signedFactor)) + logarithm);
         return Math.copySign(magnitude, signedFactor);
     }

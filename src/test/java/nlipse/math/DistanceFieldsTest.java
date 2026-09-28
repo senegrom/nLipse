@@ -1022,6 +1022,7 @@ class DistanceFieldsTest {
     @Test
     void combinedSubnormalWeightedNormSurvivesComponentRounding() {
         final List<Focus> foci = List.of(new Focus(0, 0, Double.MIN_VALUE));
+        // |w|·d = 0.566·MIN_VALUE, above the half-way point to zero
         final double x = 0.4;
         final double y = 0.4;
 
@@ -1037,13 +1038,6 @@ class DistanceFieldsTest {
                     DistanceFields.create(CurveType.POWER_MEAN, foci, power).value(x, y),
                     0, "p=" + power);
         }
-    }
-
-    @Test
-    void nonCancellingSubnormalFallbackRoundsCorrectly() {
-        // |w|·d = 0.566·MIN_VALUE, above the half-way point to zero
-        assertEquals(Double.MIN_VALUE, DistanceFields.create(CurveType.NEAREST,
-                List.of(new Focus(0, 0, Double.MIN_VALUE))).value(0.4, 0.4), 0);
     }
 
 }

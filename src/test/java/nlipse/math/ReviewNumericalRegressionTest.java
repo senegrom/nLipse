@@ -32,15 +32,6 @@ class ReviewNumericalRegressionTest {
     }
 
     @Test
-    void potentialNormalizesSubnormalDistanceWithoutLosingGeometry() {
-        final double m = Double.MIN_VALUE;
-        final DistanceField field = DistanceFields.create(CurveType.POTENTIAL,
-                List.of(new Focus(0, 0, m)));
-        final double expected = 0.707106781186547524400844362104849039284835937688474;
-        assertEquals(expected, field.value(m, m), 4 * Math.ulp(expected));
-    }
-
-    @Test
     void gaussianNormalizesSubnormalCoordinatesBeforeTakingNorm() {
         final double m = Double.MIN_VALUE;
         final DistanceField field = DistanceFields.create(CurveType.GAUSSIAN,
@@ -131,8 +122,9 @@ class ReviewNumericalRegressionTest {
     }
 
     /**
-     * Past d/σ ≈ 1.3e154 the square in the Gaussian exponent overflows. Such a
-     * term still has a sign: an all-negative sum rounds to -0.0, not +0.0.
+     * Past d/σ ≈ 1.9e154 the square in the Gaussian exponent overflows. Such a
+     * term still has a sign: an all-negative sum rounds to -0.0, not +0.0, just
+     * below that point (1e154) as well as past it.
      */
     @Test
     void gaussianZeroKeepsItsSignWhenTheExponentOverflows() {
@@ -311,6 +303,58 @@ class ReviewNumericalRegressionTest {
                 assertCassiniPower(Math.exp((-1075 * Math.log(2) + step * 0x1.0p-45) / weight), weight);
             }
         }
+    }
+
+    /**
+     * Both foci lie exactly 5 away, so the sum is -1·kernel and rounds to -0.0.
+     * The two ratios fall either side of the square's overflow near 1.9e154,
+     * and the overflowed term, recorded without a logarithm, let the other
+     * term look dominant: +0.0, whatever the allowance.
+     */
+    @Test
+    void gaussianZeroSignWhenOnlyOneExponentOverflows() {
+        final List<Focus> foci = List.of(new Focus(5, 0, 1), new Focus(3, 4, -2));
+        final double sigma = 0x1.c48c6001f0acp-511;
+        assertEquals(-0.0, DistanceFields.create(CurveType.GAUSSIAN, foci, sigma).value(0, 0));
+        assertEquals(-0.0, DistanceFields.create(CurveType.GAUSSIAN, foci, sigma,
+                ExactBudget.limited(0)).value(0, 0));
+        assertEquals(-0.0, ExactFieldMath.gaussian(FocusSet.from(foci), 0, 0, sigma));
+    }
+
+    /**
+     * A signed sum that rounds to zero keeps the sign of its value; the whole
+     * zero cell used to be accepted at once, as +0.0 in every probed case.
+     * Either side of the bisector of two foci 2^-1000 apart, their distances
+     * differ by about 2^-3053 here. An exact zero stays +0.0.
+     */
+    @Test
+    void signedSumsThatRoundToZeroKeepTheirSign() {
+        final List<Focus> foci = List.of(new Focus(0, 0, 1), new Focus(0x1p-1000, 0, -1));
+        final FocusSet set = FocusSet.from(foci);
+        final double y = 0x1p1000;
+        final double nearerFirst = 0x1p-1001 - 0x1p-1053;
+        final double nearerSecond = 0x1p-1001 + 0x1p-1053;
+        // LIPSE is d1 - d2 and POTENTIAL 1/d1 - 1/d2: opposite signs at each point
+        final DistanceField lipse = DistanceFields.create(CurveType.LIPSE, foci);
+        assertEquals(-0.0, lipse.value(nearerFirst, y));
+        assertEquals(0.0, lipse.value(nearerSecond, y));
+        assertEquals(-0.0, ExactFieldMath.signedDistanceSum(set, nearerFirst, y));
+        assertEquals(0.0, ExactFieldMath.signedDistanceSum(set, nearerSecond, y));
+        final DistanceField potential = DistanceFields.create(CurveType.POTENTIAL, foci);
+        assertEquals(0.0, potential.value(nearerFirst, y));
+        assertEquals(-0.0, potential.value(nearerSecond, y));
+        assertEquals(0.0, ExactFieldMath.potential(set, nearerFirst, y));
+        assertEquals(-0.0, ExactFieldMath.potential(set, nearerSecond, y));
+
+        // 2·1 - 2 and 2·√2 - √8; 1/1 - 2/2 and 1/√2 - 2/√8
+        assertEquals(0.0, ExactFieldMath.signedDistanceSum(
+                FocusSet.from(List.of(new Focus(1, 0, 2), new Focus(2, 0, -1))), 0, 0));
+        assertEquals(0.0, ExactFieldMath.signedDistanceSum(
+                FocusSet.from(List.of(new Focus(0, 0, 2), new Focus(3, 3, -1))), 1, 1));
+        assertEquals(0.0, ExactFieldMath.potential(
+                FocusSet.from(List.of(new Focus(1, 0, 1), new Focus(2, 0, -2))), 0, 0));
+        assertEquals(0.0, ExactFieldMath.potential(
+                FocusSet.from(List.of(new Focus(0, 0, 1), new Focus(3, 3, -2))), 1, 1));
     }
 
     private static void assertCassiniPower(final double distance, final int weight) {

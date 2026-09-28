@@ -52,7 +52,8 @@ jobs:
           'nlipse.math.FieldMathBenchmark.ordinaryEllipseBatch'
 
       - name: Check shell launchers
-        run: sh -n scripts/aot-common.sh scripts/create-aot-cache.sh scripts/run-optimized.sh
+        # sh -n reads only its first file: the others would become $1, $2
+        run: for f in scripts/*.sh; do sh -n "$f"; done
 
       - name: Verify PowerShell AOT launcher
         shell: pwsh

@@ -13,7 +13,6 @@ final class DecimalMath {
     private static final BigDecimal ONE = BigDecimal.ONE;
     private static final BigDecimal TWO = BigDecimal.valueOf(2);
     private static final BigDecimal THREE_HALVES = new BigDecimal("1.5");
-    private static final BigDecimal THREE_QUARTERS = new BigDecimal("0.75");
     private static final BigDecimal FIVE_QUARTERS = new BigDecimal("1.25");
     private static final ConcurrentMap<Integer, Constants> CONSTANTS = new ConcurrentHashMap<>();
 
@@ -30,15 +29,12 @@ final class DecimalMath {
         final MathContext work = AdaptiveDecimal.guard(context);
         final Constants constants = constants(work);
         final int decimalExponent = value.precision() - value.scale() - 1;
+        // The mantissa starts in [1, 10); halving alone brings it into (0.75, 1.5].
         BigDecimal mantissa = value.scaleByPowerOfTen(-decimalExponent);
         int binaryExponent = 0;
         while (mantissa.compareTo(THREE_HALVES) > 0) {
             mantissa = mantissa.divide(TWO, work);
             binaryExponent++;
-        }
-        while (mantissa.compareTo(THREE_QUARTERS) < 0) {
-            mantissa = mantissa.multiply(TWO, work);
-            binaryExponent--;
         }
         BigDecimal result = logNearOne(mantissa, work);
         if (decimalExponent != 0) {
@@ -72,14 +68,10 @@ final class DecimalMath {
             return AdaptiveDecimal.exact(Double.MAX_VALUE).multiply(TWO);
         }
 
-        final BigDecimal quotient = value.divide(constants.logTwo(), 0, RoundingMode.HALF_EVEN);
-        final int binaryExponent;
-        try {
-            binaryExponent = quotient.intValueExact();
-        } catch (final ArithmeticException tooLarge) {
-            return value.signum() < 0 ? ZERO
-                    : AdaptiveDecimal.exact(Double.MAX_VALUE).multiply(TWO);
-        }
+        // The cuts above keep |value| under about 1.2e4 at every ladder
+        // precision, so the quotient always fits an int.
+        final int binaryExponent = value.divide(constants.logTwo(), 0, RoundingMode.HALF_EVEN)
+                .intValueExact();
         final BigDecimal reduced = value.subtract(constants.logTwo().multiply(
                 BigDecimal.valueOf(binaryExponent), work), work);
         final BigDecimal epsilon = BigDecimal.ONE.scaleByPowerOfTen(-work.getPrecision() - 2);

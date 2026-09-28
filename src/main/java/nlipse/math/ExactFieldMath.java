@@ -42,7 +42,7 @@ final class ExactFieldMath {
 
     static double signedDistanceSum(final FocusSet foci, final double x, final double y) {
         final List<DistanceGroup> groups = distanceGroups(foci, point(x, y));
-        return AdaptiveDecimal.toDouble(context -> {
+        return AdaptiveDecimal.toSignedDouble(context -> {
             final MathContext work = AdaptiveDecimal.guard(context);
             Ball sum = Ball.ZERO;
             for (final DistanceGroup group : groups) {
@@ -193,7 +193,7 @@ final class ExactFieldMath {
                     : onFocus == NEGATIVE_AT_POINT ? Double.NEGATIVE_INFINITY : Double.NaN;
         }
         final List<DistanceGroup> groups = distanceGroups(foci, point(x, y));
-        return AdaptiveDecimal.toDouble(context -> {
+        return AdaptiveDecimal.toSignedDouble(context -> {
             final MathContext work = AdaptiveDecimal.guard(context);
             Ball sum = Ball.ZERO;
             for (final DistanceGroup group : groups) {
@@ -419,7 +419,7 @@ final class ExactFieldMath {
      * {@code t = ln|w| - d²/(2σ²)} per term it compares {@code 2σ²·t =
      * 2σ²·ln|w| - d²} in exact decimal arithmetic: the primitive
      * {@code -½(d/σ)²} errs by about {@code (d/σ)²·2^-52}, which beyond
-     * d/σ ≈ 1e8 exceeds the margin itself, and overflows past d/σ ≈ 1.3e154.
+     * d/σ ≈ 1e8 exceeds the margin itself, and overflows past d/σ ≈ 1.9e154.
      */
     private static int underflowedGaussianSign(final List<DistanceGroup> terms,
             final double sigma) {

@@ -149,7 +149,7 @@ class ExactFieldMathDifferentialTest {
 
     /**
      * Radii from 1e2 to 1e200: past about 1e8 the primitive -½(d/σ)² errs by
-     * more than the dominance margin, and past 1.3e154 its square overflows.
+     * more than the dominance margin, and past 1.9e154 its square overflows.
      * Every sum here underflows, so only the zero's sign is at stake.
      */
     @Test

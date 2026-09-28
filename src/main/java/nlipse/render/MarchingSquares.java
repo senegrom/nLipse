@@ -15,7 +15,7 @@ final class MarchingSquares {
     private MarchingSquares() {
     }
 
-    static int[] traceLevels(final FieldGrid grid, final DistanceField field,
+    static void traceLevels(final FieldGrid grid, final DistanceField field,
             final Viewport viewport, final double[] levels, final CancellationToken token,
             final LevelSegmentConsumer consumer) {
         if (grid == null || field == null || viewport == null || levels == null
@@ -24,9 +24,8 @@ final class MarchingSquares {
                     "Grid, field, viewport, levels, token and consumer are required");
         }
         validateLevels(levels);
-        final int[] segmentCounts = new int[levels.length];
         if (levels.length == 0) {
-            return segmentCounts;
+            return;
         }
 
         for (int row = 0; row < grid.getRows() - 1; row++) {
@@ -66,17 +65,16 @@ final class MarchingSquares {
                 final int firstLevel = lowerBound(levels, minimum);
                 final int afterLastLevel = upperBound(levels, maximum);
                 for (int levelIndex = firstLevel; levelIndex < afterLastLevel; levelIndex++) {
-                    segmentCounts[levelIndex] += processCell(grid, field, viewport,
+                    processCell(grid, field, viewport,
                             levels[levelIndex], levelIndex, token, consumer,
                             x0, y0, x1, y1,
                             topLeft, topRight, bottomRight, bottomLeft, centre, 0);
                 }
             }
         }
-        return segmentCounts;
     }
 
-    private static int processCell(final FieldGrid grid, final DistanceField field,
+    private static void processCell(final FieldGrid grid, final DistanceField field,
             final Viewport viewport, final double level, final int levelIndex,
             final CancellationToken token, final LevelSegmentConsumer consumer,
             final double x0, final double y0, final double x1, final double y1,
@@ -99,24 +97,24 @@ final class MarchingSquares {
                 final double left = sample(field, viewport, grid, x0, centreY);
                 if (Double.isFinite(top) && Double.isFinite(right)
                         && Double.isFinite(bottom) && Double.isFinite(left)) {
-                    return processCell(grid, field, viewport, level, levelIndex, token, consumer,
+                    processCell(grid, field, viewport, level, levelIndex, token, consumer,
                             x0, y0, centreX, centreY, a, top, centre, left,
-                            Double.NaN, depth + 1)
-                            + processCell(grid, field, viewport, level, levelIndex, token, consumer,
-                                    centreX, y0, x1, centreY,
-                                    top, b, right, centre, Double.NaN, depth + 1)
-                            + processCell(grid, field, viewport, level, levelIndex, token, consumer,
-                                    centreX, centreY, x1, y1,
-                                    centre, right, c, bottom, Double.NaN, depth + 1)
-                            + processCell(grid, field, viewport, level, levelIndex, token, consumer,
-                                    x0, centreY, centreX, y1,
-                                    left, centre, bottom, d, Double.NaN, depth + 1);
+                            Double.NaN, depth + 1);
+                    processCell(grid, field, viewport, level, levelIndex, token, consumer,
+                            centreX, y0, x1, centreY,
+                            top, b, right, centre, Double.NaN, depth + 1);
+                    processCell(grid, field, viewport, level, levelIndex, token, consumer,
+                            centreX, centreY, x1, y1,
+                            centre, right, c, bottom, Double.NaN, depth + 1);
+                    processCell(grid, field, viewport, level, levelIndex, token, consumer,
+                            x0, centreY, centreX, y1,
+                            left, centre, bottom, d, Double.NaN, depth + 1);
                 }
             }
-            return 0;
+            return;
         }
         if (mask == 0 || mask == 15) {
-            return 0;
+            return;
         }
 
         final double topX = interpolate(x0, a, x1, b, level);
@@ -124,30 +122,25 @@ final class MarchingSquares {
         final double bottomX = interpolate(x1, c, x0, d, level);
         final double leftY = interpolate(y1, d, y0, a, level);
 
-        return switch (mask) {
-            case 1 -> emit(levelIndex, x0, leftY, topX, y0, consumer);
-            case 2 -> emit(levelIndex, topX, y0, x1, rightY, consumer);
-            case 3 -> emit(levelIndex, x0, leftY, x1, rightY, consumer);
-            case 4 -> emit(levelIndex, x1, rightY, bottomX, y1, consumer);
+        switch (mask) {
+            case 1, 14 -> consumer.accept(levelIndex, x0, leftY, topX, y0);
+            case 2, 13 -> consumer.accept(levelIndex, topX, y0, x1, rightY);
+            case 3 -> consumer.accept(levelIndex, x0, leftY, x1, rightY);
+            case 4, 11 -> consumer.accept(levelIndex, x1, rightY, bottomX, y1);
             case 5 -> emitAmbiguous(grid, field, viewport, level, levelIndex, consumer,
                     x0, y0, x1, y1, a, b, c, d,
                     topX, rightY, bottomX, leftY, true, knownCentre);
-            case 6 -> emit(levelIndex, topX, y0, bottomX, y1, consumer);
-            case 7 -> emit(levelIndex, x0, leftY, bottomX, y1, consumer);
-            case 8 -> emit(levelIndex, bottomX, y1, x0, leftY, consumer);
-            case 9 -> emit(levelIndex, topX, y0, bottomX, y1, consumer);
+            case 6, 9 -> consumer.accept(levelIndex, topX, y0, bottomX, y1);
+            case 7 -> consumer.accept(levelIndex, x0, leftY, bottomX, y1);
+            case 8 -> consumer.accept(levelIndex, bottomX, y1, x0, leftY);
             case 10 -> emitAmbiguous(grid, field, viewport, level, levelIndex, consumer,
                     x0, y0, x1, y1, a, b, c, d,
                     topX, rightY, bottomX, leftY, false, knownCentre);
-            case 11 -> emit(levelIndex, x1, rightY, bottomX, y1, consumer);
-            case 12 -> emit(levelIndex, x1, rightY, x0, leftY, consumer);
-            case 13 -> emit(levelIndex, topX, y0, x1, rightY, consumer);
-            case 14 -> emit(levelIndex, x0, leftY, topX, y0, consumer);
-            default -> 0;
-        };
+            case 12 -> consumer.accept(levelIndex, x1, rightY, x0, leftY);
+        }
     }
 
-    private static int emitAmbiguous(final FieldGrid grid, final DistanceField field,
+    private static void emitAmbiguous(final FieldGrid grid, final DistanceField field,
             final Viewport viewport, final double level, final int levelIndex,
             final LevelSegmentConsumer consumer, final double x0, final double y0,
             final double x1, final double y1, final double a, final double b,
@@ -165,22 +158,15 @@ final class MarchingSquares {
                             (x0 + x1) * 0.5, (y0 + y1) * 0.5);
             highConnected = Double.isFinite(centre) && centre >= level;
         }
-        if (highOnTopLeftAndBottomRight) {
-            if (highConnected) {
-                emit(levelIndex, topX, y0, x1, rightY, consumer);
-                emit(levelIndex, bottomX, y1, x0, leftY, consumer);
-            } else {
-                emit(levelIndex, x0, leftY, topX, y0, consumer);
-                emit(levelIndex, x1, rightY, bottomX, y1, consumer);
-            }
-        } else if (highConnected) {
-            emit(levelIndex, x0, leftY, topX, y0, consumer);
-            emit(levelIndex, x1, rightY, bottomX, y1, consumer);
+        // Equal flags: the top-left and bottom-right corners connect, as the high
+        // or the low pair, so the segments cut off the other two; else these two
+        if (highOnTopLeftAndBottomRight == highConnected) {
+            consumer.accept(levelIndex, topX, y0, x1, rightY);
+            consumer.accept(levelIndex, bottomX, y1, x0, leftY);
         } else {
-            emit(levelIndex, topX, y0, x1, rightY, consumer);
-            emit(levelIndex, bottomX, y1, x0, leftY, consumer);
+            consumer.accept(levelIndex, x0, leftY, topX, y0);
+            consumer.accept(levelIndex, x1, rightY, bottomX, y1);
         }
-        return 2;
     }
 
     /** Returns 1 when high corners connect, -1 when low corners connect, and 0 for a tie. */
@@ -215,12 +201,6 @@ final class MarchingSquares {
         final BigDecimal exactD = new BigDecimal(d).subtract(exactLevel);
         final int sign = exactA.multiply(exactC).subtract(exactB.multiply(exactD)).signum();
         return highOnTopLeftAndBottomRight ? sign : -sign;
-    }
-
-    private static int emit(final int levelIndex, final double x1, final double y1,
-            final double x2, final double y2, final LevelSegmentConsumer consumer) {
-        consumer.accept(levelIndex, x1, y1, x2, y2);
-        return 1;
     }
 
     private static int mask(final double a, final double b, final double c,

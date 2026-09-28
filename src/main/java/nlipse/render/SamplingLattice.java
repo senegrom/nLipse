@@ -101,7 +101,15 @@ record SamplingLattice(
     }
 
     double worldX(final double pixelX) {
-        final double globalX = offsetX + pixelX;
+        return worldXAtIndex(offsetX + pixelX);
+    }
+
+    double worldY(final double pixelY) {
+        return worldYAtIndex(offsetY + pixelY);
+    }
+
+    /** The x of a global lattice position: the root pixel plus the pan offset. */
+    double worldXAtIndex(final double globalX) {
         if (globalX == 0) {
             return originX;
         }
@@ -109,13 +117,11 @@ record SamplingLattice(
             return rootXMax;
         }
         return Double.isInfinite(stepX)
-                ? ScalarRanges.affine(originX, rootXMax,
-                        globalX / (pixelWidth - 1.0))
+                ? ScalarRanges.affine(originX, rootXMax, globalX / (pixelWidth - 1.0))
                 : Math.fma(globalX, stepX, originX);
     }
 
-    double worldY(final double pixelY) {
-        final double globalY = offsetY + pixelY;
+    double worldYAtIndex(final double globalY) {
         if (globalY == 0) {
             return originY;
         }
@@ -123,58 +129,7 @@ record SamplingLattice(
             return rootYMin;
         }
         return Double.isInfinite(stepY)
-                ? ScalarRanges.affine(originY, rootYMin,
-                        globalY / (pixelHeight - 1.0))
+                ? ScalarRanges.affine(originY, rootYMin, globalY / (pixelHeight - 1.0))
                 : Math.fma(globalY, stepY, originY);
-    }
-
-    double worldXAtIndex(final long globalX) {
-        if (globalX == 0) {
-            return originX;
-        }
-        if (globalX == pixelWidth - 1L) {
-            return rootXMax;
-        }
-        return Double.isInfinite(stepX)
-                ? ScalarRanges.affine(originX, rootXMax,
-                        (double) globalX / (pixelWidth - 1.0))
-                : Math.fma(globalX, stepX, originX);
-    }
-
-    double worldYAtIndex(final long globalY) {
-        if (globalY == 0) {
-            return originY;
-        }
-        if (globalY == pixelHeight - 1L) {
-            return rootYMin;
-        }
-        return Double.isInfinite(stepY)
-                ? ScalarRanges.affine(originY, rootYMin,
-                        (double) globalY / (pixelHeight - 1.0))
-                : Math.fma(globalY, stepY, originY);
-    }
-
-    long originXBits() {
-        return Double.doubleToLongBits(originX);
-    }
-
-    long rootXMaxBits() {
-        return Double.doubleToLongBits(rootXMax);
-    }
-
-    long originYBits() {
-        return Double.doubleToLongBits(originY);
-    }
-
-    long rootYMinBits() {
-        return Double.doubleToLongBits(rootYMin);
-    }
-
-    long stepXBits() {
-        return Double.doubleToLongBits(stepX);
-    }
-
-    long stepYBits() {
-        return Double.doubleToLongBits(stepY);
     }
 }

@@ -22,8 +22,19 @@ final class SamplingPool {
         return PARALLELISM;
     }
 
-    static void invoke(final RecursiveAction action) {
-        POOL.invoke(action);
+    /** Work over the indices [from, to) of a split range. */
+    @FunctionalInterface
+    interface RangeWork {
+        void run(int from, int to);
+    }
+
+    /**
+     * Runs {@code work} over [from, to) on the pool, halving the range down to
+     * chunks of at most {@code grain} indices; the token is checked at each split.
+     */
+    static void invokeRange(final int from, final int to, final int grain,
+            final CancellationToken token, final RangeWork work) {
+        POOL.invoke(new RangeTask(from, to, grain, token, work));
     }
 
     /**
@@ -67,5 +78,36 @@ final class SamplingPool {
         thread.setName("nlipse-sampler-" + WORKER_NUMBER.incrementAndGet());
         thread.setDaemon(true);
         return thread;
+    }
+
+    private static final class RangeTask extends RecursiveAction {
+        private static final long serialVersionUID = 1L;
+
+        private final int from;
+        private final int to;
+        private final int grain;
+        private final transient CancellationToken token;
+        private final transient RangeWork work;
+
+        RangeTask(final int from, final int to, final int grain,
+                final CancellationToken token, final RangeWork work) {
+            this.from = from;
+            this.to = to;
+            this.grain = grain;
+            this.token = token;
+            this.work = work;
+        }
+
+        @Override
+        protected void compute() {
+            token.throwIfCancelled();
+            if (to - from <= grain) {
+                work.run(from, to);
+                return;
+            }
+            final int middle = (from + to) >>> 1;
+            invokeBoth(new RangeTask(from, middle, grain, token, work),
+                    new RangeTask(middle, to, grain, token, work));
+        }
     }
 }

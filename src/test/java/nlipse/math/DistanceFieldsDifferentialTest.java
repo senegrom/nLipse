@@ -27,8 +27,8 @@ class DistanceFieldsDifferentialTest {
         final Random random = new Random(ALGEBRAIC_SEED);
         for (int sample = 0; sample < 72; sample++) {
             final List<Focus> foci = randomFoci(random, 2 + random.nextInt(7), -420, 420);
-            final double x = randomFinite(random, -420, 420, false);
-            final double y = randomFinite(random, -420, 420, false);
+            final double x = randomFinite(random, -420, 420);
+            final double y = randomFinite(random, -420, 420);
             final ReferenceValues reference = referenceValues(foci, x, y);
             final String label = "sample " + sample;
 
@@ -105,7 +105,7 @@ class DistanceFieldsDifferentialTest {
             final List<Focus> foci = new ArrayList<>(count);
             for (int index = 0; index < count; index++) {
                 final double distance = positiveFinite(random, -40, 160);
-                double weight = randomFinite(random, -200, 200, false);
+                double weight = randomFinite(random, -200, 200);
                 if ((index & 1) != 0) {
                     weight = -Math.abs(weight);
                 } else {
@@ -128,7 +128,7 @@ class DistanceFieldsDifferentialTest {
         while (completed < 256 && attempts++ < 10_000) {
             final double firstDistance = positiveFinite(random, -500, 500);
             final double secondDistance = positiveFinite(random, -500, 500);
-            final double firstWeight = randomFinite(random, -500, 500, false);
+            final double firstWeight = randomFinite(random, -500, 500);
             final double firstTerm = firstWeight / firstDistance;
             if (!Double.isFinite(firstTerm) || firstTerm == 0) {
                 continue;
@@ -236,8 +236,8 @@ class DistanceFieldsDifferentialTest {
                 Double.POSITIVE_INFINITY};
         for (int sample = 0; sample < 100; sample++) {
             final List<Focus> foci = randomFoci(random, 2 + random.nextInt(8), -8, 8);
-            final double x = randomFinite(random, -8, 8, false);
-            final double y = randomFinite(random, -8, 8, false);
+            final double x = randomFinite(random, -8, 8);
+            final double y = randomFinite(random, -8, 8);
             double previous = Double.NEGATIVE_INFINITY;
             for (final double power : powers) {
                 final double value = DistanceFields.create(CurveType.POWER_MEAN, foci, power)
@@ -351,12 +351,12 @@ class DistanceFieldsDifferentialTest {
         boolean active = false;
         for (int index = 0; index < count; index++) {
             double weight = random.nextInt(9) == 0 ? 0
-                    : randomFinite(random, minimumExponent, maximumExponent, false);
+                    : randomFinite(random, minimumExponent, maximumExponent);
             if (weight != 0) {
                 active = true;
             }
-            foci.add(new Focus(randomFinite(random, minimumExponent, maximumExponent, false),
-                    randomFinite(random, minimumExponent, maximumExponent, false), weight));
+            foci.add(new Focus(randomFinite(random, minimumExponent, maximumExponent),
+                    randomFinite(random, minimumExponent, maximumExponent), weight));
         }
         if (!active) {
             final Focus first = foci.getFirst();
@@ -367,14 +367,11 @@ class DistanceFieldsDifferentialTest {
 
     private static double positiveFinite(final Random random,
             final int minimumExponent, final int maximumExponent) {
-        return Math.abs(randomFinite(random, minimumExponent, maximumExponent, false));
+        return Math.abs(randomFinite(random, minimumExponent, maximumExponent));
     }
 
     private static double randomFinite(final Random random,
-            final int minimumExponent, final int maximumExponent, final boolean allowZero) {
-        if (allowZero && random.nextInt(16) == 0) {
-            return 0;
-        }
+            final int minimumExponent, final int maximumExponent) {
         final int exponent = minimumExponent
                 + random.nextInt(maximumExponent - minimumExponent + 1);
         final double mantissa = 0.5 + 0.5 * random.nextDouble();

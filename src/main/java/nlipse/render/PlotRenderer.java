@@ -728,18 +728,6 @@ public final class PlotRenderer implements RenderEngine {
         return contourCacheMisses.get();
     }
 
-    long getWorldTileHits() {
-        return worldFieldCache.tileHits();
-    }
-
-    long getWorldTileMisses() {
-        return worldFieldCache.tileMisses();
-    }
-
-    long getReusedWorldSamples() {
-        return worldFieldCache.reusedSamples();
-    }
-
     long getLayerCacheHits() {
         return layerCacheHits.get();
     }
@@ -752,28 +740,6 @@ public final class PlotRenderer implements RenderEngine {
         return fullQualityPreviewHits.get();
     }
 
-    long getCachedGridBytes() {
-        synchronized (gridCache) {
-            return cachedGridBytes;
-        }
-    }
-
-    long getCachedContourBytes() {
-        synchronized (contourCache) {
-            return cachedContourBytes;
-        }
-    }
-
-    long getCachedWorldTileBytes() {
-        return worldFieldCache.cachedBytes();
-    }
-
-    long getCachedLayerBytes() {
-        synchronized (layerCache) {
-            return cachedLayerBytes;
-        }
-    }
-
     /** Exact evaluations spent by this renderer's passes; non-zero means an
      *  ill-conditioned field, and a budgeted value explains a slower render. */
     long getExactEvaluations() {
@@ -782,15 +748,25 @@ public final class PlotRenderer implements RenderEngine {
 
     public String cacheSummary() {
         final long exact = getExactEvaluations();
+        long cachedBytes = worldFieldCache.cachedBytes();
+        synchronized (gridCache) {
+            cachedBytes += cachedGridBytes;
+        }
+        synchronized (contourCache) {
+            cachedBytes += cachedContourBytes;
+        }
+        synchronized (layerCache) {
+            cachedBytes += cachedLayerBytes;
+        }
         return String.format(Locale.ROOT,
                 "tiles %d/%d (%d reused), grid %d/%d (+%d derived), "
                         + "contour %d/%d, layer %d/%d (+%d full-preview), %.1f/%.1f MiB%s",
-                getWorldTileHits(), getWorldTileMisses(), getReusedWorldSamples(),
+                worldFieldCache.tileHits(), worldFieldCache.tileMisses(),
+                worldFieldCache.reusedSamples(),
                 getCacheHits(), getCacheMisses(), getDerivedGridHits(),
                 getContourCacheHits(), getContourCacheMisses(),
                 getLayerCacheHits(), getLayerCacheMisses(), getFullQualityPreviewHits(),
-                (getCachedWorldTileBytes() + getCachedGridBytes()
-                        + getCachedContourBytes() + getCachedLayerBytes()) / (double) MEBIBYTE,
+                cachedBytes / (double) MEBIBYTE,
                 cacheBudgetBytes / (double) MEBIBYTE,
                 exact == 0 ? "" : ", " + exact + " exact");
     }
