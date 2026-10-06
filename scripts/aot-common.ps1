@@ -34,7 +34,8 @@ function Write-AotMetadata {
   $temporary = [IO.Path]::Combine($directory,
     "." + [IO.Path]::GetFileName($fullPath) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
   try {
-    [IO.File]::WriteAllLines($temporary, $lines, [Text.Encoding]::ASCII)
+    # UTF-8 without a byte order mark: aot-common.sh compares this file byte for byte
+    [IO.File]::WriteAllLines($temporary, $lines, [Text.UTF8Encoding]::new($false))
     # Move-Item -Force overwrites on both Windows PowerShell 5.1 and pwsh 7;
     # the three-argument [IO.File]::Move overload only exists on .NET Core.
     Move-Item -LiteralPath $temporary -Destination $fullPath -Force
@@ -56,7 +57,17 @@ function Test-AotMetadata {
   }
   try {
     $expected = @(Get-AotMetadataLines -JarPath $JarPath)
-    $actual = @([IO.File]::ReadAllLines($MetadataPath, [Text.Encoding]::ASCII))
+    # Strict UTF-8 without byte order mark detection: ReadAllLines would read a UTF-16
+    # file by its mark. Bytes that are not UTF-8 throw, and the cache counts as stale.
+    $reader = [IO.StreamReader]::new($MetadataPath, [Text.UTF8Encoding]::new($false, $true), $false)
+    try {
+      $actual = [Collections.Generic.List[string]]::new()
+      while ($null -ne ($line = $reader.ReadLine())) {
+        $actual.Add($line)
+      }
+    } finally {
+      $reader.Dispose()
+    }
     if ($expected.Count -ne $actual.Count) {
       return $false
     }

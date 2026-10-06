@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -42,6 +43,18 @@ class PlotConfigIOTest {
         final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
                 () -> PlotConfigIO.load(file));
         assertTrue(failure.getMessage().contains("focus.0.x"));
+    }
+
+    /** A setup that is not UTF-8 is named: the decoder said only "Input length = 1". */
+    @Test
+    void aSetupThatIsNotUtf8NamesTheFile() throws Exception {
+        final Path file = tempDirectory.resolve("ansi.properties");
+        // 0xE4, an ANSI editor's "ä" in a comment, is not UTF-8
+        Files.write(file, new byte[] {'#', ' ', 'M', (byte) 0xE4, 'r', 'z', '\n',
+                'f', 'o', 'r', 'm', 'a', 't', '=', '1', '\n'});
+        final IOException failure = assertThrows(IOException.class, () -> PlotConfigIO.load(file));
+        assertTrue(failure.getMessage().contains(file.toString()), failure.getMessage());
+        assertTrue(failure.getMessage().contains("UTF-8"), failure.getMessage());
     }
 
     @Test

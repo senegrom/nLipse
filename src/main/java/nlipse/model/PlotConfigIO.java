@@ -1,6 +1,7 @@
 package nlipse.model;
 
 import java.io.IOException;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -63,6 +64,9 @@ public final class PlotConfigIO {
         final Properties values = new Properties();
         try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             values.load(reader);
+        } catch (final CharacterCodingException notUtf8) {
+            // The decoder's own message, "Input length = 1", named neither the file nor the cause
+            throw new IOException(file + " is not valid UTF-8 text; save it as UTF-8", notUtf8);
         }
         final int format = intValue(values, "format");
         if (format != FORMAT_VERSION) {
