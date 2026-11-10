@@ -54,7 +54,20 @@ jobs:
 
       - name: Verify PowerShell AOT launcher
         shell: pwsh
-        run: ./scripts/create-aot-cache.ps1
+        # Started elsewhere and moved into the repository, as an open PowerShell
+        # window is: Set-Location does not move the process directory, which
+        # .NET file APIs resolve relative paths against
+        working-directory: ${{ runner.temp }}
+        run: |
+          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
+          ./scripts/create-aot-cache.ps1
+          . ./scripts/aot-common.ps1
+          if (-not (Test-AotMetadata -JarPath target/nlipse.jar -MetadataPath target/nlipse.aot.meta)) {
+            throw "Fresh AOT metadata was not accepted"
+          }
+          if (Test-AotMetadata -JarPath pom.xml -MetadataPath target/nlipse.aot.meta) {
+            throw "Stale AOT metadata was accepted"
+          }
 
       - name: Verify AOT cache output
         run: |
@@ -100,7 +113,18 @@ jobs:
 
       - name: Create AOT cache with PowerShell launcher
         shell: pwsh
-        run: ./scripts/create-aot-cache.ps1
+        # As in the Java 25 job: PowerShell's location is not the process directory
+        working-directory: ${{ runner.temp }}
+        run: |
+          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
+          ./scripts/create-aot-cache.ps1
+          . ./scripts/aot-common.ps1
+          if (-not (Test-AotMetadata -JarPath target/nlipse.jar -MetadataPath target/nlipse.aot.meta)) {
+            throw "Fresh AOT metadata was not accepted"
+          }
+          if (Test-AotMetadata -JarPath pom.xml -MetadataPath target/nlipse.aot.meta) {
+            throw "Stale AOT metadata was accepted"
+          }
 
       - name: Verify Windows AOT cache load
         shell: pwsh

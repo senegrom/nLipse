@@ -1,3 +1,13 @@
+function Resolve-AotPath {
+  param([Parameter(Mandatory)][string]$Path)
+
+  # .NET file APIs resolve a relative path against the process directory, which
+  # Set-Location does not move: after "cd <repository>" in an open PowerShell window
+  # they would look beside wherever that window was started. Follow PowerShell's
+  # own location, as mvn and java do.
+  return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+}
+
 function Get-AotRuntimeMarkerPath {
   $javaCommand = Get-Command java -CommandType Application -ErrorAction Stop | Select-Object -First 1
   $javaExecutable = $javaCommand.Source
@@ -29,7 +39,7 @@ function Write-AotMetadata {
   )
 
   $lines = Get-AotMetadataLines -JarPath $JarPath
-  $fullPath = [IO.Path]::GetFullPath($MetadataPath)
+  $fullPath = Resolve-AotPath $MetadataPath
   $directory = [IO.Path]::GetDirectoryName($fullPath)
   $temporary = [IO.Path]::Combine($directory,
     "." + [IO.Path]::GetFileName($fullPath) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
@@ -59,7 +69,8 @@ function Test-AotMetadata {
     $expected = @(Get-AotMetadataLines -JarPath $JarPath)
     # Strict UTF-8 without byte order mark detection: ReadAllLines would read a UTF-16
     # file by its mark. Bytes that are not UTF-8 throw, and the cache counts as stale.
-    $reader = [IO.StreamReader]::new($MetadataPath, [Text.UTF8Encoding]::new($false, $true), $false)
+    $reader = [IO.StreamReader]::new((Resolve-AotPath $MetadataPath),
+      [Text.UTF8Encoding]::new($false, $true), $false)
     try {
       $actual = [Collections.Generic.List[string]]::new()
       while ($null -ne ($line = $reader.ReadLine())) {
