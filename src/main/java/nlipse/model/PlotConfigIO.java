@@ -1,5 +1,6 @@
 package nlipse.model;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
@@ -14,6 +15,7 @@ import nlipse.render.Viewport;
 /** Saves and loads a complete plot setup as a properties file. */
 public final class PlotConfigIO {
     private static final int FORMAT_VERSION = 1;
+    private static final int BYTE_ORDER_MARK = 0xFEFF;
 
     private PlotConfigIO() {
     }
@@ -63,6 +65,7 @@ public final class PlotConfigIO {
     public static PlotConfig load(final Path file) throws IOException {
         final Properties values = new Properties();
         try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            skipByteOrderMark(reader);
             values.load(reader);
         } catch (final CharacterCodingException notUtf8) {
             // The decoder's own message, "Input length = 1", named neither the file nor the cause
@@ -108,6 +111,18 @@ public final class PlotConfigIO {
                 booleanValue(values, "antiAlias"),
                 booleanValue(values, "logSpacing"),
                 optionalBoolean(values, "showLegend", true));
+    }
+
+    /**
+     * Windows PowerShell 5.1 and some editors start UTF-8 text with U+FEFF. The decoder passes
+     * it on as a character; left there it joins the first key, and the setup is then reported
+     * as missing that key.
+     */
+    private static void skipByteOrderMark(final BufferedReader reader) throws IOException {
+        reader.mark(1);
+        if (reader.read() != BYTE_ORDER_MARK) {
+            reader.reset();
+        }
     }
 
     /** Keys added after format 1 shipped load with a default so older files stay valid. */

@@ -57,6 +57,52 @@ class PlotConfigIOTest {
         assertTrue(failure.getMessage().contains("UTF-8"), failure.getMessage());
     }
 
+    /**
+     * Windows PowerShell 5.1 and some editors start UTF-8 text with a byte order mark. It
+     * used to join the first key, so this setup was reported as missing 'format'.
+     */
+    @Test
+    void aByteOrderMarkBeforeTheFirstKeyIsSkipped() throws Exception {
+        final Path file = tempDirectory.resolve("marked.properties");
+        Files.writeString(file, Character.toString(0xFEFF) + """
+                format=1
+                curveType=LIPSE
+                focus.count=1
+                focus.0.x=0.5
+                focus.0.y=-0.25
+                focus.0.weight=1
+                distanceMin=0
+                distanceMax=2
+                curveCount=5
+                viewport.xMin=-1
+                viewport.xMax=1
+                viewport.yMin=-1
+                viewport.yMax=1
+                showBackground=true
+                showExtrema=true
+                antiAlias=true
+                logSpacing=false
+                """);
+        final byte[] start = Files.readAllBytes(file);
+        assertEquals(0xEFBBBF, (start[0] & 0xFF) << 16 | (start[1] & 0xFF) << 8 | start[2] & 0xFF,
+                "the file must begin with the UTF-8 byte order mark");
+
+        assertEquals(new PlotConfig(CurveType.LIPSE, CurveType.LIPSE.defaultParameter(),
+                List.of(new Focus(0.5, -0.25, 1)),
+                0, 2, 5, new Viewport(-1, 1, -1, 1),
+                true, true, true, false, true), PlotConfigIO.load(file));
+    }
+
+    /** Looking for the mark must not trip over a file that ends before its first character. */
+    @Test
+    void anEmptySetupIsReportedAsMissingItsFormat() throws Exception {
+        final Path file = tempDirectory.resolve("empty.properties");
+        Files.write(file, new byte[0]);
+        final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> PlotConfigIO.load(file));
+        assertTrue(failure.getMessage().contains("'format'"), failure.getMessage());
+    }
+
     @Test
     void unknownFormatVersionIsRejected() throws Exception {
         final Path file = tempDirectory.resolve("future.properties");
